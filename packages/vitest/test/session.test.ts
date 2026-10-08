@@ -130,3 +130,55 @@ describe('early exit inside a test file', () => {
     }
   });
 });
+
+describe('edge cases', () => {
+  const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
+  let session: Session;
+  let dry: Awaited<ReturnType<Session['dryRun']>>;
+  beforeAll(async () => {
+    session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
+    dry = await session.dryRun();
+  });
+  afterAll(async () => {
+    await session?.close();
+  });
+
+  const find = (file: string, original: string, replacement: string) => {
+    const m = session.mutants().find((m) => m.file.endsWith(file) && m.original === original && m.replacement === replacement);
+    if (!m) throw new Error(`mutant ${original} -> ${replacement} not found`);
+    return m;
+  };
+  const isPosFalse = () => find('sign.ts', 'x > 0', 'false').key;
+
+  test('concurrent tests are all credited with coverage', async () => {
+    expect(dry.failed).toEqual([]);
+    const covering = dry.coverage.get(isPosFalse())!;
+    const concurrent = covering.filter((id) => id.startsWith('test/concurrent.test.ts')).sort();
+    expect(concurrent).toEqual(['test/concurrent.test.ts#neg', 'test/concurrent.test.ts#pos']);
+    const result = await session.runMutant(isPosFalse(), concurrent, { timeoutMs: 10_000 });
+    expect(result.status).toBe('Killed');
+    expect(result.killedBy).toEqual(['test/concurrent.test.ts#pos']);
+  });
+
+  test('a duplicate test name is reported with its own id', async () => {
+    const result = await session.runMutant(isPosFalse(), ['test/dupes.test.ts#case', 'test/dupes.test.ts#case#2'], { timeoutMs: 10_000 });
+    expect(result.status).toBe('Killed');
+    expect(result.killedBy).toEqual(['test/dupes.test.ts#case#2']);
+  });
+
+  test('hitting the hit limit is a timeout', async () => {
+    const result = await session.runMutant(find('spin.ts', 'i--', 'i++').key, ['test/spin.test.ts#countdown'], { timeoutMs: 10_000, hitLimit: 1000 });
+    expect(result.status).toBe('Timeout');
+  });
+
+  test('verdicts after a timeout are not affected by the stuck run', async () => {
+    const spin = find('spin.ts', 'i--', 'i++').key;
+    const timedOut = await session.runMutant(spin, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
+    expect(timedOut.status).toBe('Timeout');
+    const boundary = find('sign.ts', 'x > 0', 'x >= 0').key;
+    const survived = await session.runMutant(boundary, dry.coverage.get(boundary)!, { timeoutMs: 10_000 });
+    expect(survived.status).toBe('Survived');
+    const killed = await session.runMutant(isPosFalse(), ['test/dupes.test.ts#case#2'], { timeoutMs: 10_000 });
+    expect(killed).toMatchObject({ status: 'Killed', killedBy: ['test/dupes.test.ts#case#2'] });
+  });
+});

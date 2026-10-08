@@ -25,9 +25,15 @@ const ns = {
 // file inside the worker (the main process can only cancel between files).
 let killed = false;
 
+// Concurrent tests interleave, so their hits share one bucket that is
+// credited to every concurrent test of the file at afterAll.
+const CONCURRENT = '\0concurrent';
+let running = 0;
+
 beforeEach(({ task, skip, onTestFailed }) => {
   if (killed) skip();
-  ns.testId = task.id;
+  if (task.concurrent) running++;
+  ns.testId = task.concurrent ? CONCURRENT : task.id;
   if (config.active !== null && config.earlyExit) {
     onTestFailed(() => {
       killed = true;
@@ -36,10 +42,28 @@ beforeEach(({ task, skip, onTestFailed }) => {
 });
 
 afterEach(({ task }) => {
+  if (task.concurrent) {
+    if (--running === 0) ns.testId = null;
+    return;
+  }
   ns.testId = null;
   const hits = ns.cov.perTest[task.id];
   if (hits) (task.meta as Record<string, unknown>).mutatorHits = hits;
 });
+
+interface TaskNode {
+  type: string;
+  concurrent?: boolean;
+  meta: object;
+  tasks?: TaskNode[];
+}
+
+function creditConcurrent(tasks: readonly TaskNode[], hits: Record<string, number>): void {
+  for (const task of tasks) {
+    if (task.tasks) creditConcurrent(task.tasks, hits);
+    else if (task.concurrent) (task.meta as Record<string, unknown>).mutatorHits = hits;
+  }
+}
 
 // Vitest requires an object pattern for the first (fixture) argument.
 // eslint-disable-next-line no-empty-pattern
@@ -47,4 +71,6 @@ afterAll(({}, suite) => {
   const meta = suite.meta as Record<string, unknown>;
   meta.mutatorStatic = ns.cov.static;
   meta.mutatorTotalHits = ns.hits;
+  const shared = ns.cov.perTest[CONCURRENT];
+  if (shared) creditConcurrent(suite.tasks, shared);
 });

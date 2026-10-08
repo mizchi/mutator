@@ -98,9 +98,16 @@ class FailureWatch {
 
 export async function createSession(options: SessionOptions): Promise<Session> {
   const registry = new MutantRegistry();
-  const watch = new FailureWatch();
-  let vitest = await start(options, registry, watch);
+  // Each instance gets its own watch so a closed instance cannot report into the next run.
+  let { vitest, watch } = await start(options, registry);
   const locations = new Map<string, TestLocation>();
+  // Vitest task id -> our test id (which disambiguates duplicate names).
+  const byTask = new Map<string, string>();
+  const locate = (id: string, location: TestLocation) => {
+    locations.set(id, location);
+    byTask.set(location.taskId, id);
+  };
+  const idOf = (test: TestCase) => byTask.get(test.id) ?? testId(options.root, test);
 
   const earlyExit = options.earlyExit !== false;
   const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0]) => {
@@ -132,13 +139,14 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const specs = wanted ? all.filter((s) => wanted.has(s.moduleId)) : all;
       const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root) : emptyDryRun();
       dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options);
-      for (const [id, location] of dry.index) locations.set(id, location);
+      for (const [id, location] of dry.index) locate(id, location);
       return dry;
     },
 
     useTestIndex(index) {
       locations.clear();
-      for (const [id, location] of index) locations.set(id, location);
+      byTask.clear();
+      for (const [id, location] of index) locate(id, location);
     },
 
     async runMutant(key, testIds, { timeoutMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
@@ -160,19 +168,20 @@ export async function createSession(options: SessionOptions): Promise<Session> {
         timer = setTimeout(() => resolve('timeout'), timeoutMs);
       });
       const current = vitest;
-      watch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {});
+      const currentWatch = watch;
+      currentWatch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {});
       const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
       clearTimeout(timer);
-      const observed = watch.disarm();
+      const observed = currentWatch.disarm();
       const durationMs = performance.now() - started;
       if (outcome === 'timeout') {
         // A worker may be stuck in a synchronous loop; start over with a fresh instance.
         await closeQuietly(vitest);
-        vitest = await start(options, registry, watch);
+        ({ vitest, watch } = await start(options, registry));
         await vitest.globTestSpecifications();
         return { status: 'Timeout', killedBy: [], durationMs };
       }
-      return { ...classify(outcome, options.root, new Set(testIds), observed), durationMs };
+      return { ...classify(outcome, options.root, new Set(testIds), observed, idOf), durationMs };
     },
 
     async close() {
@@ -181,7 +190,8 @@ export async function createSession(options: SessionOptions): Promise<Session> {
   };
 }
 
-async function start(options: SessionOptions, registry: MutantRegistry, watch: FailureWatch): Promise<Vitest> {
+async function start(options: SessionOptions, registry: MutantRegistry): Promise<{ vitest: Vitest; watch: FailureWatch }> {
+  const watch = new FailureWatch();
   const vitest = await createVitest(
     'test',
     {
@@ -203,7 +213,7 @@ async function start(options: SessionOptions, registry: MutantRegistry, watch: F
   for (const project of vitest.projects) {
     project.config.setupFiles = [SETUP_FILE, ...project.config.setupFiles];
   }
-  return vitest;
+  return { vitest, watch };
 }
 
 async function closeQuietly(vitest: Vitest): Promise<void> {
@@ -293,8 +303,17 @@ function collectDeps(vitest: Vitest, testFiles: readonly string[], options: Sess
   return deps;
 }
 
-function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>, observed: readonly TestCase[]): Omit<MutantRunResult, 'durationMs'> {
-  const killedBy: string[] = observed.map((test) => testId(root, test));
+const HIT_LIMIT = 'mutator: hit limit reached';
+
+function classify(
+  result: TestRunResult,
+  root: string,
+  selected: ReadonlySet<string>,
+  observed: readonly TestCase[],
+  idOf: (test: TestCase) => string,
+): Omit<MutantRunResult, 'durationMs'> {
+  const failures = [...observed];
+  const killedBy: string[] = observed.map(idOf);
   let moduleError = false;
   for (const module of result.testModules as readonly TestModule[]) {
     if (module.errors().length > 0) {
@@ -302,14 +321,22 @@ function classify(result: TestRunResult, root: string, selected: ReadonlySet<str
       killedBy.push(relative(root, module.moduleId));
     }
     for (const test of module.children.allTests()) {
-      const id = testId(root, test);
+      const id = idOf(test);
       if (killedBy.includes(id)) continue;
-      if (test.result().state === 'failed' && (selected.size === 0 || selected.has(id) || [...selected].some((s) => s.startsWith(`${id}#`)))) {
+      if (test.result().state === 'failed' && (selected.size === 0 || selected.has(id))) {
+        failures.push(test);
         killedBy.push(id);
       }
     }
   }
+  // The hit limit guards against endless loops: a run stopped only by it is a timeout.
+  if (!moduleError && failures.length > 0 && failures.every(hitLimitOnly)) return { status: 'Timeout', killedBy: [] };
   if (result.unhandledErrors.length > 0 && killedBy.length === 0) return { status: 'RuntimeError', killedBy: [] };
   if (killedBy.length > 0) return { status: moduleError && killedBy.every((k) => !k.includes('#')) ? 'RuntimeError' : 'Killed', killedBy };
   return { status: 'Survived', killedBy };
+}
+
+function hitLimitOnly(test: TestCase): boolean {
+  const errors = test.result().errors ?? [];
+  return errors.length > 0 && errors.every((e) => e.message?.includes(HIT_LIMIT));
 }

@@ -96,6 +96,8 @@ export type MutantStatus =
 
 export interface MutantResult {
   key: string;
+  file: string;
+  scopeId: string;
   scopeHash: string;
   status: MutantStatus;
   /** Tests that failed with this mutant active. */
@@ -114,3 +116,47 @@ export interface TestInfo {
   fingerprint: string;
   durationMs: number;
 }
+
+/** Persisted outcome of a previous run; the cache the planner reuses. */
+export interface RunSnapshot {
+  /** Tool / mutator-set version; a mismatch invalidates everything. */
+  toolVersion: string;
+  /** Hash of lockfile, tsconfig, runner config, node version ... supplied by the adapter. */
+  envHash: string;
+  results: MutantResult[];
+  tests: TestInfo[];
+}
+
+export interface PlanOptions {
+  timeoutFactor?: number;
+  timeoutMs?: number;
+}
+
+export interface PlanInput {
+  /** Mutants of the current source (including ignored ones). */
+  mutants: readonly Mutant[];
+  /** Tests known in the current run. */
+  tests: readonly TestInfo[];
+  /** Current per-test coverage: mutant key -> test ids. Undefined when coverage was not collected. */
+  coverage: ReadonlyMap<string, readonly string[]> | undefined;
+  /** Mutants hit while modules were loading (outside any test). */
+  staticKeys: ReadonlySet<string>;
+  previous: RunSnapshot | undefined;
+  toolVersion: string;
+  envHash: string;
+  options?: PlanOptions;
+}
+
+export type PlanEntry =
+  | { kind: 'ignored'; mutant: Mutant; reason: string }
+  | { kind: 'reuse'; mutant: Mutant; result: MutantResult }
+  | { kind: 'noCoverage'; mutant: Mutant }
+  | {
+      kind: 'run';
+      mutant: Mutant;
+      /** Ordered: likely killers first. */
+      tests: string[];
+      /** Static mutants need a fresh module graph and all tests. */
+      isStatic: boolean;
+      timeoutMs: number;
+    };

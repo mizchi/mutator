@@ -1,0 +1,202 @@
+import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { type Mutant, type MutantStatus, type TestInfo, hash } from '@mizchi/mutator-core';
+import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
+import { createVitest } from 'vitest/node';
+import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
+
+const SETUP_FILE = fileURLToPath(new URL('./setup.ts', import.meta.url));
+const DEFAULT_HIT_LIMIT = 1_000_000;
+
+export interface SessionOptions extends PluginOptions {
+  root: string;
+  /** Path to a vitest config file; defaults to vitest's own lookup from `root`. */
+  configFile?: string;
+}
+
+export interface DryRunResult {
+  tests: TestInfo[];
+  /** mutant key -> ids of tests that executed it */
+  coverage: Map<string, string[]>;
+  /** mutants executed while modules were loading */
+  staticKeys: Set<string>;
+  /** ids of tests (or modules) that failed without any mutant active */
+  failed: string[];
+  /** total hits per mutant, used to derive hit limits */
+  hits: Map<string, number>;
+}
+
+export interface RunMutantOptions {
+  timeoutMs: number;
+  isStatic?: boolean;
+  hitLimit?: number;
+}
+
+export interface MutantRunResult {
+  status: Extract<MutantStatus, 'Killed' | 'Survived' | 'Timeout' | 'RuntimeError'>;
+  killedBy: string[];
+  durationMs: number;
+}
+
+export interface Session {
+  mutants(): Mutant[];
+  dryRun(): Promise<DryRunResult>;
+  runMutant(key: string, testIds: readonly string[], options: RunMutantOptions): Promise<MutantRunResult>;
+  close(): Promise<void>;
+}
+
+interface TestLocation {
+  moduleId: string;
+  taskId: string;
+}
+
+export async function createSession(options: SessionOptions): Promise<Session> {
+  const registry = new MutantRegistry();
+  let vitest = await start(options, registry);
+  const locations = new Map<string, TestLocation>();
+
+  const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0]) => {
+    vitest.provide('mutator', { active, hitLimit });
+    return vitest.runTestSpecifications(specs);
+  };
+
+  return {
+    mutants: () => registry.all(),
+
+    async dryRun() {
+      const specs = await vitest.globTestSpecifications();
+      const result = await run(null, DEFAULT_HIT_LIMIT, specs);
+      const dry = collectDryRun(result, options.root);
+      locations.clear();
+      for (const [id, location] of dry.locations) locations.set(id, location);
+      return dry.result;
+    },
+
+    async runMutant(key, testIds, { timeoutMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
+      const byModule = new Map<string, string[]>();
+      for (const id of testIds) {
+        const location = locations.get(id);
+        if (!location) continue;
+        const ids = byModule.get(location.moduleId) ?? [];
+        ids.push(location.taskId);
+        byModule.set(location.moduleId, ids);
+      }
+      const project = vitest.getRootProject();
+      const specs = [...byModule].map(([moduleId, taskIds]) =>
+        project.createSpecification(moduleId, isStatic ? undefined : { testIds: taskIds }),
+      );
+      const started = performance.now();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), timeoutMs);
+      });
+      const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
+      clearTimeout(timer);
+      const durationMs = performance.now() - started;
+      if (outcome === 'timeout') {
+        // A worker may be stuck in a synchronous loop; start over with a fresh instance.
+        await closeQuietly(vitest);
+        vitest = await start(options, registry);
+        await vitest.globTestSpecifications();
+        return { status: 'Timeout', killedBy: [], durationMs };
+      }
+      return { ...classify(outcome, options.root, new Set(testIds)), durationMs };
+    },
+
+    async close() {
+      await closeQuietly(vitest);
+    },
+  };
+}
+
+async function start(options: SessionOptions, registry: MutantRegistry): Promise<Vitest> {
+  const vitest = await createVitest(
+    'test',
+    {
+      root: options.root,
+      ...(options.configFile ? { config: options.configFile } : {}),
+      watch: false,
+      reporters: [],
+      bail: 1,
+      isolate: true,
+      includeTaskLocation: true,
+      coverage: { enabled: false },
+      onConsoleLog: () => false,
+    },
+    { plugins: [mutatorPlugin(registry, options)] },
+  );
+  vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT });
+  for (const project of vitest.projects) {
+    project.config.setupFiles = [SETUP_FILE, ...project.config.setupFiles];
+  }
+  return vitest;
+}
+
+async function closeQuietly(vitest: Vitest): Promise<void> {
+  await Promise.race([vitest.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 2000))]);
+}
+
+function testId(root: string, test: TestCase): string {
+  return `${relative(root, test.module.moduleId)}#${test.fullName}`;
+}
+
+function collectDryRun(result: TestRunResult, root: string) {
+  const tests: TestInfo[] = [];
+  const coverage = new Map<string, string[]>();
+  const hits = new Map<string, number>();
+  const staticKeys = new Set<string>();
+  const failed: string[] = [];
+  const locations = new Map<string, TestLocation>();
+  const seen = new Map<string, number>();
+
+  for (const module of result.testModules) {
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number> };
+    for (const [key, n] of Object.entries(moduleMeta.mutatorStatic ?? {})) {
+      staticKeys.add(key);
+      hits.set(key, (hits.get(key) ?? 0) + n);
+    }
+    if (module.errors().length > 0) failed.push(relative(root, module.moduleId));
+    const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
+    for (const test of module.children.allTests()) {
+      let id = testId(root, test);
+      const n = (seen.get(id) ?? 0) + 1;
+      seen.set(id, n);
+      if (n > 1) id = `${id}#${n}`;
+      locations.set(id, { moduleId: module.moduleId, taskId: test.id });
+      const state = test.result().state;
+      if (state === 'skipped') continue;
+      if (state === 'failed') failed.push(id);
+      tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: test.diagnostic()?.duration ?? 0 });
+      const testHits = (test.meta() as { mutatorHits?: Record<string, number> }).mutatorHits ?? {};
+      for (const [key, count] of Object.entries(testHits)) {
+        const covering = coverage.get(key) ?? [];
+        covering.push(id);
+        coverage.set(key, covering);
+        hits.set(key, (hits.get(key) ?? 0) + count);
+      }
+    }
+  }
+  for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
+  return { result: { tests, coverage, staticKeys, failed, hits }, locations };
+}
+
+function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
+  const killedBy: string[] = [];
+  let moduleError = false;
+  for (const module of result.testModules as readonly TestModule[]) {
+    if (module.errors().length > 0) {
+      moduleError = true;
+      killedBy.push(relative(root, module.moduleId));
+    }
+    for (const test of module.children.allTests()) {
+      const id = testId(root, test);
+      if (test.result().state === 'failed' && (selected.size === 0 || selected.has(id) || [...selected].some((s) => s.startsWith(`${id}#`)))) {
+        killedBy.push(id);
+      }
+    }
+  }
+  if (result.unhandledErrors.length > 0 && killedBy.length === 0) return { status: 'RuntimeError', killedBy: [] };
+  if (killedBy.length > 0) return { status: moduleError && killedBy.every((k) => !k.includes('#')) ? 'RuntimeError' : 'Killed', killedBy };
+  return { status: 'Survived', killedBy };
+}

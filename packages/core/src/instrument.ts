@@ -254,10 +254,43 @@ function isExpression(node: Node): boolean {
   );
 }
 
+const TRANSPARENT = new Set(['ParenthesizedExpression', 'TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'TSTypeAssertion']);
+
+/** The position a node really occupies: `(o?.m)()` puts `o?.m` in callee position. */
+function effectivePosition(frame: Frame): { parent: Node; key: string } {
+  let f = frame;
+  while (f.parent && TRANSPARENT.has(f.parent.node.type) && f.parent.parent) f = f.parent;
+  return { parent: f.parent!.node, key: f.key };
+}
+
 function expressionAllowed(frame: Frame): boolean {
-  const { node, key } = frame;
-  const parent = frame.parent!.node;
+  const { node } = frame;
   if (isSuperCall(node)) return false;
+  // Wrapping a callee, tag, delete operand or assignment target changes its meaning,
+  // even when it is parenthesized.
+  const position = effectivePosition(frame);
+  switch (position.parent.type) {
+    case 'CallExpression':
+    case 'NewExpression':
+      if (position.key === 'callee') return false;
+      break;
+    case 'TaggedTemplateExpression':
+      if (position.key === 'tag') return false;
+      break;
+    case 'UnaryExpression':
+      if (position.parent.operator === 'delete') return false;
+      break;
+    case 'AssignmentExpression':
+    case 'ForInStatement':
+    case 'ForOfStatement':
+    case 'AssignmentPattern':
+      if (position.key === 'left') return false;
+      break;
+    case 'UpdateExpression':
+      return false;
+  }
+  const { key } = frame;
+  const parent = frame.parent!.node;
   switch (parent.type) {
     case 'CallExpression':
     case 'NewExpression':

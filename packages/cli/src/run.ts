@@ -24,7 +24,9 @@ import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from './cov
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
-export const TOOL_VERSION = '0.0.1';
+// Bump whenever mutators or the snapshot format change: new mutants in unchanged
+// code have no cached coverage, so old snapshots must not be reused.
+export const TOOL_VERSION = '0.0.2';
 
 export interface RunOptions {
   root: string;

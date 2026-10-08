@@ -106,7 +106,7 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 
 ## 実装状況 (2026-10-08)
 
-- [x] core: instrument (15 mutators, 配置 3 種, ASI ガード), identity, scope hash, diff, plan
+- [x] core: instrument (18 mutators, 配置 3 種, ASI ガード), identity, scope hash, diff, plan
 - [x] vitest: plugin, setup (perTest / static coverage, provide/inject 切替), Session
 - [x] cli: dry run → plan → 実行 → snapshot, `--since`, レポート, GitHub annotation
 - [x] 無効化コメント (`// mutator-disable-next-line`, Stryker コメント互換)
@@ -114,7 +114,8 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] dry run の差分化 (snapshot に test index / static / touched を保存し、影響を受けるテストファイルだけ再収集)
 - [x] path-portable な key / snapshot (CI キャッシュ可)
 - [x] early exit は vitest `bail` ではなく reporter 観測 + cancel (bail は kill を取りこぼす)
-- [ ] FnValue mutator (TS 戻り値型)、arid node 抑制、Regex / CallExpression mutator
+- [x] FnValue mutator (TS 戻り値型)、Regex (weapon-regex level 1 相当の自前実装)、CallExpression (`call();` → `;`、throw は対象外)、`for (;;)` → `for (;false;)`
+- [ ] arid node 抑制
 - [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
 - [ ] 1 run で複数 mutant (テストファイルごとに別 mutant を active にして run 単位の固定コストを償却)
 

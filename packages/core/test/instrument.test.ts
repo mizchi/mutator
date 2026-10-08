@@ -130,6 +130,9 @@ const corpus: Record<string, string> = {
   nullish: `let nn = null; nn ??= 4; let mm = 1; mm ||= 5; exports.r = [nn, mm];`,
   newExpr: `class P { constructor(a) { this.a = a > 1; } } exports.r = new P(2).a;`,
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
+  regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",
+  callStatements: `const out = []; function add(v) { out.push(v); } add(1); add(2); out.sort(); [3].forEach((v) => { add(v); }); exports.r = out;`,
+  infiniteFor: `let k = 0; for (;;) { k++; if (k > 2) break; } for (let j = 0; ; j++) { if (j === 1) { k += j; break; } } exports.r = k;`,
 };
 
 describe('mutation switching oracle', () => {

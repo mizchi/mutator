@@ -6,7 +6,7 @@ import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { RUNTIME_ACT, RUNTIME_COV, runtimeHeader } from './runtime.ts';
 import { ScopeTracker, normalize } from './scope.ts';
-import type { InstrumentOptions, InstrumentResult, Location, Mutant, Range, Scope } from './types.ts';
+import type { InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
 
@@ -56,7 +56,6 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       for (const mutate of mutators) {
         for (const candidate of mutate(frame, ctx)) {
           if (excluded.has(candidate.mutator)) continue;
-          if (options.ranges && !options.ranges.some((r) => intersects(r, candidate.range))) continue;
           found.push({ candidate, scope: scopes.get(info.node)!, astPath: path.slice(info.depth).join('/') });
         }
       }
@@ -67,13 +66,22 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     },
   );
 
+  // Decided on the full candidate set so that a `ranges` restriction never changes the outcome.
+  const redundant = redundantCallStatements(found.map((f) => f.candidate));
+  const editOf = (c: Candidate) => `${c.range.start}:${c.range.end}:${c.replacement}`;
+  // On an identical edit, a low-priority mutator yields to the established one regardless of visit order.
+  const primaryEdits = new Set(found.filter((f) => !LOW_PRIORITY.has(f.candidate.mutator)).map((f) => editOf(f.candidate)));
+
   const mutants: Mutant[] = [];
   const placements = new Map<Node, Placement>();
   const seenEdits = new Set<string>();
   const usedKeys = new Map<string, number>();
   for (const { candidate, scope, astPath } of found) {
-    const edit = `${candidate.range.start}:${candidate.range.end}:${candidate.replacement}`;
+    if (redundant.has(candidate)) continue;
+    if (options.ranges && !options.ranges.some((r) => intersects(r, candidate.range))) continue;
+    const edit = editOf(candidate);
     if (seenEdits.has(edit)) continue;
+    if (LOW_PRIORITY.has(candidate.mutator) && primaryEdits.has(edit)) continue;
     seenEdits.add(edit);
     let key = hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
     const dup = (usedKeys.get(key) ?? 0) + 1;
@@ -114,6 +122,36 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const { at, text } = headerInsertion(program);
   s.prependRight(at, text);
   return { code: s.toString(), map: toMap(s, file), mutants };
+}
+
+const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
+
+/**
+ * Stryker's filter for `call();` -> `;`: only kept when no other mutant lies inside the
+ * statement, since those already exercise it.
+ */
+function redundantCallStatements(candidates: readonly Candidate[]): Set<Candidate> {
+  const out = new Set<Candidate>();
+  const sorted = [...candidates].sort((a, b) => a.range.start - b.range.start);
+  for (const call of candidates) {
+    if (call.mutator !== 'CallExpression') continue;
+    const { start, end } = call.range;
+    let lo = 0;
+    let hi = sorted.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (sorted[mid]!.range.start < start) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let i = lo; i < sorted.length && sorted[i]!.range.start < end; i++) {
+      const other = sorted[i]!;
+      if (other !== call && other.range.end <= end) {
+        out.add(call);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>): void {

@@ -1,4 +1,5 @@
 import { type InstrumentOptions, type Mutant, type Range, instrument } from '@mizchi/mutator-core';
+import { relative } from 'node:path';
 import type { Plugin } from 'vitest/config';
 
 export interface PluginOptions {
@@ -7,6 +8,8 @@ export interface PluginOptions {
   /** Restrict mutation to these ranges per absolute file path. */
   ranges?: ReadonlyMap<string, readonly Range[]>;
   excludedMutators?: InstrumentOptions['excludedMutators'];
+  /** Mutant identity uses paths relative to this directory. */
+  root?: string;
 }
 
 const SOURCE = /\.[cm]?[jt]sx?$/;
@@ -32,6 +35,7 @@ export function mutatorPlugin(registry: MutantRegistry, options: PluginOptions):
       const result = instrument(file, code, {
         ...(ranges ? { ranges } : {}),
         ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
+        ...(options.root ? { identity: relative(options.root, file) } : {}),
       });
       registry.byFile.set(file, result.mutants);
       return { code: result.code, map: result.map };

@@ -75,7 +75,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     const edit = `${candidate.range.start}:${candidate.range.end}:${candidate.replacement}`;
     if (seenEdits.has(edit)) continue;
     seenEdits.add(edit);
-    let key = hash(`${file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
+    let key = hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
     const dup = (usedKeys.get(key) ?? 0) + 1;
     usedKeys.set(key, dup);
     if (dup > 1) key = `${key}-${dup}`;

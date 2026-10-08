@@ -82,6 +82,11 @@ export interface InstrumentOptions {
   ranges?: readonly Range[];
   /** Mutators to exclude. */
   excludedMutators?: readonly MutatorName[];
+  /**
+   * Path used for mutant identity instead of `file` (e.g. relative to the project root),
+   * so keys survive checkouts in different directories.
+   */
+  identity?: string;
 }
 
 // ---- results / cache --------------------------------------------------------

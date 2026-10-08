@@ -261,3 +261,13 @@ describe('regressions', () => {
     expect(code).not.toMatch(/\(;/);
   });
 });
+
+describe('identity option', () => {
+  test('keys depend on the identity path, not on the file location', () => {
+    const src = 'exports.f = (a, b) => a + b;';
+    const a = instrument('/ci/checkout-1/src/m.js', src, { identity: 'src/m.js' }).mutants.map((m) => m.key);
+    const b = instrument('/home/me/repo/src/m.js', src, { identity: 'src/m.js' }).mutants.map((m) => m.key);
+    expect(a).toEqual(b);
+    expect(instrument('/home/me/repo/src/m.js', src).mutants.map((m) => m.key)).not.toEqual(b);
+  });
+});

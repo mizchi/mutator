@@ -89,9 +89,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const sessions = [session];
   try {
     const testFiles = Object.fromEntries((await session.testFiles()).map((f) => [relative(root, f), hash(readFileSync(f, 'utf8'))]));
-    const mutants = collectMutants([], files);
+    const mutants = collectMutants(root, files);
     const envHash = hash([process.version, ...ENV_FILES.map((f) => readIfExists(join(root, f)))].join('\0'));
-    const previous = readSnapshot(snapshotPath) as CliSnapshot | undefined;
+    const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, mutants });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
@@ -179,7 +179,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       touched: merged.touched,
       hits: Object.fromEntries(merged.hits),
     };
-    writeSnapshot(snapshotPath, snapshot);
+    writeSnapshot(snapshotPath, snapshot, root);
     return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(report), durationMs: performance.now() - started };
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
@@ -190,11 +190,9 @@ function defaultConcurrency(): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
 }
 
-/** Instrument sources no test imported, so their mutants are reported (as NoCoverage). */
-function collectMutants(seen: Mutant[], files: readonly string[]): Mutant[] {
-  const byFile = new Map<string, Mutant[]>();
-  for (const m of seen) byFile.set(m.file, [...(byFile.get(m.file) ?? []), m]);
-  return files.flatMap((file) => byFile.get(file) ?? instrument(file, readFileSync(file, 'utf8')).mutants);
+/** Mutants of every target file; keys match the ones the Vite plugin produces. */
+function collectMutants(root: string, files: readonly string[]): Mutant[] {
+  return files.flatMap((file) => instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file) }).mutants);
 }
 
 /** Mutants touched by the diff, plus mutants covered by tests in changed test files. */

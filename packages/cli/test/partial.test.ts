@@ -65,3 +65,22 @@ describe('partial dry run', { timeout: 60_000 }, () => {
     expect(report.dryRunFiles).toEqual(['test/a.test.ts', 'test/b.test.ts']);
   });
 });
+
+describe('portable snapshot', { timeout: 60_000 }, () => {
+  test('a snapshot restored in another checkout is reused', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const a = join(tmpRoot, `portable-a-${process.pid}`);
+    const b = join(tmpRoot, `portable-b-${process.pid}`);
+    try {
+      cpSync(fixture, a, { recursive: true });
+      await runMutation({ root: a, concurrency: 1 });
+      cpSync(a, b, { recursive: true });
+      const report = await runMutation({ root: b, concurrency: 1 });
+      expect(report.executed).toBe(0);
+      expect(report.dryRunFiles).toEqual([]);
+    } finally {
+      rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
+    }
+  });
+});

@@ -30,10 +30,11 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   }
   const program = parsed.program as unknown as Node;
   const comments: Range[] = parsed.comments.map((c) => ({ start: c.start, end: c.end }));
-  const literals = collectLiterals(program);
+  const { literals, functions } = collectRanges(program);
   const lines = lineStarts(source);
   const locate = (r: Range): Location => ({ start: position(lines, r.start), end: position(lines, r.end) });
-  const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals));
+  // Nested functions are tracked as their own scopes, so they are holes in their parent's hash.
+  const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals, functions.filter((f) => f.start !== node.start || f.end !== node.end)));
   const excluded = new Set(options.excludedMutators ?? []);
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
@@ -113,7 +114,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants };
+    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()] };
   }
 
   const s = new MagicString(source);
@@ -121,7 +122,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   for (const p of ordered) emitPlacement(s, source, p, placements);
   const { at, text } = headerInsertion(program);
   s.prependRight(at, text);
-  return { code: s.toString(), map: toMap(s, file), mutants };
+  return { code: s.toString(), map: toMap(s, file), mutants, scopes: [...scopes.values()] };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
@@ -369,8 +370,9 @@ function intersects(a: Range, b: Range): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
-function collectLiterals(program: Node): Range[] {
-  const out: Range[] = [];
+function collectRanges(program: Node): { literals: Range[]; functions: Range[] } {
+  const literals: Range[] = [];
+  const functions: Range[] = [];
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       for (const v of value) visit(v);
@@ -379,15 +381,17 @@ function collectLiterals(program: Node): Range[] {
     if (typeof value !== 'object' || value === null) return;
     const node = value as Node;
     if ((node.type === 'Literal' && typeof node.value === 'string') || node.type === 'TemplateElement' || node.type === 'JSXText') {
-      out.push({ start: node.start, end: node.end });
+      literals.push({ start: node.start, end: node.end });
       return;
     }
+    if (isFunction(node)) functions.push({ start: node.start, end: node.end });
     for (const k in node) {
       if (k !== 'parent') visit(node[k]);
     }
   };
   visit(program);
-  return out.sort((a, b) => a.start - b.start);
+  const byStart = (a: Range, b: Range) => a.start - b.start;
+  return { literals: literals.sort(byStart), functions: functions.sort(byStart) };
 }
 
 function lineStarts(source: string): number[] {

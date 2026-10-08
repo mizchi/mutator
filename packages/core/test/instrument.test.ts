@@ -300,3 +300,30 @@ describe('identity (review regressions)', () => {
     expect(hashOf('if (a) return\na + b;')).not.toBe(hashOf('if (a) return a + b;'));
   });
 });
+
+describe('scopes', () => {
+  test('every function and top-level statement is reported, with or without mutants', () => {
+    const { scopes } = instrument('m.js', 'const LIMIT = 10;\nfunction noop() {}\nfunction f(n) { return n > LIMIT; }\n');
+    expect(scopes.map((s) => s.id).filter((id) => !id.startsWith('<top'))).toEqual(['noop', 'f']);
+    expect(scopes.filter((s) => s.id.startsWith('<top'))).toHaveLength(1);
+  });
+});
+
+describe('nested functions and scope hashes', () => {
+  const scopeOf = (src: string, id: (s: string) => boolean) => instrument('m.js', src).scopes.find((s) => id(s.id))!;
+
+  test('editing an exported function keeps the enclosing top-level scope', () => {
+    const before = 'export function f(a) { return a + 1; }\nexport const X = 1;';
+    const after = 'export function f(a) { return a + 2; }\nexport const X = 1;';
+    const top = (src: string) => instrument('m.js', src).scopes.filter((s) => s.id.startsWith('<top')).map((s) => `${s.id}:${s.hash}`);
+    expect(top(after)).toEqual(top(before));
+  });
+
+  test('an outer function hash ignores the body of nested functions', () => {
+    const outer = (inner: string) => scopeOf(`function outer() { const g = () => ${inner}; return g() + 1; }`, (id) => id === 'outer').hash;
+    expect(outer('1')).toBe(outer('2'));
+    expect(scopeOf('function outer() { const g = () => 1; return g() + 1; }', (id) => id === 'outer>g').hash).not.toBe(
+      scopeOf('function outer() { const g = () => 2; return g() + 1; }', (id) => id === 'outer>g').hash,
+    );
+  });
+});

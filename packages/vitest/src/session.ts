@@ -39,10 +39,7 @@ export interface DryRunResult {
   index: Map<string, TestLocation>;
   /** test file (relative to root) -> mutants hit while that file's modules were loading */
   staticByFile: Map<string, Set<string>>;
-  /**
-   * test file (relative) -> local files it imports, transitively (relative, sorted),
-   * excluding node_modules and the sources being mutated (those are tracked per scope).
-   */
+  /** test file (relative) -> local files it imports, transitively (relative, sorted), excluding node_modules */
   deps: Map<string, string[]>;
 }
 
@@ -62,6 +59,8 @@ export interface Session {
   mutants(): Mutant[];
   /** Absolute paths of the project's test files. */
   testFiles(): Promise<string[]>;
+  /** Files every test depends on: resolved config files, setupFiles and globalSetup (absolute). */
+  configFiles(): string[];
   /** Run tests without mutants (optionally only the given test files) and collect coverage. */
   dryRun(files?: readonly string[]): Promise<DryRunResult>;
   runMutant(key: string, testIds: readonly string[], options: RunMutantOptions): Promise<MutantRunResult>;
@@ -111,6 +110,17 @@ export async function createSession(options: SessionOptions): Promise<Session> {
 
   return {
     mutants: () => registry.all(),
+
+    configFiles() {
+      const files = new Set<string>();
+      for (const project of vitest.projects) {
+        const configFile = (project.vite.config as { configFile?: string | false }).configFile;
+        if (configFile) files.add(configFile);
+        for (const f of project.config.setupFiles) if (f !== SETUP_FILE) files.add(f);
+        for (const f of [project.config.globalSetup ?? []].flat()) files.add(f);
+      }
+      return [...files].filter((f) => isAbsolute(f) && existsSync(f)).sort();
+    },
 
     async testFiles() {
       return [...new Set((await vitest.globTestSpecifications()).map((s) => s.moduleId))].sort();
@@ -277,7 +287,7 @@ function collectDeps(vitest: Vitest, testFiles: readonly string[], options: Sess
       const module = graph.getModuleById(testFile);
       if (module) visit(module);
     }
-    const local = [...found].filter((f) => f !== testFile && !options.include(f) && existsSync(f));
+    const local = [...found].filter((f) => f !== testFile && existsSync(f));
     deps.set(relative(options.root, testFile), local.map((f) => relative(options.root, f)).sort());
   }
   return deps;

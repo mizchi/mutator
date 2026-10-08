@@ -1,7 +1,7 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { type Mutant, type RunSnapshot, type TestInfo, hash, mergeCoverage } from '@mizchi/mutator-core';
+import { type Mutant, type RunSnapshot, type Scope, type TestInfo, hash, mergeCoverage } from '@mizchi/mutator-core';
 import type { DryRunResult, TestLocation } from '@mizchi/mutator-vitest';
 
 /** Snapshot persisted by the CLI: the core run snapshot plus adapter-level coverage data. */
@@ -12,22 +12,48 @@ export interface CliSnapshot extends RunSnapshot {
   index: Record<string, { module: string; taskId: string }>;
   /** test file (relative) -> mutant keys hit while loading its modules */
   staticByFile: Record<string, string[]>;
-  /** test file (relative) -> source files (relative) it executed */
-  touched: Record<string, string[]>;
-  /** test file (relative) -> non-mutated local files it imports */
+  /** test file (relative) -> local files it imports, including mutated sources */
   deps: Record<string, string[]>;
   hits: Record<string, number>;
 }
 
-/** Content hash of each test file together with the local files it imports. */
-export function testFileHashes(root: string, testFiles: readonly string[], deps: Readonly<Record<string, readonly string[]>>): Record<string, string> {
+/**
+ * Hash of the parts of each mutated source that per-scope tracking cannot see:
+ * top-level statements and functions without mutants.
+ */
+export function residualHashes(root: string, scopes: ReadonlyMap<string, readonly Scope[]>, mutants: readonly Mutant[]): Record<string, string> {
+  const tracked = new Set(mutants.filter((m) => !m.ignored).map((m) => `${m.file}#${m.scope.id}`));
+  return Object.fromEntries(
+    [...scopes].map(([file, list]) => [
+      relative(root, file),
+      hash(
+        list
+          .filter((s) => isTopLevel(s.id) || !tracked.has(`${file}#${s.id}`))
+          .map((s) => `${s.id}:${s.hash}`)
+          .sort()
+          .join('\0'),
+      ),
+    ]),
+  );
+}
+
+/**
+ * Content hash of each test file together with the local files it imports.
+ * Mutated sources contribute only their residual hash; edits inside tracked
+ * functions are handled per scope.
+ */
+export function testFileHashes(
+  root: string,
+  testFiles: readonly string[],
+  deps: Readonly<Record<string, readonly string[]>>,
+  residual: Readonly<Record<string, string>>,
+): Record<string, string> {
   const read = (rel: string) => {
     const file = join(root, rel);
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
   };
-  return Object.fromEntries(
-    testFiles.map((rel) => [rel, hash([read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, read(dep)])].join('\0'))]),
-  );
+  const content = (rel: string) => residual[rel] ?? read(rel);
+  return Object.fromEntries(testFiles.map((rel) => [rel, hash([read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, content(dep)])].join('\0'))]));
 }
 
 export type DryRunPlan = { all: true } | { all: false; files: string[] };
@@ -52,11 +78,13 @@ export function planDryRun(input: {
   for (const m of input.mutants) if (!m.ignored) after.set(scopeKey(root, m.file, m.scope.id), m.scope.hash);
 
   const changedScopes = new Set([...before].filter(([k, h]) => after.get(k) !== h).map(([k]) => k));
-  // Code that may run at load time or is new has no per-test coverage to go by:
-  // fall back to every test file that touched the source file.
+  // No per-test coverage to go by for new code, top-level code, or functions whose
+  // mutants only ran at module load: fall back to every test file importing the source.
+  const covered = new Set(previous.results.filter((r) => r.coveredBy.length > 0).map((r) => scopeKey(root, r.file, r.scopeId)));
   const sensitiveFiles = new Set<string>();
-  for (const k of after.keys()) if (!before.has(k)) sensitiveFiles.add(k.split('#')[0]!);
-  for (const k of changedScopes) if (isTopLevel(k.slice(k.indexOf('#') + 1))) sensitiveFiles.add(k.split('#')[0]!);
+  const fileOf = (k: string) => k.slice(0, k.indexOf('#'));
+  for (const k of after.keys()) if (!before.has(k)) sensitiveFiles.add(fileOf(k));
+  for (const k of changedScopes) if (isTopLevel(k.slice(k.indexOf('#') + 1)) || !covered.has(k)) sensitiveFiles.add(fileOf(k));
 
   const files = new Set<string>();
   for (const [file, hash] of Object.entries(testFiles)) if (previous.testFiles[file] !== hash) files.add(file);
@@ -67,15 +95,13 @@ export function planDryRun(input: {
       if (module) files.add(module);
     }
   }
-  for (const [testFile, sources] of Object.entries(previous.touched)) {
-    if (sources.some((s) => sensitiveFiles.has(s))) files.add(testFile);
+  for (const [testFile, imports] of Object.entries(previous.deps)) {
+    if (imports.some((s) => sensitiveFiles.has(s))) files.add(testFile);
   }
   return { all: false, files: [...files].filter((f) => f in testFiles).sort() };
 }
 
-export interface MergedDryRun extends Omit<DryRunResult, 'failed'> {
-  touched: Record<string, string[]>;
-}
+export type MergedDryRun = Omit<DryRunResult, 'failed'>;
 
 /** Combine a partial dry run with the previous snapshot's data for the test files that were skipped. */
 export function mergeDryRun(input: {
@@ -117,20 +143,8 @@ export function mergeDryRun(input: {
   for (const [file, list] of Object.entries(previous?.deps ?? {})) if (keptModule(file)) deps.set(file, list);
 
   const hits = new Map(Object.entries(previous?.hits ?? {}).filter(([k]) => alive.has(k)));
-  for (const [key, n] of dry.hits) hits.set(key, n);
+  // A partial run only sees some test files: never lower a hit count (and thus a hit limit).
+  for (const [key, n] of dry.hits) hits.set(key, Math.max(n, hits.get(key) ?? 0));
 
-  const fileOf = new Map(mutants.map((m) => [m.key, relative(root, m.file)]));
-  const touchedSets = new Map<string, Set<string>>();
-  const touch = (testFile: string, key: string) => {
-    const source = fileOf.get(key);
-    if (!source) return;
-    const set = touchedSets.get(testFile) ?? new Set();
-    set.add(source);
-    touchedSets.set(testFile, set);
-  };
-  for (const [key, ids] of coverage) for (const id of ids) touch(id.slice(0, id.indexOf('#')), key);
-  for (const [file, keys] of staticByFile) for (const key of keys) touch(file, key);
-  const touched = Object.fromEntries([...touchedSets].map(([f, s]) => [f, [...s].sort()]));
-
-  return { tests, coverage, staticKeys, hits, index, staticByFile, touched, deps };
+  return { tests, coverage, staticKeys, hits, index, staticByFile, deps };
 }

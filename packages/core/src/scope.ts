@@ -16,9 +16,10 @@ const SIGN = /[+-]/;
  * keep string / template contents verbatim. Whitespace that can change meaning
  * survives: line breaks (ASI) and spaces between words or between `+` / `-`.
  */
-export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[]): string {
+export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[], holes: readonly Range[] = []): string {
   const skip = comments.filter((c) => c.start >= range.start && c.end <= range.end);
   const keep = literals.filter((l) => l.start >= range.start && l.end <= range.end);
+  const gaps = holes.filter((h) => h.start >= range.start && h.end <= range.end);
   let out = '';
   let gap: '' | ' ' | '\n' = '';
   const emit = (text: string) => {
@@ -32,9 +33,17 @@ export function normalize(source: string, range: Range, comments: readonly Range
   let i = range.start;
   let ci = 0;
   let li = 0;
+  let hi = 0;
   while (i < range.end) {
     while (ci < skip.length && skip[ci]!.end <= i) ci++;
     while (li < keep.length && keep[li]!.end <= i) li++;
+    while (hi < gaps.length && gaps[hi]!.start < i) hi++;
+    const h = gaps[hi];
+    if (h && h.start === i) {
+      emit('\u0192');
+      i = h.end;
+      continue;
+    }
     const c = skip[ci];
     if (c && c.start === i) {
       if (gap === '') gap = ' ';

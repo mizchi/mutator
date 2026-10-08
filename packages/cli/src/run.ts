@@ -8,6 +8,7 @@ import {
   type PlanEntry,
   type Range,
   type RunSnapshot,
+  type Scope,
   type SelectMode,
   changedLines,
   hash,
@@ -20,13 +21,13 @@ import {
 } from '@mizchi/mutator-core';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
-import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
+import { type CliSnapshot, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
-export const TOOL_VERSION = '0.0.2';
+export const TOOL_VERSION = '0.0.3';
 
 export interface RunOptions {
   root: string;
@@ -69,7 +70,7 @@ export class BaselineError extends Error {}
 
 const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
-const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'tsconfig.json', 'vitest.config.ts', 'vitest.config.mts', 'vite.config.ts'];
+const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'tsconfig.json'];
 
 export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
@@ -91,12 +92,14 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const sessions = [session];
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const mutants = collectMutants(root, files);
-    const envHash = hash([process.version, ...ENV_FILES.map((f) => readIfExists(join(root, f)))].join('\0'));
+    const { mutants, scopes } = collectSources(root, files);
+    const residual = residualHashes(root, scopes, mutants);
+    const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
+    const envHash = hash([process.version, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
-    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {});
+    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {}, residual);
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, mutants });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
@@ -104,7 +107,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
     const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
-    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps));
+    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), residual);
     for (const test of merged.tests) {
       const file = test.id.slice(0, test.id.indexOf('#'));
       if (dryFiles.has(file)) test.fingerprint = hash(`${finalTestFiles[file]}\0${test.id}`);
@@ -139,7 +142,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [] });
           break;
         case 'reuse':
-          results.push(entry.result);
+          // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
+          results.push({ ...entry.result, coveredBy: merged.coverage.get(mutant.key) ?? [] });
           report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy });
           break;
         case 'run':
@@ -189,7 +193,6 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       deps: Object.fromEntries(merged.deps),
       index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
       staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
-      touched: merged.touched,
       hits: Object.fromEntries(merged.hits),
     };
     writeSnapshot(snapshotPath, snapshot, root);
@@ -203,9 +206,15 @@ function defaultConcurrency(): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
 }
 
-/** Mutants of every target file; keys match the ones the Vite plugin produces. */
-function collectMutants(root: string, files: readonly string[]): Mutant[] {
-  return files.flatMap((file) => instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file) }).mutants);
+/** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
+function collectSources(root: string, files: readonly string[]): { mutants: Mutant[]; scopes: Map<string, Scope[]> } {
+  const scopes = new Map<string, Scope[]>();
+  const mutants = files.flatMap((file) => {
+    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file) });
+    scopes.set(file, result.scopes);
+    return result.mutants;
+  });
+  return { mutants, scopes };
 }
 
 /** Mutants touched by the diff, plus mutants covered by tests in changed test files. */

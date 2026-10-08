@@ -78,6 +78,8 @@ export interface InstrumentResult {
   code: string;
   map: SourceMapLike;
   mutants: Mutant[];
+  /** Every scope of the file (functions and top-level statements), with or without mutants. */
+  scopes: Scope[];
 }
 
 export interface InstrumentOptions {

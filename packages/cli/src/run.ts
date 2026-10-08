@@ -20,11 +20,11 @@ import {
 } from '@mizchi/mutator-core';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
-import { type CliSnapshot, mergeDryRun, planDryRun } from './coverage-cache.ts';
+import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
-export const TOOL_VERSION = '0.0.0';
+export const TOOL_VERSION = '0.0.1';
 
 export interface RunOptions {
   root: string;
@@ -88,17 +88,25 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const session = await createSession(sessionOptions);
   const sessions = [session];
   try {
-    const testFiles = Object.fromEntries((await session.testFiles()).map((f) => [relative(root, f), hash(readFileSync(f, 'utf8'))]));
+    const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const mutants = collectMutants(root, files);
     const envHash = hash([process.version, ...ENV_FILES.map((f) => readIfExists(join(root, f)))].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
+    // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
+    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {});
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, mutants });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
     const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
+    // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
+    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps));
+    for (const test of merged.tests) {
+      const file = test.id.slice(0, test.id.indexOf('#'));
+      if (dryFiles.has(file)) test.fingerprint = hash(`${finalTestFiles[file]}\0${test.id}`);
+    }
     session.useTestIndex(merged.index);
 
     const entries = plan({
@@ -175,7 +183,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: TOOL_VERSION, envHash, results, tests: merged.tests }, mutants);
     const snapshot: CliSnapshot = {
       ...core,
-      testFiles,
+      testFiles: finalTestFiles,
+      deps: Object.fromEntries(merged.deps),
       index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
       staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
       touched: merged.touched,

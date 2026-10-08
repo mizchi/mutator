@@ -53,7 +53,7 @@ describe('partial dry run', { timeout: 60_000 }, () => {
 
   test('a test-only edit re-collects only that test file', async () => {
     await runMutation({ root, concurrency: 1 });
-    edit('test/a.test.ts', 'expect(isPositive(-1)).toBe(false);', 'expect(isPositive(-1)).toBe(false);\n  expect(isPositive(0)).toBe(false);');
+    edit('test/a.test.ts', 'expect(isPositive(NEGATIVE)).toBe(false);', 'expect(isPositive(NEGATIVE)).toBe(false);\n  expect(isPositive(0)).toBe(false);');
     const report = await runMutation({ root, concurrency: 1 });
     expect(report.dryRunFiles).toEqual(['test/a.test.ts']);
     const boundary = report.entries.find((e) => e.mutant.original === 'n > 0' && e.mutant.replacement === 'n >= 0')!;
@@ -110,6 +110,27 @@ describe('--since keeps invalidation for out-of-diff mutants', { timeout: 60_000
       const rerun = full.entries.filter((e) => e.source === 'run').map((e) => e.mutant.key).sort();
       expect(rerun).toEqual(since.entries.filter((e) => e.source === 'skipped').map((e) => e.mutant.key).sort());
       expect(full.entries.some((e) => e.status === 'NoCoverage' && e.mutant.scope.id === 'isPositive')).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('test dependencies', { timeout: 60_000 }, () => {
+  test('editing a non-mutated helper a test imports re-runs the affected mutants', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `deps-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    try {
+      const first = await runMutation({ root, concurrency: 1 });
+      const boundary = (r: Report) => r.entries.find((e) => e.mutant.original === 'n > 0' && e.mutant.replacement === 'n >= 0')!;
+      expect(boundary(first).status).toBe('Survived');
+
+      writeFileSync(join(root, 'test/helper.ts'), 'export const NEGATIVE = 0;\n');
+      const second = await runMutation({ root, concurrency: 1 });
+      expect(second.dryRunFiles).toEqual(['test/a.test.ts']);
+      expect(boundary(second).source).toBe('run');
+      expect(boundary(second).status).toBe('Killed');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

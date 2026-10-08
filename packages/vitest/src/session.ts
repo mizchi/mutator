@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Mutant, type MutantStatus, type TestInfo, hash } from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
@@ -39,6 +39,11 @@ export interface DryRunResult {
   index: Map<string, TestLocation>;
   /** test file (relative to root) -> mutants hit while that file's modules were loading */
   staticByFile: Map<string, Set<string>>;
+  /**
+   * test file (relative) -> local files it imports, transitively (relative, sorted),
+   * excluding node_modules and the sources being mutated (those are tracked per scope).
+   */
+  deps: Map<string, string[]>;
 }
 
 export interface RunMutantOptions {
@@ -116,6 +121,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const wanted = files && new Set(files);
       const specs = wanted ? all.filter((s) => wanted.has(s.moduleId)) : all;
       const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root) : emptyDryRun();
+      dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options);
       for (const [id, location] of dry.index) locations.set(id, location);
       return dry;
     },
@@ -199,7 +205,7 @@ function testId(root: string, test: TestCase): string {
 }
 
 function emptyDryRun(): DryRunResult {
-  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map() };
+  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map(), deps: new Map() };
 }
 
 function collectDryRun(result: TestRunResult, root: string): DryRunResult {
@@ -243,7 +249,38 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
     }
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { tests, coverage, staticKeys, failed, hits, index, staticByFile };
+  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map() };
+}
+
+interface GraphModule {
+  id: string | null;
+  importedModules: Set<GraphModule>;
+}
+
+/** Walk the Vite module graphs the test files were loaded through. */
+function collectDeps(vitest: Vitest, testFiles: readonly string[], options: SessionOptions): Map<string, string[]> {
+  const graphs = vitest.projects.flatMap((project) =>
+    Object.values((project.vite as unknown as { environments?: Record<string, { moduleGraph: { getModuleById(id: string): GraphModule | undefined } }> }).environments ?? {}).map((env) => env.moduleGraph),
+  );
+  const deps = new Map<string, string[]>();
+  for (const testFile of testFiles) {
+    const found = new Set<string>();
+    const visit = (module: GraphModule) => {
+      for (const child of module.importedModules) {
+        const file = child.id?.split('?')[0];
+        if (!file || !isAbsolute(file) || found.has(file) || file.includes('/node_modules/')) continue;
+        found.add(file);
+        visit(child);
+      }
+    };
+    for (const graph of graphs) {
+      const module = graph.getModuleById(testFile);
+      if (module) visit(module);
+    }
+    const local = [...found].filter((f) => f !== testFile && !options.include(f) && existsSync(f));
+    deps.set(relative(options.root, testFile), local.map((f) => relative(options.root, f)).sort());
+  }
+  return deps;
 }
 
 function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>, observed: readonly TestCase[]): Omit<MutantRunResult, 'durationMs'> {

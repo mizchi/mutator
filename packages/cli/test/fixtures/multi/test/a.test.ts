@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { double, isPositive } from '../src/a.ts';
+import { NEGATIVE } from './helper.ts';
 
 test('double', () => {
   expect(double(2)).toBe(4);
@@ -7,7 +8,7 @@ test('double', () => {
 
 test('isPositive', () => {
   expect(isPositive(1)).toBe(true);
-  expect(isPositive(-1)).toBe(false);
+  expect(isPositive(NEGATIVE)).toBe(false);
 });
 
 test('combo', () => {

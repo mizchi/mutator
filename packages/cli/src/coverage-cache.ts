@@ -1,6 +1,7 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join, relative } from 'node:path';
-import { type Mutant, type RunSnapshot, type TestInfo, mergeCoverage } from '@mizchi/mutator-core';
+import { existsSync, readFileSync } from 'node:fs';
+import { type Mutant, type RunSnapshot, type TestInfo, hash, mergeCoverage } from '@mizchi/mutator-core';
 import type { DryRunResult, TestLocation } from '@mizchi/mutator-vitest';
 
 /** Snapshot persisted by the CLI: the core run snapshot plus adapter-level coverage data. */
@@ -13,7 +14,20 @@ export interface CliSnapshot extends RunSnapshot {
   staticByFile: Record<string, string[]>;
   /** test file (relative) -> source files (relative) it executed */
   touched: Record<string, string[]>;
+  /** test file (relative) -> non-mutated local files it imports */
+  deps: Record<string, string[]>;
   hits: Record<string, number>;
+}
+
+/** Content hash of each test file together with the local files it imports. */
+export function testFileHashes(root: string, testFiles: readonly string[], deps: Readonly<Record<string, readonly string[]>>): Record<string, string> {
+  const read = (rel: string) => {
+    const file = join(root, rel);
+    return existsSync(file) ? readFileSync(file, 'utf8') : '';
+  };
+  return Object.fromEntries(
+    testFiles.map((rel) => [rel, hash([read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, read(dep)])].join('\0'))]),
+  );
 }
 
 export type DryRunPlan = { all: true } | { all: false; files: string[] };
@@ -99,6 +113,9 @@ export function mergeDryRun(input: {
   }
   const staticKeys = new Set([...staticByFile.values()].flatMap((keys) => [...keys]));
 
+  const deps = new Map(dry.deps);
+  for (const [file, list] of Object.entries(previous?.deps ?? {})) if (keptModule(file)) deps.set(file, list);
+
   const hits = new Map(Object.entries(previous?.hits ?? {}).filter(([k]) => alive.has(k)));
   for (const [key, n] of dry.hits) hits.set(key, n);
 
@@ -115,5 +132,5 @@ export function mergeDryRun(input: {
   for (const [file, keys] of staticByFile) for (const key of keys) touch(file, key);
   const touched = Object.fromEntries([...touchedSets].map(([f, s]) => [f, [...s].sort()]));
 
-  return { tests, coverage, staticKeys, hits, index, staticByFile, touched };
+  return { tests, coverage, staticKeys, hits, index, staticByFile, touched, deps };
 }

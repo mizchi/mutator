@@ -1,0 +1,21 @@
+{
+  "name": "mutator-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@secretlint/secretlint-rule-preset-recommend": "^9.3.4",
+    "@types/node": "^26.6.4",
+    "oxc-parser": "0.153.0",
+    "secretlint": "^9.3.4",
+    "typescript": "^7.0.2",
+    "vitest": "5.0.3"
+  }
+}

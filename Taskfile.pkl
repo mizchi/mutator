@@ -1,0 +1,73 @@
+amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.11.0#/Taskfile.pkl"
+
+local sources: Listing<String> = new {
+  "packages/*/src/**/*.ts"
+  "packages/*/test/**/*.ts"
+  "packages/*/package.json"
+  "tsconfig.json"
+  "vitest.config.ts"
+  "pnpm-lock.yaml"
+}
+
+local typecheck: Task = new {
+  name = "typecheck"
+  description = "Type-check all packages"
+  cmd = "pnpm exec tsc -p ."
+  inputs = sources
+}
+
+local test: Task = new {
+  name = "test"
+  description = "Run unit tests"
+  cmd = "pnpm exec vitest run"
+  inputs = sources
+}
+
+local check: Task = new {
+  name = "check"
+  description = "Aggregate gate"
+  cmd = "echo all-green"
+  cache = false
+  deps { typecheck; test }
+}
+
+local secretlint: Task = new {
+  name = "lint:secretlint"
+  description = "Run secretlint against files in the diff about to be pushed"
+  cmd =
+    #"""
+    set -euo pipefail
+    upstream=$(git rev-parse --symbolic-full-name '@{push}' 2>/dev/null \
+            || git rev-parse --symbolic-full-name '@{u}' 2>/dev/null \
+            || true)
+    if [ -n "$upstream" ]; then
+      files=$(git diff --name-only --diff-filter=ACMR -z "${upstream}..HEAD")
+    else
+      files=$(git ls-files -z)
+    fi
+    if [ -z "$files" ]; then
+      exit 0
+    fi
+    printf '%s' "$files" | xargs -0 pnpm exec secretlint --
+    """#
+  cache = false
+  inputs { ".secretlintrc.json"; "package.json"; "pnpm-lock.yaml" }
+}
+
+local preCommit: Task = new {
+  name = "pre-commit"
+  description = "Pre-commit gate"
+  cmd = "echo pre-commit ok"
+  cache = false
+  deps { typecheck }
+}
+
+local prePush: Task = new {
+  name = "pre-push"
+  description = "Pre-push gate: secretlint + full check"
+  cmd = "echo pre-push ok"
+  cache = false
+  deps { secretlint; check }
+}
+
+tasks { typecheck; test; check; secretlint; preCommit; prePush }

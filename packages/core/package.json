@@ -1,0 +1,16 @@
+{
+  "name": "@mizchi/mutator-core",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Pure mutation testing core: mutant generation, mutation-switching instrumentation, identity, diff selection, result reuse",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "magic-string": "^1.4.3",
+    "oxc-parser": "0.153.0"
+  }
+}

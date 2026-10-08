@@ -1,0 +1,8 @@
+{
+  "name": "@mizchi/mutator-vitest",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Vitest adapter for @mizchi/mutator-core",
+  "exports": { ".": "./src/index.ts" },
+  "files": ["src"]
+}

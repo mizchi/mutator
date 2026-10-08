@@ -109,11 +109,27 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] core: instrument (15 mutators, 配置 3 種, ASI ガード), identity, scope hash, diff, plan
 - [x] vitest: plugin, setup (perTest / static coverage, provide/inject 切替), Session
 - [x] cli: dry run → plan → 実行 → snapshot, `--since`, レポート, GitHub annotation
-- [ ] 無効化コメント (`// mutator-disable-next-line`)
-- [ ] 並列実行 (Session を N 個)
-- [ ] dry run の差分化 (`testsToRecollect` を CLI で使う)
-- [ ] FnValue mutator (TS 戻り値型)、arid node 抑制
+- [x] 無効化コメント (`// mutator-disable-next-line`, Stryker コメント互換)
+- [x] 並列実行 (Session を N 個, `-j`)
+- [x] dry run の差分化 (snapshot に test index / static / touched を保存し、影響を受けるテストファイルだけ再収集)
+- [x] path-portable な key / snapshot (CI キャッシュ可)
+- [x] early exit は vitest `bail` ではなく reporter 観測 + cancel (bail は kill を取りこぼす)
+- [ ] FnValue mutator (TS 戻り値型)、arid node 抑制、Regex / CallExpression mutator
 - [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
+- [ ] 1 run で複数 mutant (テストファイルごとに別 mutant を active にして run 単位の固定コストを償却)
+
+## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores)
+
+| run | wall | 備考 |
+|---|---:|---|
+| mutator cold `-j 6` (既定) | 87.5s | 893 実行, 83.1% |
+| mutator cold `-j 1` | 227.7s | 82.6% |
+| mutator 変更なし再実行 | 0.9s | dry run 0 ファイル |
+| mutator 1 関数編集 `--since HEAD` | 2.5s | (修正前の計測) |
+| stryker c=11 / c=1 | 56.6s / 184.4s | 82.59% |
+| stryker `--incremental` 変更なし / 編集後 | 7.0s / 4.4s | |
+
+共通 817 mutant の判定は stryker と完全一致 (bail 修正後)。cold は 1 mutant あたり ~200ms の vitest run 固定コストが支配的。
 
 暫定の既定 (未確認。調査時に推奨した案を採用している):
 

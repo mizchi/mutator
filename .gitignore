@@ -4,3 +4,4 @@ coverage/
 .mutator/
 *.tsbuildinfo
 .tmp/
+.claude/worktrees/

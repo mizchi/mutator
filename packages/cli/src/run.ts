@@ -155,15 +155,15 @@ export async function runMutation(options: RunOptions): Promise<Report> {
 
     log(`${mutants.length} mutants, ${jobs.length} to run`);
     const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), jobs.length));
-    const extra = await Promise.all(
-      Array.from({ length: concurrency - 1 }, () => createSession({ ...sessionOptions, maxWorkers: 1 })),
-    );
-    sessions.push(...extra);
-    for (const s of extra) s.useTestIndex(merged.index);
+    // In parallel mode every mutant session gets a single worker so sessions do not
+    // oversubscribe the CPU; a lone session keeps Vitest's default workers.
+    const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createSession({ ...sessionOptions, maxWorkers: 1 })));
+    if (concurrency > 1) sessions.push(...workers);
+    for (const s of workers) s.useTestIndex(merged.index);
     let executed = 0;
     let next = 0;
     await Promise.all(
-      sessions.slice(0, concurrency).map(async (worker) => {
+      workers.map(async (worker) => {
         while (next < jobs.length) {
           const { index, entry } = jobs[next++]!;
           const { mutant } = entry;

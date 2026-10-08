@@ -116,7 +116,7 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] early exit は vitest `bail` ではなく reporter 観測 + cancel (bail は kill を取りこぼす)
 - [ ] FnValue mutator (TS 戻り値型)、arid node 抑制、Regex / CallExpression mutator
 - [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
-- [ ] 1 run で複数 mutant (テストファイルごとに別 mutant を active にして run 単位の固定コストを償却)
+- [x] ~~1 run で複数 mutant~~ 試して取り下げ: 速くなったのは run 内の Vitest worker 並列の分で、固定コスト償却ではなかった。`-j 1` では 186s→116s だが既定の `-j 6` では 57s→85s と悪化 (early exit が効きにくく tail が伸びる)
 
 ## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores)
 

@@ -25,8 +25,9 @@ const ns = {
 // file inside the worker (the main process can only cancel between files).
 let killed = false;
 
-// Concurrent tests interleave, so their hits share one bucket that is
-// credited to every concurrent test of the file at afterAll.
+// Concurrent tests interleave, so their hits share one bucket. It travels on the
+// file's meta (reliably sent after afterAll) and the main process credits it to
+// every concurrent test of the file.
 const CONCURRENT = '\0concurrent';
 let running = 0;
 
@@ -51,20 +52,6 @@ afterEach(({ task }) => {
   if (hits) (task.meta as Record<string, unknown>).mutatorHits = hits;
 });
 
-interface TaskNode {
-  type: string;
-  concurrent?: boolean;
-  meta: object;
-  tasks?: TaskNode[];
-}
-
-function creditConcurrent(tasks: readonly TaskNode[], hits: Record<string, number>): void {
-  for (const task of tasks) {
-    if (task.tasks) creditConcurrent(task.tasks, hits);
-    else if (task.concurrent) (task.meta as Record<string, unknown>).mutatorHits = hits;
-  }
-}
-
 // Vitest requires an object pattern for the first (fixture) argument.
 // eslint-disable-next-line no-empty-pattern
 afterAll(({}, suite) => {
@@ -72,5 +59,5 @@ afterAll(({}, suite) => {
   meta.mutatorStatic = ns.cov.static;
   meta.mutatorTotalHits = ns.hits;
   const shared = ns.cov.perTest[CONCURRENT];
-  if (shared) creditConcurrent(suite.tasks, shared);
+  if (shared) meta.mutatorConcurrent = shared;
 });

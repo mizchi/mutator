@@ -239,7 +239,7 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const seen = new Map<string, number>();
 
   for (const module of result.testModules) {
-    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number> };
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number> };
     const moduleStatic = new Set<string>();
     staticByFile.set(relative(root, module.moduleId), moduleStatic);
     for (const [key, n] of Object.entries(moduleMeta.mutatorStatic ?? {})) {
@@ -259,7 +259,9 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
       if (state === 'skipped') continue;
       if (state === 'failed') failed.push(id);
       tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: test.diagnostic()?.duration ?? 0 });
-      const testHits = (test.meta() as { mutatorHits?: Record<string, number> }).mutatorHits ?? {};
+      const testHits = test.options.concurrent
+        ? (moduleMeta.mutatorConcurrent ?? {})
+        : ((test.meta() as { mutatorHits?: Record<string, number> }).mutatorHits ?? {});
       for (const [key, count] of Object.entries(testHits)) {
         const covering = coverage.get(key) ?? [];
         covering.push(id);

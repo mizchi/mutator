@@ -104,6 +104,24 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - exit code: baseline 失敗 > timeout > survived > 0、diff 不整合は別コード
 - shard `k/n`、`--list --json`
 
+## 実装状況 (2026-10-08)
+
+- [x] core: instrument (15 mutators, 配置 3 種, ASI ガード), identity, scope hash, diff, plan
+- [x] vitest: plugin, setup (perTest / static coverage, provide/inject 切替), Session
+- [x] cli: dry run → plan → 実行 → snapshot, `--since`, レポート, GitHub annotation
+- [ ] 無効化コメント (`// mutator-disable-next-line`)
+- [ ] 並列実行 (Session を N 個)
+- [ ] dry run の差分化 (`testsToRecollect` を CLI で使う)
+- [ ] FnValue mutator (TS 戻り値型)、arid node 抑制
+- [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
+
+暫定の既定 (未確認。調査時に推奨した案を採用している):
+
+- 型エラーになる mutant は事前 check しない (実行時エラーは Killed / RuntimeError)
+- レポートは独自形式 (mutation-testing-elements 互換は後回し)
+- Vue / Svelte は対象外
+- core は TS 実装、Rust napi は profiling 後に判断
+
 ## 未決事項
 
 - parser: oxc-parser (npm, raw transfer) を採用予定。oxc は 0.x で breaking change が多いので version pin

@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeEach, inject } from 'vitest';
 
 declare module 'vitest' {
   interface ProvidedContext {
-    mutator: { active: string | null; hitLimit: number };
+    mutator: { active: string | null; hitLimit: number; earlyExit: boolean };
   }
 }
 
@@ -21,8 +21,18 @@ const ns = {
 };
 (globalThis as Record<string, unknown>).__mutator__ = ns;
 
-beforeEach(({ task }) => {
+// Once a test fails under an active mutant it is killed: skip the rest of this
+// file inside the worker (the main process can only cancel between files).
+let killed = false;
+
+beforeEach(({ task, skip, onTestFailed }) => {
+  if (killed) skip();
   ns.testId = task.id;
+  if (config.active !== null && config.earlyExit) {
+    onTestFailed(() => {
+      killed = true;
+    });
+  }
 });
 
 afterEach(({ task }) => {

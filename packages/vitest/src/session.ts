@@ -98,8 +98,9 @@ export async function createSession(options: SessionOptions): Promise<Session> {
   let vitest = await start(options, registry, watch);
   const locations = new Map<string, TestLocation>();
 
+  const earlyExit = options.earlyExit !== false;
   const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0]) => {
-    vitest.provide('mutator', { active, hitLimit });
+    vitest.provide('mutator', { active, hitLimit, earlyExit });
     return vitest.runTestSpecifications(specs);
   };
 
@@ -143,7 +144,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
         timer = setTimeout(() => resolve('timeout'), timeoutMs);
       });
       const current = vitest;
-      watch.arm(options.earlyExit === false ? () => {} : () => void current.cancelCurrentRun('test-failure'));
+      watch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {});
       const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
       clearTimeout(timer);
       const observed = watch.disarm();
@@ -182,7 +183,7 @@ async function start(options: SessionOptions, registry: MutantRegistry, watch: F
     },
     { plugins: [mutatorPlugin(registry, options)] },
   );
-  vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT });
+  vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT, earlyExit: false });
   for (const project of vitest.projects) {
     project.config.setupFiles = [SETUP_FILE, ...project.config.setupFiles];
   }

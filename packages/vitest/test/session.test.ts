@@ -112,3 +112,21 @@ describe('determinism', () => {
     }
   });
 });
+
+describe('early exit inside a test file', () => {
+  test('stops at the first failing test of the file', async () => {
+    const earlyRoot = fileURLToPath(new URL('./fixtures/early', import.meta.url));
+    const session = await createSession({ root: earlyRoot, include: (file) => file.includes('/src/') });
+    try {
+      const dry = await session.dryRun();
+      const mutant = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!;
+      const tests = dry.coverage.get(mutant.key)!;
+      expect(tests).toHaveLength(30);
+      const result = await session.runMutant(mutant.key, tests, { timeoutMs: 30_000 });
+      expect(result.status).toBe('Killed');
+      expect(result.killedBy).toEqual(['test/m.test.ts#add 1']);
+    } finally {
+      await session.close();
+    }
+  });
+});

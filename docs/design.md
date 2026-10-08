@@ -119,20 +119,18 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
 - [x] ~~1 run で複数 mutant~~ 試して取り下げ: 速くなったのは run 内の Vitest worker 並列の分で、固定コスト償却ではなかった。`-j 1` では 186s→116s だが既定の `-j 6` では 57s→85s と悪化 (early exit が効きにくく tail が伸びる)
 
-## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09)
+## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, 負荷なし)
 
-| run | wall | 備考 |
-|---|---:|---|
-| mutator cold `-j 6` (既定) | 54.5s | 1109 mutants (18 mutators), 83.9% |
-| mutator cold `-j 6`, 15 mutators | ~57s | 956 mutants, 82.6% |
-| mutator cold `-j 1`, 15 mutators | 186s | in-worker early exit 後 |
-| mutator 変更なし再実行 | 0.48s | dry run 0 ファイル |
-| stryker c=11 / c=1 | 56.6s / 184.4s | 1016 mutants, 82.59% |
-| stryker `--incremental` 変更なし / 1 関数編集 | 7.0s / 4.4s | |
+| run | mutator | stryker 10 |
+|---|---:|---:|
+| cold (並列, 既定) | **29s** (1109 mutants, 83.9%) | 36s (1016 mutants, 82.6%) |
+| 変更なし再実行 | **0.33s** | 3.5s (`--incremental`) |
+| 1 関数編集後 | **1.0s** (`--since HEAD`, 18 実行) / 10.7s (全体, 48 実行) | 3.8s (`--incremental`) |
 
-- 両者が生成する mutant の判定は stryker と一致 (bail 修正後)。mutator 別の検出数もほぼ同数。
-- 初回 benchmark の 87s は ufo clone 内に残っていた `.stryker-tmp/sandbox` のテストを重複して拾っていたため (Vitest の既定 exclude に入っていない)。
-- 計測のばらつきは大きい (同条件で ±10s 程度)。並列で別ジョブが走っていると簡単に数十秒ずれる。
+- 両者が生成する mutant の判定は一致。mutator 別の生成数・検出数もほぼ同じ。
+- 計測上の注意 (実際に踏んだもの):
+  - ufo clone 内に残っていた `.stryker-tmp/sandbox` のテストを重複して拾うと 2 倍遅くなる (Vitest の既定 exclude に入っていない)
+  - forks pool の worker が無限ループ mutant の timeout 後に孤児プロセスとして残り、CPU を食い続けていた (threads pool 既定化で解消)。これが残っていると全計測が 2〜3 倍ぶれる。以前の表の数値 (54s / 57s / 186s 等) はこの影響を受けている
 
 ## 未決事項
 

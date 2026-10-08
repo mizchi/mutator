@@ -12,6 +12,7 @@ const USAGE = `usage: mutator [options]
   --exclude <glob>     sources to skip, repeatable
   --config <file>      vitest config file
   --root <dir>         project root (default: cwd)
+  -j, --concurrency <n>  parallel Vitest instances (default: half the CPUs)
   --fail-on-survived   exit 2 when a mutant survives
   -h, --help`;
 
@@ -23,6 +24,7 @@ const { values } = parseArgs({
     exclude: { type: 'string', multiple: true },
     config: { type: 'string' },
     root: { type: 'string', default: process.cwd() },
+    concurrency: { type: 'string', short: 'j' },
     'fail-on-survived': { type: 'boolean', default: false },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -46,6 +48,7 @@ try {
     ...(values.include ? { include: values.include } : {}),
     ...(values.exclude ? { exclude: values.exclude } : {}),
     ...(values.config ? { configFile: resolve(values.config) } : {}),
+    ...(values.concurrency ? { concurrency: Number(values.concurrency) } : {}),
     log: (message) => console.error(message),
   });
   console.log(formatSummary(report, root));

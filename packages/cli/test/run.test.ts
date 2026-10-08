@@ -43,6 +43,13 @@ describe('runMutation', () => {
     expect(report.score).toBeGreaterThan(0);
   });
 
+  test('parallel execution gives the same verdicts as sequential', async () => {
+    const sequential = await runMutation({ root, concurrency: 1, snapshotPath: join(root, '.mutator/seq.json') });
+    const parallel = await runMutation({ root, concurrency: 3, snapshotPath: join(root, '.mutator/par.json') });
+    expect(parallel.executed).toBe(sequential.executed);
+    expect(byStatus(parallel)).toEqual(byStatus(sequential));
+  });
+
   test('second run reuses everything from the snapshot', async () => {
     const first = await runMutation({ root });
     const second = await runMutation({ root });

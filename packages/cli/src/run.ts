@@ -1,4 +1,5 @@
 import { existsSync, globSync, readFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import {
   type Mutant,
@@ -36,6 +37,8 @@ export interface RunOptions {
   configFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
+  /** Parallel Vitest instances running mutants (default: half the CPUs). */
+  concurrency?: number;
   log?: (message: string) => void;
 }
 
@@ -72,11 +75,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   }).map((f) => join(root, f));
   const targets = new Set(files);
 
-  const session = await createSession({
+  const sessionOptions = {
     root,
-    include: (file) => targets.has(file),
+    include: (file: string) => targets.has(file),
     ...(options.configFile ? { configFile: options.configFile } : {}),
-  });
+  };
+  const session = await createSession(sessionOptions);
+  const sessions = [session];
   try {
     log(`dry run (${files.length} source files)`);
     const dry = await session.dryRun();
@@ -99,13 +104,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const inScope = options.since ? diffScope(root, options.since, mutants, dry, options.scope ?? 'node') : undefined;
     const report: ReportEntry[] = [];
     const results: MutantResult[] = [];
-    const toRun = entries.filter((e): e is Extract<PlanEntry, { kind: 'run' }> => e.kind === 'run' && (!inScope || inScope.has(e.mutant.key)));
-    log(`${mutants.length} mutants, ${toRun.length} to run`);
-
-    let executed = 0;
+  
+    const jobs: { index: number; entry: Extract<PlanEntry, { kind: 'run' }> }[] = [];
     for (const entry of entries) {
       const { mutant } = entry;
-      const coveredBy = dry.coverage.get(mutant.key) ?? [];
       switch (entry.kind) {
         case 'ignored':
           results.push(toResult(mutant, 'Ignored', [], []));
@@ -119,31 +121,53 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           results.push(entry.result);
           report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy });
           break;
-        case 'run': {
+        case 'run':
           if (inScope && !inScope.has(mutant.key)) {
             report.push({ mutant, status: 'Pending', source: 'skipped', killedBy: [] });
-            break;
+          } else {
+            jobs.push({ index: report.length, entry });
+            report.push({ mutant, status: 'Pending', source: 'run', killedBy: [] });
           }
-          executed++;
-          const hits = dry.hits.get(mutant.key) ?? 0;
-          const outcome = await session.runMutant(mutant.key, entry.tests, {
-            timeoutMs: entry.timeoutMs,
-            isStatic: entry.isStatic,
-            hitLimit: Math.max(10_000, hits * 100),
-          });
-          log(`[${executed}/${toRun.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-          results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
-          report.push({ mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy });
           break;
-        }
       }
     }
+
+    log(`${mutants.length} mutants, ${jobs.length} to run`);
+    const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), jobs.length));
+    const extra = await Promise.all(
+      Array.from({ length: concurrency - 1 }, () => createSession({ ...sessionOptions, maxWorkers: 1 })),
+    );
+    sessions.push(...extra);
+    for (const s of extra) s.useTestIndex(dry.index);
+    let executed = 0;
+    let next = 0;
+    await Promise.all(
+      sessions.slice(0, concurrency).map(async (worker) => {
+        while (next < jobs.length) {
+          const { index, entry } = jobs[next++]!;
+          const { mutant } = entry;
+          const outcome = await worker.runMutant(mutant.key, entry.tests, {
+            timeoutMs: entry.timeoutMs,
+            isStatic: entry.isStatic,
+            hitLimit: Math.max(10_000, (dry.hits.get(mutant.key) ?? 0) * 100),
+          });
+          executed++;
+          log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
+          results.push(toResult(mutant, outcome.status, outcome.killedBy, dry.coverage.get(mutant.key) ?? [], outcome.durationMs));
+          report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy };
+        }
+      }),
+    );
 
     writeSnapshot(snapshotPath, mergeSnapshot(previous, { toolVersion: TOOL_VERSION, envHash, results, tests: dry.tests }, mutants));
     return { entries: report, executed, score: score(report), durationMs: performance.now() - started };
   } finally {
-    await session.close();
+    await Promise.all(sessions.map((s) => s.close()));
   }
+}
+
+function defaultConcurrency(): number {
+  return Math.max(1, Math.floor(availableParallelism() / 2));
 }
 
 /** Instrument sources no test imported, so their mutants are reported (as NoCoverage). */

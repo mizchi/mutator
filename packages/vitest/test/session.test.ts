@@ -62,3 +62,24 @@ describe('vitest session', () => {
     expect(result.status).toBe('Survived');
   });
 });
+
+describe('parallel sessions', () => {
+  test('a second session reuses the dry-run index and gives the same verdicts', async () => {
+    const include = (file: string) => file.includes('/src/');
+    const [a, b] = await Promise.all([createSession({ root, include }), createSession({ root, include, maxWorkers: 1 })]);
+    try {
+      const dry = await a.dryRun();
+      b.useTestIndex(dry.index);
+      const key = a.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
+      const boundary = a.mutants().find((m) => m.original === 'age >= 18' && m.replacement === 'age > 18')!.key;
+      const [killed, survived] = await Promise.all([
+        b.runMutant(key, ['test/math.test.ts#add'], { timeoutMs: 10_000 }),
+        a.runMutant(boundary, dry.coverage.get(boundary)!, { timeoutMs: 10_000 }),
+      ]);
+      expect(killed.status).toBe('Killed');
+      expect(survived.status).toBe('Survived');
+    } finally {
+      await Promise.all([a.close(), b.close()]);
+    }
+  });
+});

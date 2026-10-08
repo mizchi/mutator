@@ -13,6 +13,14 @@ export interface SessionOptions extends PluginOptions {
   root: string;
   /** Path to a vitest config file; defaults to vitest's own lookup from `root`. */
   configFile?: string;
+  /** Worker threads of this Vitest instance (sessions running mutants in parallel use 1 each). */
+  maxWorkers?: number;
+}
+
+/** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
+export interface TestLocation {
+  moduleId: string;
+  taskId: string;
 }
 
 export interface DryRunResult {
@@ -25,6 +33,8 @@ export interface DryRunResult {
   failed: string[];
   /** total hits per mutant, used to derive hit limits */
   hits: Map<string, number>;
+  /** test id -> location, to hand to other sessions via `useTestIndex` */
+  index: Map<string, TestLocation>;
 }
 
 export interface RunMutantOptions {
@@ -43,12 +53,9 @@ export interface Session {
   mutants(): Mutant[];
   dryRun(): Promise<DryRunResult>;
   runMutant(key: string, testIds: readonly string[], options: RunMutantOptions): Promise<MutantRunResult>;
+  /** Reuse the test index of another session's dry run instead of running one. */
+  useTestIndex(index: ReadonlyMap<string, TestLocation>): void;
   close(): Promise<void>;
-}
-
-interface TestLocation {
-  moduleId: string;
-  taskId: string;
 }
 
 export async function createSession(options: SessionOptions): Promise<Session> {
@@ -69,8 +76,13 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const result = await run(null, DEFAULT_HIT_LIMIT, specs);
       const dry = collectDryRun(result, options.root);
       locations.clear();
-      for (const [id, location] of dry.locations) locations.set(id, location);
-      return dry.result;
+      for (const [id, location] of dry.index) locations.set(id, location);
+      return dry;
+    },
+
+    useTestIndex(index) {
+      locations.clear();
+      for (const [id, location] of index) locations.set(id, location);
     },
 
     async runMutant(key, testIds, { timeoutMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
@@ -118,6 +130,7 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
       ...(options.configFile ? { config: options.configFile } : {}),
       watch: false,
       reporters: [],
+      ...(options.maxWorkers ? { maxWorkers: options.maxWorkers } : {}),
       bail: 1,
       isolate: true,
       includeTaskLocation: true,
@@ -141,13 +154,13 @@ function testId(root: string, test: TestCase): string {
   return `${relative(root, test.module.moduleId)}#${test.fullName}`;
 }
 
-function collectDryRun(result: TestRunResult, root: string) {
+function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const tests: TestInfo[] = [];
   const coverage = new Map<string, string[]>();
   const hits = new Map<string, number>();
   const staticKeys = new Set<string>();
   const failed: string[] = [];
-  const locations = new Map<string, TestLocation>();
+  const index = new Map<string, TestLocation>();
   const seen = new Map<string, number>();
 
   for (const module of result.testModules) {
@@ -163,7 +176,7 @@ function collectDryRun(result: TestRunResult, root: string) {
       const n = (seen.get(id) ?? 0) + 1;
       seen.set(id, n);
       if (n > 1) id = `${id}#${n}`;
-      locations.set(id, { moduleId: module.moduleId, taskId: test.id });
+      index.set(id, { moduleId: module.moduleId, taskId: test.id });
       const state = test.result().state;
       if (state === 'skipped') continue;
       if (state === 'failed') failed.push(id);
@@ -178,7 +191,7 @@ function collectDryRun(result: TestRunResult, root: string) {
     }
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { result: { tests, coverage, staticKeys, failed, hits }, locations };
+  return { tests, coverage, staticKeys, failed, hits, index };
 }
 
 function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {

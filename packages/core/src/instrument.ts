@@ -1,6 +1,7 @@
 import MagicString from 'magic-string';
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
 import { type Frame, type Node, isFunction, walk } from './ast.ts';
+import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { RUNTIME_ACT, RUNTIME_COV, runtimeHeader } from './runtime.ts';
@@ -34,6 +35,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const locate = (r: Range): Location => ({ start: position(lines, r.start), end: position(lines, r.end) });
   const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals));
   const excluded = new Set(options.excludedMutators ?? []);
+  const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
 
   const tracker = new ScopeTracker(source, scopeHash);
@@ -87,8 +89,11 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       replacement: candidate.replacement,
       scope,
     };
-    const placement = findPlacement(candidate.anchor);
-    if (!placement) {
+    const reason = disabled(candidate.mutator, candidate.range.start);
+    const placement = reason ? undefined : findPlacement(candidate.anchor);
+    if (reason) {
+      mutant.ignored = reason;
+    } else if (!placement) {
       mutant.ignored = 'unplaceable';
     } else {
       const entry = placements.get(placement.frame.node) ?? { ...placement, mutants: [] };

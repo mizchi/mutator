@@ -47,7 +47,7 @@ export interface RunOptions {
 
 export interface ReportEntry {
   mutant: Mutant;
-  status: MutantStatus | 'Pending';
+  status: MutantStatus;
   /** run: executed now, reuse: taken from the snapshot, skipped: outside --since and no cached result */
   source: 'run' | 'reuse' | 'static' | 'skipped';
   killedBy: string[];
@@ -134,6 +134,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           break;
         case 'run':
           if (inScope && !inScope.has(mutant.key)) {
+            // Keep the coverage so the next run can still select tests for it.
+            results.push(toResult(mutant, 'Pending', [], merged.coverage.get(mutant.key) ?? []));
             report.push({ mutant, status: 'Pending', source: 'skipped', killedBy: [] });
           } else {
             jobs.push({ index: report.length, entry });
@@ -216,7 +218,7 @@ function diffScope(root: string, since: string, mutants: readonly Mutant[], dry:
   return selected;
 }
 
-/** Keep cached results of mutants that still exist but were not part of this run (e.g. outside --since). */
+/** Keep cached results of mutants that still exist but were not part of this run. */
 function mergeSnapshot(previous: RunSnapshot | undefined, current: RunSnapshot, mutants: readonly Mutant[]): RunSnapshot {
   if (!previous || previous.toolVersion !== current.toolVersion || previous.envHash !== current.envHash) return current;
   const written = new Set(current.results.map((r) => r.key));

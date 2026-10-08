@@ -97,7 +97,9 @@ export type MutantStatus =
   | 'NoCoverage'
   | 'Timeout'
   | 'RuntimeError'
-  | 'Ignored';
+  | 'Ignored'
+  /** Planned for execution but not run (e.g. outside --since); kept for its coverage, never reused. */
+  | 'Pending';
 
 export interface MutantResult {
   key: string;

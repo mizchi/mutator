@@ -12,7 +12,7 @@ export function formatSummary(report: Report, root: string): string {
     ORDER.filter((s) => counts.has(s))
       .map((s) => `${s} ${counts.get(s)}`)
       .join(' · '),
-    `score: ${(report.score * 100).toFixed(1)}%  (${(report.durationMs / 1000).toFixed(1)}s)`,
+    `score: ${(report.score * 100).toFixed(1)}%${counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
   const survivors = report.entries.filter((e) => e.status === 'Survived' || e.status === 'NoCoverage');
   if (survivors.length > 0) {

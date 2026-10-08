@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +82,36 @@ describe('portable snapshot', { timeout: 60_000 }, () => {
     } finally {
       rmSync(a, { recursive: true, force: true });
       rmSync(b, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('--since keeps invalidation for out-of-diff mutants', { timeout: 60_000 }, () => {
+  test('mutants planned for re-run but outside the diff are not cached as fresh', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `since-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    try {
+      git('init', '-q', '-b', 'main');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'init');
+      await runMutation({ root, concurrency: 1 });
+
+      // `combo` covers both functions: editing `double` invalidates isPositive's results too.
+      const file = join(root, 'src/a.ts');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('return n * 2;', 'return n + n;'));
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD' });
+      const pending = since.entries.filter((e) => e.source === 'skipped').map((e) => e.mutant.scope.id);
+      expect(new Set(pending)).toEqual(new Set(['isPositive']));
+
+      const full = await runMutation({ root, concurrency: 1 });
+      const rerun = full.entries.filter((e) => e.source === 'run').map((e) => e.mutant.key).sort();
+      expect(rerun).toEqual(since.entries.filter((e) => e.source === 'skipped').map((e) => e.mutant.key).sort());
+      expect(full.entries.some((e) => e.status === 'NoCoverage' && e.mutant.scope.id === 'isPositive')).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

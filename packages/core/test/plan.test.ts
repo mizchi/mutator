@@ -485,3 +485,12 @@ describe('mergeCoverage', () => {
     expect(mergeCoverage(undefined, cov({}), [], [a]).get('a')).toEqual([]);
   });
 });
+
+describe('Pending results', () => {
+  it('is never reused, but its coverage still selects tests', () => {
+    const m = mutant('k1');
+    const t1 = test('t1');
+    const previous = snapshot([result(m, 'Pending', ['t1'])], [t1]);
+    expect(runTests(only(plan(input({ mutants: [m], tests: [t1], previous }))))).toEqual(['t1']);
+  });
+});

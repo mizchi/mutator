@@ -9,3 +9,7 @@ test('isPositive', () => {
   expect(isPositive(1)).toBe(true);
   expect(isPositive(-1)).toBe(false);
 });
+
+test('combo', () => {
+  expect(isPositive(double(1))).toBe(true);
+});

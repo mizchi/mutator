@@ -15,6 +15,8 @@ export interface SessionOptions extends PluginOptions {
   configFile?: string;
   /** Worker threads of this Vitest instance (sessions running mutants in parallel use 1 each). */
   maxWorkers?: number;
+  /** Stop a mutant run at the first failing test (default: true). */
+  earlyExit?: boolean;
 }
 
 /** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
@@ -63,9 +65,37 @@ export interface Session {
   close(): Promise<void>;
 }
 
+/**
+ * Observes failures while a mutant run is in flight. Kills are taken from these
+ * observations instead of the final task states, because a cancelled run may
+ * report its failed test as pending.
+ */
+class FailureWatch {
+  failed: TestCase[] = [];
+  private onFailure: (() => void) | undefined;
+
+  arm(onFailure: (() => void) | undefined): void {
+    this.failed = [];
+    this.onFailure = onFailure;
+  }
+
+  disarm(): TestCase[] {
+    this.onFailure = undefined;
+    return this.failed;
+  }
+
+  onTestCaseResult(test: TestCase): void {
+    if (!this.onFailure || test.result().state !== 'failed') return;
+    this.failed.push(test);
+    const notify = this.onFailure;
+    if (this.failed.length === 1) notify();
+  }
+}
+
 export async function createSession(options: SessionOptions): Promise<Session> {
   const registry = new MutantRegistry();
-  let vitest = await start(options, registry);
+  const watch = new FailureWatch();
+  let vitest = await start(options, registry, watch);
   const locations = new Map<string, TestLocation>();
 
   const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0]) => {
@@ -112,17 +142,20 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const timeout = new Promise<'timeout'>((resolve) => {
         timer = setTimeout(() => resolve('timeout'), timeoutMs);
       });
+      const current = vitest;
+      watch.arm(options.earlyExit === false ? () => {} : () => void current.cancelCurrentRun('test-failure'));
       const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
       clearTimeout(timer);
+      const observed = watch.disarm();
       const durationMs = performance.now() - started;
       if (outcome === 'timeout') {
         // A worker may be stuck in a synchronous loop; start over with a fresh instance.
         await closeQuietly(vitest);
-        vitest = await start(options, registry);
+        vitest = await start(options, registry, watch);
         await vitest.globTestSpecifications();
         return { status: 'Timeout', killedBy: [], durationMs };
       }
-      return { ...classify(outcome, options.root, new Set(testIds)), durationMs };
+      return { ...classify(outcome, options.root, new Set(testIds), observed), durationMs };
     },
 
     async close() {
@@ -131,16 +164,17 @@ export async function createSession(options: SessionOptions): Promise<Session> {
   };
 }
 
-async function start(options: SessionOptions, registry: MutantRegistry): Promise<Vitest> {
+async function start(options: SessionOptions, registry: MutantRegistry, watch: FailureWatch): Promise<Vitest> {
   const vitest = await createVitest(
     'test',
     {
       root: options.root,
       ...(options.configFile ? { config: options.configFile } : {}),
       watch: false,
-      reporters: [],
+      reporters: [watch],
       ...(options.maxWorkers ? { maxWorkers: options.maxWorkers } : {}),
-      bail: 1,
+      // bail is not used: vitest 5 may report a bailed run without its failed test.
+      bail: 0,
       isolate: true,
       includeTaskLocation: true,
       coverage: { enabled: false },
@@ -211,8 +245,8 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   return { tests, coverage, staticKeys, failed, hits, index, staticByFile };
 }
 
-function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
-  const killedBy: string[] = [];
+function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>, observed: readonly TestCase[]): Omit<MutantRunResult, 'durationMs'> {
+  const killedBy: string[] = observed.map((test) => testId(root, test));
   let moduleError = false;
   for (const module of result.testModules as readonly TestModule[]) {
     if (module.errors().length > 0) {
@@ -221,6 +255,7 @@ function classify(result: TestRunResult, root: string, selected: ReadonlySet<str
     }
     for (const test of module.children.allTests()) {
       const id = testId(root, test);
+      if (killedBy.includes(id)) continue;
       if (test.result().state === 'failed' && (selected.size === 0 || selected.has(id) || [...selected].some((s) => s.startsWith(`${id}#`)))) {
         killedBy.push(id);
       }

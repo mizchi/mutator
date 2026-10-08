@@ -83,3 +83,32 @@ describe('parallel sessions', () => {
     }
   });
 });
+
+describe('determinism', () => {
+  test('a mutant killed in many files is killed on every repetition', { timeout: 120_000 }, async () => {
+    const manyRoot = fileURLToPath(new URL('./fixtures/many', import.meta.url));
+    const session = await createSession({ root: manyRoot, include: (file) => file.includes('/src/') });
+    try {
+      const dry = await session.dryRun();
+      const mutant = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!;
+      const tests = dry.coverage.get(mutant.key)!;
+      expect(tests).toHaveLength(6);
+      const verdicts: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        verdicts.push((await session.runMutant(mutant.key, tests, { timeoutMs: 30_000 })).status);
+      }
+      expect(verdicts).toEqual(Array(10).fill('Killed'));
+
+      // A cancelled (early-exited) run must not leak into the next one.
+      const survivor = session.mutants().find((m) => m.original === 'x >= 0' && m.replacement === 'x > 0')!;
+      const alternating: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        alternating.push((await session.runMutant(mutant.key, tests, { timeoutMs: 30_000 })).status);
+        alternating.push((await session.runMutant(survivor.key, dry.coverage.get(survivor.key)!, { timeoutMs: 30_000 })).status);
+      }
+      expect(alternating).toEqual(Array(5).fill(['Killed', 'Survived']).flat());
+    } finally {
+      await session.close();
+    }
+  });
+});

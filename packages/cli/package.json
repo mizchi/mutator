@@ -1,0 +1,19 @@
+{
+  "name": "@mizchi/mutator",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Diff-driven mutation testing for Vitest",
+  "bin": {
+    "mutator": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@mizchi/mutator-core": "workspace:*",
+    "@mizchi/mutator-vitest": "workspace:*"
+  }
+}

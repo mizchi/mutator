@@ -278,3 +278,25 @@ describe('identity option', () => {
     expect(instrument('/home/me/repo/src/m.js', src).mutants.map((m) => m.key)).not.toEqual(b);
   });
 });
+
+describe('identity (review regressions)', () => {
+  test('methods of different object literals are named after their owner', () => {
+    const src = 'const tested = { run() { return 1 + 1; } };\nconst untested = { run() { return 2 + 2; } };';
+    const ids = new Set(instrument('m.js', src).mutants.map((m) => m.scope.id).filter((id) => !id.startsWith('<top')));
+    expect(ids).toEqual(new Set(['tested.run', 'untested.run']));
+  });
+
+  test('swapping two object literals keeps each method identity', () => {
+    const a = 'const tested = { run() { return 1 + 1; } };\nconst untested = { run() { return 1 + 1; } };';
+    const b = 'const untested = { run() { return 1 + 1; } };\nconst tested = { run() { return 1 + 1; } };';
+    const keys = (src: string) => Object.fromEntries(instrument('m.js', src).mutants.map((m) => [`${m.scope.id} ${m.mutator} ${m.replacement}`, m.key]));
+    expect(keys(b)).toEqual(keys(a));
+  });
+
+  test('scope hash distinguishes whitespace that changes meaning', () => {
+    const hashOf = (body: string) => instrument('m.js', `function f(a, b) { ${body} }`).mutants.find((m) => m.scope.id === 'f')!.scope.hash;
+    expect(hashOf('return a + ++b;')).not.toBe(hashOf('return a++ + b;'));
+    expect(hashOf('return a - -b;')).not.toBe(hashOf('return a-- - b;'));
+    expect(hashOf('if (a) return\na + b;')).not.toBe(hashOf('if (a) return a + b;'));
+  });
+});

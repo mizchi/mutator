@@ -9,16 +9,26 @@ export interface ScopeInfo {
 }
 
 const WORD = /[\p{L}\p{N}_$]/u;
+const SIGN = /[+-]/;
 
 /**
  * Normalize source for hashing: drop comments and insignificant whitespace,
- * keep string / template contents verbatim.
+ * keep string / template contents verbatim. Whitespace that can change meaning
+ * survives: line breaks (ASI) and spaces between words or between `+` / `-`.
  */
 export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[]): string {
   const skip = comments.filter((c) => c.start >= range.start && c.end <= range.end);
   const keep = literals.filter((l) => l.start >= range.start && l.end <= range.end);
   let out = '';
-  let pendingSpace = false;
+  let gap: '' | ' ' | '\n' = '';
+  const emit = (text: string) => {
+    const prev = out.at(-1) ?? '';
+    const next = text[0] ?? '';
+    if (gap === '\n' && out) out += '\n';
+    else if (gap === ' ' && ((WORD.test(prev) && WORD.test(next)) || (SIGN.test(prev) && SIGN.test(next)))) out += ' ';
+    gap = '';
+    out += text;
+  };
   let i = range.start;
   let ci = 0;
   let li = 0;
@@ -27,26 +37,21 @@ export function normalize(source: string, range: Range, comments: readonly Range
     while (li < keep.length && keep[li]!.end <= i) li++;
     const c = skip[ci];
     if (c && c.start === i) {
-      pendingSpace = true;
+      if (gap === '') gap = ' ';
       i = c.end;
       continue;
     }
     const l = keep[li];
     if (l && l.start === i) {
-      if (pendingSpace && WORD.test(out.at(-1) ?? '') && WORD.test(source[i]!)) out += ' ';
-      pendingSpace = false;
-      out += source.slice(l.start, l.end);
+      emit(source.slice(l.start, l.end));
       i = l.end;
       continue;
     }
     const ch = source[i]!;
-    if (/\s/.test(ch)) {
-      pendingSpace = true;
-    } else {
-      if (pendingSpace && WORD.test(out.at(-1) ?? '') && WORD.test(ch)) out += ' ';
-      pendingSpace = false;
-      out += ch;
-    }
+    if (ch === '\n') gap = '\n';
+    else if (/\s/.test(ch)) {
+      if (gap === '') gap = ' ';
+    } else emit(ch);
     i++;
   }
   return out;
@@ -81,14 +86,43 @@ export function functionName(frame: Frame, source: string): string | undefined {
   }
 }
 
-/** Name of the class owning a method frame (`MethodDefinition` → `ClassBody` → `Class`). */
-export function ownerClassName(frame: Frame, source: string): string | undefined {
+/**
+ * Name of the class or object literal owning a method / property function,
+ * e.g. `K` for `class K { m() {} }` and `api` for `const api = { run() {} }`.
+ */
+export function ownerName(frame: Frame, source: string): string | undefined {
   const parent = frame.parent;
-  if (!parent || (parent.node.type !== 'MethodDefinition' && parent.node.type !== 'PropertyDefinition')) return undefined;
-  const cls = parent.parent?.parent;
-  if (!cls) return undefined;
-  if (cls.node.id) return cls.node.id.name;
-  return cls.parent ? functionName(cls, source) : undefined;
+  if (!parent) return undefined;
+  if (parent.node.type === 'MethodDefinition' || parent.node.type === 'PropertyDefinition') {
+    const cls = parent.parent?.parent;
+    if (!cls) return undefined;
+    if (cls.node.id) return cls.node.id.name;
+    return cls.parent ? functionName(cls, source) : undefined;
+  }
+  if (parent.node.type === 'Property' && parent.parent?.node.type === 'ObjectExpression') {
+    return objectName(parent.parent, source);
+  }
+  return undefined;
+}
+
+function objectName(object: Frame, source: string): string | undefined {
+  const holder = object.parent;
+  if (!holder) return undefined;
+  switch (holder.node.type) {
+    case 'VariableDeclarator':
+      return holder.node.id.type === 'Identifier' ? holder.node.id.name : undefined;
+    case 'AssignmentExpression':
+      return source.slice(holder.node.left.start, holder.node.left.end).replace(/\s+/g, '');
+    case 'ExportDefaultDeclaration':
+      return 'default';
+    case 'Property': {
+      const outer = holder.parent && objectName(holder.parent, source);
+      const key = keyName(holder.node.key, source);
+      return outer ? `${outer}.${key}` : key;
+    }
+    default:
+      return undefined;
+  }
 }
 
 export class ScopeTracker {
@@ -115,7 +149,7 @@ export class ScopeTracker {
     if (isFunction(node)) {
       const parentId = this.current && !this.current.id.startsWith('<top') ? this.current.id : '';
       let name = functionName(frame, this.source);
-      const owner = ownerClassName(frame, this.source);
+      const owner = ownerName(frame, this.source);
       if (name && owner) name = `${owner}.${name}`;
       if (!name) {
         const n = (this.anonCounters.get(parentId) ?? 0) + 1;

@@ -20,6 +20,7 @@ import {
 } from '@mizchi/mutator-core';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
+import { type CliSnapshot, mergeDryRun, planDryRun } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
@@ -37,6 +38,8 @@ export interface RunOptions {
   configFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
+  /** Collect coverage from every test file even when the snapshot could be reused. */
+  fullDryRun?: boolean;
   /** Parallel Vitest instances running mutants (default: half the CPUs). */
   concurrency?: number;
   log?: (message: string) => void;
@@ -53,6 +56,8 @@ export interface ReportEntry {
 export interface Report {
   entries: ReportEntry[];
   executed: number;
+  /** Test files (relative) whose coverage was collected in this run; the rest came from the snapshot. */
+  dryRunFiles: string[];
   /** detected / (detected + undetected), ignoring Ignored and Pending */
   score: number;
   durationMs: number;
@@ -83,25 +88,31 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const session = await createSession(sessionOptions);
   const sessions = [session];
   try {
-    log(`dry run (${files.length} source files)`);
-    const dry = await session.dryRun();
-    if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
-
-    const mutants = collectMutants(session.mutants(), files);
+    const testFiles = Object.fromEntries((await session.testFiles()).map((f) => [relative(root, f), hash(readFileSync(f, 'utf8'))]));
+    const mutants = collectMutants([], files);
     const envHash = hash([process.version, ...ENV_FILES.map((f) => readIfExists(join(root, f)))].join('\0'));
-    const previous = readSnapshot(snapshotPath);
+    const previous = readSnapshot(snapshotPath) as CliSnapshot | undefined;
+    const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
+    const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, mutants });
+    const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
+    log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
+    const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
+    if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
+    const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
+    session.useTestIndex(merged.index);
+
     const entries = plan({
       mutants,
-      tests: dry.tests,
-      coverage: dry.coverage,
-      staticKeys: dry.staticKeys,
-      previous,
+      tests: merged.tests,
+      coverage: merged.coverage,
+      staticKeys: merged.staticKeys,
+      previous: valid ? previous : undefined,
       toolVersion: TOOL_VERSION,
       envHash,
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
-    const inScope = options.since ? diffScope(root, options.since, mutants, dry, options.scope ?? 'node') : undefined;
+    const inScope = options.since ? diffScope(root, options.since, mutants, merged, options.scope ?? 'node') : undefined;
     const report: ReportEntry[] = [];
     const results: MutantResult[] = [];
   
@@ -138,7 +149,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       Array.from({ length: concurrency - 1 }, () => createSession({ ...sessionOptions, maxWorkers: 1 })),
     );
     sessions.push(...extra);
-    for (const s of extra) s.useTestIndex(dry.index);
+    for (const s of extra) s.useTestIndex(merged.index);
     let executed = 0;
     let next = 0;
     await Promise.all(
@@ -149,18 +160,27 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           const outcome = await worker.runMutant(mutant.key, entry.tests, {
             timeoutMs: entry.timeoutMs,
             isStatic: entry.isStatic,
-            hitLimit: Math.max(10_000, (dry.hits.get(mutant.key) ?? 0) * 100),
+            hitLimit: Math.max(10_000, (merged.hits.get(mutant.key) ?? 0) * 100),
           });
           executed++;
           log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-          results.push(toResult(mutant, outcome.status, outcome.killedBy, dry.coverage.get(mutant.key) ?? [], outcome.durationMs));
+          results.push(toResult(mutant, outcome.status, outcome.killedBy, merged.coverage.get(mutant.key) ?? [], outcome.durationMs));
           report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy };
         }
       }),
     );
 
-    writeSnapshot(snapshotPath, mergeSnapshot(previous, { toolVersion: TOOL_VERSION, envHash, results, tests: dry.tests }, mutants));
-    return { entries: report, executed, score: score(report), durationMs: performance.now() - started };
+    const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: TOOL_VERSION, envHash, results, tests: merged.tests }, mutants);
+    const snapshot: CliSnapshot = {
+      ...core,
+      testFiles,
+      index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
+      staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
+      touched: merged.touched,
+      hits: Object.fromEntries(merged.hits),
+    };
+    writeSnapshot(snapshotPath, snapshot);
+    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(report), durationMs: performance.now() - started };
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
   }

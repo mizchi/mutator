@@ -35,6 +35,8 @@ export interface DryRunResult {
   hits: Map<string, number>;
   /** test id -> location, to hand to other sessions via `useTestIndex` */
   index: Map<string, TestLocation>;
+  /** test file (relative to root) -> mutants hit while that file's modules were loading */
+  staticByFile: Map<string, Set<string>>;
 }
 
 export interface RunMutantOptions {
@@ -51,7 +53,10 @@ export interface MutantRunResult {
 
 export interface Session {
   mutants(): Mutant[];
-  dryRun(): Promise<DryRunResult>;
+  /** Absolute paths of the project's test files. */
+  testFiles(): Promise<string[]>;
+  /** Run tests without mutants (optionally only the given test files) and collect coverage. */
+  dryRun(files?: readonly string[]): Promise<DryRunResult>;
   runMutant(key: string, testIds: readonly string[], options: RunMutantOptions): Promise<MutantRunResult>;
   /** Reuse the test index of another session's dry run instead of running one. */
   useTestIndex(index: ReadonlyMap<string, TestLocation>): void;
@@ -71,11 +76,15 @@ export async function createSession(options: SessionOptions): Promise<Session> {
   return {
     mutants: () => registry.all(),
 
-    async dryRun() {
-      const specs = await vitest.globTestSpecifications();
-      const result = await run(null, DEFAULT_HIT_LIMIT, specs);
-      const dry = collectDryRun(result, options.root);
-      locations.clear();
+    async testFiles() {
+      return [...new Set((await vitest.globTestSpecifications()).map((s) => s.moduleId))].sort();
+    },
+
+    async dryRun(files) {
+      const all = await vitest.globTestSpecifications();
+      const wanted = files && new Set(files);
+      const specs = wanted ? all.filter((s) => wanted.has(s.moduleId)) : all;
+      const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root) : emptyDryRun();
       for (const [id, location] of dry.index) locations.set(id, location);
       return dry;
     },
@@ -154,6 +163,10 @@ function testId(root: string, test: TestCase): string {
   return `${relative(root, test.module.moduleId)}#${test.fullName}`;
 }
 
+function emptyDryRun(): DryRunResult {
+  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map() };
+}
+
 function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const tests: TestInfo[] = [];
   const coverage = new Map<string, string[]>();
@@ -161,12 +174,16 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const staticKeys = new Set<string>();
   const failed: string[] = [];
   const index = new Map<string, TestLocation>();
+  const staticByFile = new Map<string, Set<string>>();
   const seen = new Map<string, number>();
 
   for (const module of result.testModules) {
     const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number> };
+    const moduleStatic = new Set<string>();
+    staticByFile.set(relative(root, module.moduleId), moduleStatic);
     for (const [key, n] of Object.entries(moduleMeta.mutatorStatic ?? {})) {
       staticKeys.add(key);
+      moduleStatic.add(key);
       hits.set(key, (hits.get(key) ?? 0) + n);
     }
     if (module.errors().length > 0) failed.push(relative(root, module.moduleId));
@@ -191,7 +208,7 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
     }
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { tests, coverage, staticKeys, failed, hits, index };
+  return { tests, coverage, staticKeys, failed, hits, index, staticByFile };
 }
 
 function classify(result: TestRunResult, root: string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {

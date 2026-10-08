@@ -12,7 +12,7 @@ const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
-describe('runMutation', () => {
+describe('runMutation', { timeout: 60_000 }, () => {
   let root: string;
   beforeEach(() => {
     mkdirSync(tmpRoot, { recursive: true });

@@ -17,6 +17,11 @@ export interface SessionOptions extends PluginOptions {
   maxWorkers?: number;
   /** Stop a mutant run at the first failing test (default: true). */
   earlyExit?: boolean;
+  /**
+   * Vitest pool (default: 'threads'). Threads stuck in a mutant's infinite loop are
+   * terminated with the instance; forked workers can outlive it as orphans.
+   */
+  pool?: 'threads' | 'forks';
 }
 
 /** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
@@ -203,6 +208,7 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
       // bail is not used: vitest 5 may report a bailed run without its failed test.
       bail: 0,
       isolate: true,
+      pool: options.pool ?? 'threads',
       includeTaskLocation: true,
       coverage: { enabled: false },
       onConsoleLog: () => false,

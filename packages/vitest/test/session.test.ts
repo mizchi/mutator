@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { type Session, createSession } from '../src/session.ts';
@@ -180,5 +181,35 @@ describe('edge cases', () => {
     expect(survived.status).toBe('Survived');
     const killed = await session.runMutant(isPosFalse(), ['test/dupes.test.ts#case#2'], { timeoutMs: 10_000 });
     expect(killed).toMatchObject({ status: 'Killed', killedBy: ['test/dupes.test.ts#case#2'] });
+  });
+});
+
+describe('process hygiene', () => {
+  const descendants = (): number[] => {
+    const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((line) => line.trim().split(/\s+/))
+      .filter(([, , comm]) => !comm?.endsWith('ps')) // the `ps` listing itself
+      .map(([pid, ppid]) => [Number(pid), Number(ppid)] as [number, number]);
+    const out: number[] = [];
+    const walk = (pid: number) => {
+      for (const [child, parent] of rows) if (parent === pid && child !== pid) out.push(child), walk(child);
+    };
+    walk(process.pid);
+    return out;
+  };
+
+  test('a timed-out (infinite loop) run leaves no process behind after close', { timeout: 60_000 }, async () => {
+    const before = new Set(descendants());
+    const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
+    const session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
+    await session.dryRun();
+    const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
+    const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
+    expect(result.status).toBe('Timeout');
+    await session.close();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(descendants().filter((pid) => !before.has(pid))).toEqual([]);
   });
 });

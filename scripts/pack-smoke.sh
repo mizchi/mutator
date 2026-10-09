@@ -6,7 +6,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/pack" "$work/app"
-for p in core vitest typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
+for p in core vitest jest typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
 cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test,vitest.config.ts} "$work/app/"
 cat > "$work/app/package.json" <<JSON
 {
@@ -25,9 +25,31 @@ overrides:
   "@mizchi/mutator-core": "file:$work/pack/mizchi-mutator-core-0.0.0.tgz"
   "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-0.0.0.tgz"
   "@mizchi/mutator-typecheck": "file:$work/pack/mizchi-mutator-typecheck-0.0.0.tgz"
+  "@mizchi/mutator-jest": "file:$work/pack/mizchi-mutator-jest-0.0.0.tgz"
 YAML
 cd "$work/app"
 pnpm install --prefer-offline >/dev/null
 ./node_modules/.bin/mutator -j 1 | tee "$work/out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/out.txt"
+
+# Jest (native ESM) project
+mkdir -p "$work/jest-app"
+cp -r "$repo/packages/jest/test/fixtures/esm/"{src,__tests__,jest.config.js} "$work/jest-app/"
+cat > "$work/jest-app/package.json" <<JSON
+{
+  "name": "pack-smoke-jest",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-0.0.0.tgz",
+    "jest": "30.5.2"
+  }
+}
+JSON
+cp "$work/app/pnpm-workspace.yaml" "$work/jest-app/"
+printf 'allowBuilds:\n  "@parcel/watcher": false\n  unrs-resolver: false\n' >> "$work/jest-app/pnpm-workspace.yaml"
+cd "$work/jest-app"
+pnpm install --prefer-offline >/dev/null
+./node_modules/.bin/mutator -j 2 | tee "$work/jest-out.txt"
+grep -q 'age >= 18 -> age > 18' "$work/jest-out.txt"
 echo "pack-smoke: ok"

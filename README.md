@@ -1,6 +1,6 @@
 # mutator
 
-Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest.
+Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest (and, experimentally, Jest in native ESM mode).
 
 - **oxc-based instrumentation** – all mutants are compiled into the source once (mutation switching) by a pure function; formatting is preserved and a sourcemap is emitted.
 - **In-memory** – sources are instrumented by a Vite `transform` hook inside Vitest; no sandbox copy of the project.
@@ -16,7 +16,7 @@ node packages/cli/src/cli.ts --root <project>               # second run reuses 
 node packages/cli/src/cli.ts --root <project> --since main  # PR mode
 ```
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--config <vitest config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -54,6 +54,7 @@ export default defineConfig({
   exclude: ['src/generated/**'],
   scope: 'node',                          // 'node' | 'scope'
   concurrency: 4,
+  runner: 'auto',                         // 'vitest' | 'jest' | 'auto'
   vitestConfig: 'vitest.config.ts',
   arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
   experimentalCallgraph: false,
@@ -133,6 +134,24 @@ Mutants of TypeScript files are type-checked with the project's own `typescript`
 
 `typecheck: 'auto'` (default) enables it when `typescript` and `tsconfig.json` are present; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
 
+## Jest (experimental)
+
+`--runner jest` (or `runner: 'jest'`; `auto`, the default, picks Jest when the root has a `jest.config.*` or a `jest` field in package.json and no Vitest config) runs the same pipeline on a Jest 30 project. Jest is resolved from the project root.
+
+**Supported**
+
+- Native ESM projects only (`"type": "module"`); Jest is run as `node --experimental-vm-modules`. CommonJS is not a target.
+- JavaScript, and TypeScript without babel / ts-jest: with `transform: {}` the mutator strips types with Node's built-in `stripTypeScriptTypes` (erasable syntax only; set `extensionsToTreatAsEsm: ['.ts']`). A transformer configured by the project (babel-jest, a custom one, ...) is kept: target files are instrumented first and then handed to it.
+- Per-test coverage, static (module-level) mutants, killed / survived verdicts, hit-limit and wall-clock timeouts, `--since`, result reuse, `-j`, `--typecheck`.
+- Plugins given as module paths or package names (`plugins` / `--plugin`); the Jest transformer loads them in its own process. Plugin objects passed through the programmatic API are rejected for Jest.
+- `--config <file>` / `jestConfig` selects the Jest config.
+
+**How it differs from Vitest**
+
+- Every dry run and every mutant run is a separate Jest process (killed with its process group on timeout). That costs Jest's start-up per mutant (about 0.2–0.3 s on a small project) instead of re-running in a warm in-memory Vite pipeline.
+- No dependency tracking of test helpers: editing a helper a test file imports does not re-collect that file's coverage; use `--full-dry-run` after such edits.
+- Not supported: Jest `projects`, `test.concurrent` (hits are attributed to whichever test runs), retried tests, JS config files that contain functions (the config is re-serialized as JSON), `.tsx` without a project transformer, Jest's own coverage while mutating.
+
 ## CI (pull requests)
 
 Cache the snapshot per base branch so a PR only runs mutants its diff can affect:
@@ -155,8 +174,9 @@ Snapshots store paths relative to the project root, so a cache restored in anoth
 
 | package | role |
 |---|---|
-| `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner. No fs / runner dependency. |
+| `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
+| `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
 | `@mizchi/mutator` | CLI / orchestration: git, snapshot, report. |
 
 ## Development

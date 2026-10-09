@@ -115,8 +115,8 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] path-portable な key / snapshot (CI キャッシュ可)
 - [x] early exit は vitest `bail` ではなく reporter 観測 + cancel (bail は kill を取りこぼす)
 - [x] FnValue mutator (TS 戻り値型)、Regex (weapon-regex level 1 相当の自前実装)、CallExpression (`call();` → `;`、throw は対象外)、`for (;;)` → `for (;false;)`
-- [ ] arid node 抑制
-- [ ] test fingerprint を module graph 込みにする (現状はテストファイル内容のみ)
+- [x] arid node 抑制 (logging 系 callee、Google の compound 規則。`--no-arid` / `--arid-callee`)
+- [x] test fingerprint を module graph 込みにする (ヘルパー / fixture の内容、mutate 対象ソースは residual hash)
 - [x] ~~1 run で複数 mutant~~ 試して取り下げ: 速くなったのは run 内の Vitest worker 並列の分で、固定コスト償却ではなかった。`-j 1` では 186s→116s だが既定の `-j 6` では 57s→85s と悪化 (early exit が効きにくく tail が伸びる)
 
 ## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, 負荷なし)

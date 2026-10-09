@@ -16,6 +16,7 @@ const USAGE = `usage: mutator [options]
   --exclude <glob>     sources to skip, repeatable
   --runner <name>      vitest, jest (experimental, native ESM only) or auto (default)
   --config <file>      test runner config file (vitest or jest)
+  --jest-config <file>  jest config file (implies --runner jest)
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)

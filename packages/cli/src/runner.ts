@@ -2,7 +2,7 @@
 // Vitest project never loads the Jest adapter (and vice versa).
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import type { InstrumentOptions, Session } from '@mizchi/mutator-core';
 
 export type Runner = 'vitest' | 'jest';
@@ -12,12 +12,7 @@ const VITEST_CONFIGS = ['vitest', 'vite'].flatMap((name) => EXTENSIONS.map((ext)
 const JEST_CONFIGS = [...EXTENSIONS, 'json'].map((ext) => `jest.config.${ext}`);
 
 /** vitest / jest config files in the root decide; otherwise whichever runner resolves from the root. */
-export function detectRunner(root: string, configFile?: string): Runner {
-  if (configFile) {
-    const name = basename(configFile);
-    if (name.startsWith('jest')) return 'jest';
-    if (name.startsWith('vite')) return 'vitest';
-  }
+export function detectRunner(root: string): Runner {
   if (VITEST_CONFIGS.some((f) => existsSync(join(root, f)))) return 'vitest';
   if (JEST_CONFIGS.some((f) => existsSync(join(root, f))) || hasJestField(root)) return 'jest';
   if (resolves(root, 'vitest/package.json')) return 'vitest';

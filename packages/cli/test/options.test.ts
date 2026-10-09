@@ -133,3 +133,11 @@ describe('plugins options', () => {
     expect((await resolve(root, '--plugin', './b.ts', '--exclude-mutator', 'FnValue')).run).toMatchObject({ plugins: ['./b.ts'], excludedMutators: ['FnValue'] });
   });
 });
+
+describe('runner config files', () => {
+  test('--config is the vitest config and --jest-config the jest config', async () => {
+    const root = project();
+    const options = await resolve(root, '--config', 'vitest.unit.ts', '--jest-config', 'jest.unit.mjs');
+    expect(options.run).toMatchObject({ configFile: `${root}/vitest.unit.ts`, jestConfigFile: `${root}/jest.unit.mjs` });
+  });
+});

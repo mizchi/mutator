@@ -47,7 +47,7 @@ export interface RunOptions {
   snapshotPath?: string;
   /** Test runner (default 'auto': see `detectRunner`). */
   runner?: Runner | 'auto';
-  /** Vitest config file (also used for Jest when `jestConfigFile` is not set). */
+  /** Vitest config file. */
   configFile?: string;
   /** Jest config file. */
   jestConfigFile?: string;
@@ -142,8 +142,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
     ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
   };
-  const runner = !options.runner || options.runner === 'auto' ? detectRunner(root, options.jestConfigFile ?? options.configFile) : options.runner;
-  const configFile = runner === 'jest' ? (options.jestConfigFile ?? options.configFile) : options.configFile;
+  // An explicit runner config picks the runner; otherwise detect it from the project.
+  const runner =
+    options.runner && options.runner !== 'auto' ? options.runner : options.jestConfigFile ? 'jest' : options.configFile ? 'vitest' : detectRunner(root);
+  const configFile = runner === 'jest' ? options.jestConfigFile : options.configFile;
   log(`runner: ${runner}`);
   const sessionOptions = {
     root,

@@ -82,6 +82,8 @@ local prePush: Task = new {
   name = "pre-push"
   description = "Pre-push gate: secretlint + full check"
   cmd = "echo pre-push ok"
+  // git passes the remote name and url to the hook
+  acceptsArgs = true
   cache = false
   deps { secretlint; check }
 }

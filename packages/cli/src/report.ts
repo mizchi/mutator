@@ -1,9 +1,11 @@
 import { relative } from 'node:path';
+import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
+import { scoreLevel } from './gate.ts';
 import type { Report, ReportEntry } from './run.ts';
 
 const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'Ignored', 'Pending'] as const;
 
-export function formatSummary(report: Report, root: string): string {
+export function formatSummary(report: Report, root: string, thresholds: Thresholds = DEFAULT_THRESHOLDS): string {
   const counts = new Map<string, number>();
   for (const e of report.entries) counts.set(e.status, (counts.get(e.status) ?? 0) + 1);
   const reused = report.entries.filter((e) => e.source === 'reuse').length;
@@ -12,7 +14,7 @@ export function formatSummary(report: Report, root: string): string {
     ORDER.filter((s) => counts.has(s))
       .map((s) => `${s} ${counts.get(s)}`)
       .join(' · '),
-    `score: ${(report.score * 100).toFixed(1)}%${counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
+    `score: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
   const survivors = report.entries.filter((e) => e.status === 'Survived' || e.status === 'NoCoverage');
   if (survivors.length > 0) {

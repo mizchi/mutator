@@ -16,7 +16,7 @@ node packages/cli/src/cli.ts --root <project>               # second run reuses 
 node packages/cli/src/cli.ts --root <project> --since main  # PR mode
 ```
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--config <vitest config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--no-arid` / `--arid-callee <pattern>`.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--config <vitest config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -30,7 +30,51 @@ node packages/cli/src/cli.ts --root <project> --reporter text --reporter html --
 
 `--reporter` is repeatable: `text` (default, summary on stdout), `json` and `html`. `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.
 
-Exit codes: `0` ok, `2` survived mutants with `--fail-on-survived`, `4` tests fail without mutants.
+### Thresholds and exit codes
+
+`thresholds: { high: 80, low: 60, break: null }` (StrykerJS semantics, in percent). The text summary labels the score `[high]` (>= high), `[low]` (>= low) or `[danger]`, and the JSON/HTML report uses the same `high`/`low`. When `break` (or `--threshold-break <n>`) is set and the score is below it, the run fails the quality gate.
+
+| code | meaning |
+|---|---|
+| `0` | ok |
+| `1` | invalid options or config file |
+| `2` | quality gate failed: score below `thresholds.break`, or a survived mutant with `--fail-on-survived` |
+| `4` | tests fail without mutants (baseline) |
+
+### Config file
+
+`mutator.config.ts` (or `.mts`, `.mjs`, `.js`, `.json`) in the project root, or `--config-file <path>` (`--config` is the Vitest config). Fields mirror the CLI flags; precedence is CLI flags > config file > defaults. Paths are relative to the project root. Unknown keys and wrong types are errors (exit 1).
+
+```ts
+// mutator.config.ts (Node strips the types; no build step)
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  include: ['src/**/*.ts'],
+  exclude: ['src/generated/**'],
+  scope: 'node',                          // 'node' | 'scope'
+  concurrency: 4,
+  vitestConfig: 'vitest.config.ts',
+  arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
+  experimentalCallgraph: false,
+  fullDryRun: false,
+  reporters: ['text', 'html'],            // text | json | html
+  reportDir: '.mutator/report',
+  thresholds: { high: 80, low: 60, break: 50 },
+  failOnSurvived: false,
+  typecheck: 'auto',                      // boolean | 'auto'
+});
+```
+
+```json
+{
+  "$schema": "./node_modules/@mizchi/mutator/schema/mutator.config.schema.json",
+  "since": "origin/main",
+  "thresholds": { "break": 60 }
+}
+```
+
+Boolean flags accept a `--no-` prefix (`--no-fail-on-survived`) to override a config file value.
 
 ## CI (pull requests)
 

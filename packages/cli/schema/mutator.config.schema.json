@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "mutator config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "include": {
+      "description": "Globs (relative to the root) of sources to mutate.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exclude": {
+      "description": "Globs of sources to skip.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "since": {
+      "description": "Git ref: only run mutants inside `git diff <since>`.",
+      "type": "string"
+    },
+    "scope": {
+      "description": "Diff granularity: changed nodes, or whole enclosing functions.",
+      "enum": [
+        "node",
+        "scope"
+      ]
+    },
+    "concurrency": {
+      "description": "Parallel Vitest instances.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "vitestConfig": {
+      "description": "Vitest config file, relative to the root.",
+      "type": "string"
+    },
+    "arid": {
+      "description": "Arid (logging-only) code suppression: false runs those mutants too; callees replaces the logging call patterns.",
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "callees": {
+              "description": "Logging call patterns, e.g. \"metrics.*\".",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "experimentalCallgraph": {
+      "description": "Re-run only survivors connected to changed code in the static call graph.",
+      "type": "boolean"
+    },
+    "fullDryRun": {
+      "description": "Collect coverage from every test file.",
+      "type": "boolean"
+    },
+    "reporters": {
+      "description": "Reporters to run.",
+      "type": "array",
+      "items": {
+        "enum": [
+          "text",
+          "json",
+          "html"
+        ]
+      }
+    },
+    "reportDir": {
+      "description": "Where json/html reports go, relative to the root.",
+      "type": "string"
+    },
+    "thresholds": {
+      "description": "Mutation score thresholds in percent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "high": {
+          "description": "Score at or above which the result is high (default 80).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "low": {
+          "description": "Score at or above which the result is low; below is danger (default 60).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "break": {
+          "description": "Exit 2 when the score is below this (default null: never).",
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "failOnSurvived": {
+      "description": "Exit 2 when a mutant survives.",
+      "type": "boolean"
+    },
+    "typecheck": {
+      "description": "Type-check mutants before running them.",
+      "enum": [
+        true,
+        false,
+        "auto"
+      ]
+    }
+  }
+}

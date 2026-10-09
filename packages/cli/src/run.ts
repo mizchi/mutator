@@ -2,6 +2,7 @@ import { existsSync, globSync, readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import {
+  type InstrumentOptions,
   type Mutant,
   type MutantResult,
   type MutantStatus,
@@ -41,6 +42,8 @@ export interface RunOptions {
   configFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
+  /** Arid node suppression (logging-only code); `false` disables it. */
+  arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
   fullDryRun?: boolean;
   /** Parallel Vitest instances running mutants (default: half the CPUs). */
@@ -86,16 +89,19 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const sessionOptions = {
     root,
     include: (file: string) => targets.has(file),
+    ...(options.arid !== undefined ? { arid: options.arid } : {}),
     ...(options.configFile ? { configFile: options.configFile } : {}),
   };
   const session = await createSession(sessionOptions);
   const sessions = [session];
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const { mutants, scopes } = collectSources(root, files);
+    const { mutants, scopes } = collectSources(root, files, options.arid);
     const residual = residualHashes(root, scopes, mutants);
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
-    const envHash = hash([process.version, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
+    // Mutation settings change which mutants are placed (and thus covered): part of the environment.
+    const settings = JSON.stringify({ arid: options.arid ?? null });
+    const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
@@ -207,10 +213,10 @@ function defaultConcurrency(): number {
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-function collectSources(root: string, files: readonly string[]): { mutants: Mutant[]; scopes: Map<string, Scope[]> } {
+function collectSources(root: string, files: readonly string[], arid: InstrumentOptions['arid']): { mutants: Mutant[]; scopes: Map<string, Scope[]> } {
   const scopes = new Map<string, Scope[]>();
   const mutants = files.flatMap((file) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file) });
+    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...(arid !== undefined ? { arid } : {}) });
     scopes.set(file, result.scopes);
     return result.mutants;
   });

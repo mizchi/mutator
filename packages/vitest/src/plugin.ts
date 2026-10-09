@@ -8,6 +8,7 @@ export interface PluginOptions {
   /** Restrict mutation to these ranges per absolute file path. */
   ranges?: ReadonlyMap<string, readonly Range[]>;
   excludedMutators?: InstrumentOptions['excludedMutators'];
+  arid?: InstrumentOptions['arid'];
   /** Mutant identity uses paths relative to this directory. */
   root?: string;
 }
@@ -35,6 +36,7 @@ export function mutatorPlugin(registry: MutantRegistry, options: PluginOptions):
       const result = instrument(file, code, {
         ...(ranges ? { ranges } : {}),
         ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
+        ...(options.arid !== undefined ? { arid: options.arid } : {}),
         ...(options.root ? { identity: relative(options.root, file) } : {}),
       });
       registry.byFile.set(file, result.mutants);

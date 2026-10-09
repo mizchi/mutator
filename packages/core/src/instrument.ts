@@ -1,6 +1,7 @@
 import MagicString from 'magic-string';
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
 import { type Frame, type Node, isFunction, walk } from './ast.ts';
+import { createAridCheck } from './arid.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
@@ -37,6 +38,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals, functions.filter((f) => f.start !== node.start || f.end !== node.end)));
   const excluded = new Set(options.excludedMutators ?? []);
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
+  const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
 
   const tracker = new ScopeTracker(source, scopeHash);
@@ -98,7 +100,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       replacement: candidate.replacement,
       scope,
     };
-    const reason = disabled(candidate.mutator, candidate.range.start);
+    const reason = disabled(candidate.mutator, candidate.range.start) ?? (isArid(candidate.anchor) ? 'arid: logging' : undefined);
     const placement = reason ? undefined : findPlacement(candidate.anchor);
     if (reason) {
       mutant.ignored = reason;

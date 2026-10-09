@@ -114,4 +114,17 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     write(root, 'test/b.test.ts', `${readFileSync(join(root, 'test/b.test.ts'), 'utf8')}// touched\n`);
     await expectSameAsCold(root);
   });
+
+  test('turning arid suppression off re-plans the newly enabled mutants', async () => {
+    const root = project({
+      'src/a.ts': 'export function f(a: number): number {\n  console.log(a + 1);\n  return a * 2;\n}\n',
+      'test/a.test.ts': "import { expect, test, vi } from 'vitest';\nimport { f } from '../src/a.ts';\ntest('f', () => { const spy = vi.spyOn(console, 'log').mockImplementation(() => {}); expect(f(2)).toBe(4); expect(spy).toHaveBeenCalledWith(3); });\n",
+    });
+    const first = await runMutation({ root, concurrency: 1 });
+    expect(first.entries.find((e) => e.mutant.original === 'a + 1')!.status).toBe('Ignored');
+    const incremental = await runMutation({ root, concurrency: 1, arid: false });
+    const cold = await runMutation({ root, concurrency: 1, arid: false, snapshotPath: join(root, '.mutator/cold.json') });
+    expect(verdicts(incremental)).toEqual(verdicts(cold));
+    expect(incremental.entries.find((e) => e.mutant.original === 'a + 1')!.status).toBe('Killed');
+  });
 });

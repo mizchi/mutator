@@ -88,6 +88,11 @@ export interface InstrumentOptions {
   /** Mutators to exclude. */
   excludedMutators?: readonly MutatorName[];
   /**
+   * Arid node suppression: mutants in logging-only code are reported as ignored
+   * (default on). `false` disables it; `callees` replaces the logging call patterns.
+   */
+  arid?: false | { callees?: readonly string[] };
+  /**
    * Path used for mutant identity instead of `file` (e.g. relative to the project root),
    * so keys survive checkouts in different directories.
    */

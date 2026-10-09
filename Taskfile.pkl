@@ -23,6 +23,22 @@ local test: Task = new {
   inputs = sources
 }
 
+local build: Task = new {
+  name = "build"
+  description = "Compile publishable packages to dist/"
+  cmd = "pnpm run build"
+  inputs = sources
+  outputs { "packages/*/dist/**" }
+}
+
+local packSmoke: Task = new {
+  name = "pack-smoke"
+  description = "Install the packed tarballs in a throwaway project and run the CLI"
+  cmd = "./scripts/pack-smoke.sh"
+  cache = false
+  deps { build }
+}
+
 local check: Task = new {
   name = "check"
   description = "Aggregate gate"
@@ -70,4 +86,4 @@ local prePush: Task = new {
   deps { secretlint; check }
 }
 
-tasks { typecheck; test; check; secretlint; preCommit; prePush }
+tasks { typecheck; test; build; packSmoke; check; secretlint; preCommit; prePush }

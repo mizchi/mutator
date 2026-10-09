@@ -10,10 +10,26 @@
     ".": "./src/index.ts"
   },
   "files": [
+    "dist",
     "src"
   ],
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*",
     "@mizchi/mutator-vitest": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "bin": {
+      "mutator": "./dist/cli.js"
+    }
   }
 }

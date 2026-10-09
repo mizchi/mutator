@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "files": [
+    "dist",
     "src"
   ],
   "devDependencies": {
@@ -17,5 +18,17 @@
   },
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
   }
 }

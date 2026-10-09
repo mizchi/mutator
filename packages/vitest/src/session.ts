@@ -5,8 +5,10 @@ import { type Mutant, type MutantStatus, type TestInfo, hash } from '@mizchi/mut
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
 import { createVitest } from 'vitest/node';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
+import type {} from './provided.ts';
 
-const SETUP_FILE = fileURLToPath(new URL('./setup.ts', import.meta.url));
+// Published builds ship setup.js next to session.js.
+const SETUP_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url));
 const DEFAULT_HIT_LIMIT = 1_000_000;
 
 export interface SessionOptions extends PluginOptions {

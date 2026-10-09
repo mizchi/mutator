@@ -2,11 +2,7 @@
 // Self-contained on purpose: it is evaluated inside the test worker.
 import { afterAll, afterEach, beforeEach, inject } from 'vitest';
 
-declare module 'vitest' {
-  interface ProvidedContext {
-    mutator: { active: string | null; hitLimit: number; earlyExit: boolean };
-  }
-}
+import type {} from './provided.ts';
 
 const config = inject('mutator');
 

@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { extname, relative } from 'node:path';
 import type { Position } from '@mizchi/mutator-core';
+import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { type Report, TOOL_VERSION } from './run.ts';
 
 /** mutation-testing-elements release loaded by the HTML report (and the schema version tests validate against). */
@@ -32,7 +33,7 @@ export interface MteReport {
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
-export function formatMutationTestingJson(report: Report, root: string): MteReport {
+export function formatMutationTestingJson(report: Report, root: string, thresholds: Thresholds = DEFAULT_THRESHOLDS): MteReport {
   const files: MteReport['files'] = {};
   const tests = new Set<string>();
   for (const { mutant, status, killedBy, coveredBy } of report.entries) {
@@ -66,7 +67,7 @@ export function formatMutationTestingJson(report: Report, root: string): MteRepo
 
   return {
     schemaVersion: '2',
-    thresholds: { high: 80, low: 60 },
+    thresholds: { high: thresholds.high, low: thresholds.low },
     projectRoot: root,
     framework: { name: 'mutator', version: TOOL_VERSION },
     files,

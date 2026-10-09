@@ -1,6 +1,6 @@
 import { existsSync, globSync, readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import {
   type CallGraphSource,
   type InstrumentOptions,
@@ -123,6 +123,22 @@ function guardWorkerExits(log: (message: string) => void): () => void {
   return () => process.off('uncaughtException', onUncaught);
 }
 
+/**
+ * Tests may spawn the project's CLIs by name (as `npm run` / `npx` allow); make
+ * `<root>/node_modules/.bin` visible like those launchers do. Returns a restore function.
+ */
+export function exposeProjectBin(root: string, env: NodeJS.ProcessEnv = process.env): () => void {
+  const bin = join(root, 'node_modules', '.bin');
+  const original = env.PATH;
+  const entries = (original ?? '').split(delimiter);
+  if (!existsSync(bin) || entries.includes(bin)) return () => {};
+  env.PATH = [bin, ...entries.filter(Boolean)].join(delimiter);
+  return () => {
+    if (original === undefined) delete env.PATH;
+    else env.PATH = original;
+  };
+}
+
 export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
   const root = resolve(options.root);
@@ -158,6 +174,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const session = await createRunnerSession(runner, sessionOptions);
   const sessions = [session];
   const unguard = guardWorkerExits(log);
+  const restorePath = exposeProjectBin(root);
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const { mutants, scopes, graphSources } = collectSources(root, files, instrumentOptions);
@@ -283,6 +300,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
     unguard();
+    restorePath();
   }
 }
 

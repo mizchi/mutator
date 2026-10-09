@@ -22,6 +22,24 @@ Mutants in logging-only code (calls matching `console.*`, `logger.*`, `log.*`, `
 
 Exit codes: `0` ok, `2` survived mutants with `--fail-on-survived`, `4` tests fail without mutants.
 
+## CI (pull requests)
+
+Cache the snapshot per base branch so a PR only runs mutants its diff can affect:
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0            # --since needs the merge base
+- uses: actions/cache@v4
+  with:
+    path: .mutator
+    key: mutator-${{ github.base_ref }}-${{ github.sha }}
+    restore-keys: mutator-${{ github.base_ref }}-
+- run: npx mutator --since origin/${{ github.base_ref }} --fail-on-survived
+```
+
+Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, survived mutants are also printed as `::warning` annotations on the diff.
+
 ## Packages
 
 | package | role |

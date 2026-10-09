@@ -1,5 +1,6 @@
 // Edit sequences found by review: an incremental run must give the same verdicts as a cold run.
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -143,5 +144,20 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     };
     expect(await runEdit(false)).toEqual(new Set(['edited', 'bystander']));
     expect(await runEdit(true)).toEqual(new Set(['edited']));
+  });
+});
+
+describe('worker crashes', () => {
+  test('a mutant that exhausts worker memory does not abort the run', { timeout: 300_000 }, () => {
+    const fixture = fileURLToPath(new URL('./fixtures/oom', import.meta.url));
+    const root = join(tmpRoot, `oom-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    roots.push(root);
+    cpSync(fixture, root, { recursive: true });
+    const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+    const result = spawnSync(process.execPath, [cli, '--root', root, '-j', '1'], { encoding: 'utf8' });
+    expect(result.stderr).not.toMatch(/Unhandled 'error' event/);
+    expect(result.status).toBe(0);
+    expect(existsSync(join(root, '.mutator/snapshot.json'))).toBe(true);
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 });

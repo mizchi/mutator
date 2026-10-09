@@ -86,6 +86,25 @@ const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
 const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'tsconfig.json'];
 
+/**
+ * Vitest reports a worker that dies after its run was abandoned (e.g. a timed-out
+ * mutant that keeps allocating until the worker runs out of memory) as an
+ * unhandled 'error' event. That run already has a verdict, so it must not abort
+ * the whole mutation run; any other uncaught exception stays fatal.
+ */
+function guardWorkerExits(log: (message: string) => void): () => void {
+  const onUncaught = (error: Error) => {
+    if (error instanceof Error && error.message.startsWith('Worker exited unexpectedly')) {
+      log(`ignored a crashed test worker (likely a mutant exhausting memory): ${error.message}`);
+      return;
+    }
+    process.off('uncaughtException', onUncaught);
+    throw error;
+  };
+  process.on('uncaughtException', onUncaught);
+  return () => process.off('uncaughtException', onUncaught);
+}
+
 export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
   const root = resolve(options.root);
@@ -105,6 +124,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   };
   const session = await createSession(sessionOptions);
   const sessions = [session];
+  const unguard = guardWorkerExits(log);
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const { mutants, scopes, graphSources } = collectSources(root, files, options.arid);
@@ -219,6 +239,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(report), durationMs: performance.now() - started };
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
+    unguard();
   }
 }
 

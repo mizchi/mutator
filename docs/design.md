@@ -148,7 +148,7 @@ It pays off for edits to functions that many tests pass through (parseURL). No m
 |---|---:|---:|
 | cold (parallel, default) | **29s** (1109 mutants, 83.9%) | 36s (1016 mutants, 82.6%) |
 | re-run with no changes | **0.33s** | 3.5s (`--incremental`) |
-| after editing 1 function | **1.0s** (`--since HEAD`, 18 run) / 10.7s (whole project, 48 run) | 3.8s (`--incremental`) |
+| after editing 1 function | **1.0s** (`--since HEAD`, 18 mutants run) / 10.7s (whole project, 48 mutants run) | 3.8s (`--incremental`) |
 
 - Verdicts agree for the mutants both tools generate. Per-mutator generated and detected counts are also nearly the same.
 - Measurement pitfalls (ones we actually hit):

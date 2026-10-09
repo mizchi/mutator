@@ -1,0 +1,45 @@
+{
+  "name": "ufo",
+  "repo": "https://github.com/unjs/ufo.git",
+  "commit": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+  "mutate": [
+    "src/**/*.ts"
+  ],
+  "edit": {
+    "file": "src/utils.ts",
+    "from": "nextChar !== \"/\" && nextChar !== \"?\")",
+    "to": "nextChar !== \"/\" && nextChar !== \"?\" && nextChar !== \"#\")",
+    "kind": "semantic",
+    "note": "withoutBase: also treat '#' as a base boundary"
+  },
+  "callgraphEdits": [
+    {
+      "file": "src/utils.ts",
+      "from": "return input.endsWith(\"/\") ? input : input + \"/\";",
+      "to": "return input.endsWith(\"/\") ? input : `${input}/`;",
+      "kind": "refactor",
+      "note": "withTrailingSlash: concatenation to template literal"
+    },
+    {
+      "file": "src/utils.ts",
+      "from": "nextChar !== \"/\" && nextChar !== \"?\")",
+      "to": "nextChar !== \"/\" && nextChar !== \"?\" && nextChar !== \"#\")",
+      "kind": "semantic",
+      "note": "withoutBase: also treat '#' as a base boundary"
+    },
+    {
+      "file": "src/utils.ts",
+      "from": "return !url || url === \"/\";",
+      "to": "return !url || url === \"/\" || url === \"./\";",
+      "kind": "semantic",
+      "note": "isEmptyURL: './' counts as empty (affects withBase/withoutBase/joinURL)"
+    },
+    {
+      "file": "src/utils.ts",
+      "from": "return [\"./\", \"../\"].some(",
+      "to": "return [\"./\", \"../\", \".\\\\\"].some(",
+      "kind": "semantic",
+      "note": "isRelative: also accept a Windows-style '.\\\\' prefix"
+    }
+  ]
+}

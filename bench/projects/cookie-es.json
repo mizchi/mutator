@@ -1,0 +1,12 @@
+{
+  "name": "cookie-es",
+  "repo": "https://github.com/unjs/cookie-es.git",
+  "commit": "f89ede8b60204adfa84a97fb833e0cbae75d0478",
+  "mutate": ["src/**/*.ts"],
+  "edit": { "file": "src/_utils.ts", "from": "if (min === max) return \"\";", "to": "if (max - min === 0) return \"\";", "kind": "refactor", "note": "valueSlice: equality to a zero-length check" },
+  "callgraphEdits": [
+    { "file": "src/_utils.ts", "from": "if (min === max) return \"\";", "to": "if (max - min === 0) return \"\";", "kind": "refactor", "note": "valueSlice: equality to a zero-length check" },
+    { "file": "src/cookie/parse.ts", "from": "if (len < 2) return obj;", "to": "if (len < 3) return obj;", "kind": "semantic", "note": "parse: two-char headers such as 'a=' are ignored" },
+    { "file": "src/_utils.ts", "from": "    if (code !== 32 /*   */ && code !== 9 /* \\t */) break;\n  } while", "to": "    if (code !== 32 /*   */ && code !== 9 /* \\t */ && code !== 10 /* \\n */) break;\n  } while", "kind": "semantic", "note": "valueSlice: also trim leading newlines" }
+  ]
+}

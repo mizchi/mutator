@@ -1,0 +1,12 @@
+{
+  "name": "defu",
+  "repo": "https://github.com/unjs/defu.git",
+  "commit": "82632b66f5914e9946edce300e10633a3d5c0cb7",
+  "mutate": ["src/**/*.ts"],
+  "edit": { "file": "src/defu.ts", "from": "+ key.toString(),", "to": "+ String(key),", "kind": "refactor", "note": "_defu: key.toString() to String(key) in the namespace" },
+  "callgraphEdits": [
+    { "file": "src/defu.ts", "from": "+ key.toString(),", "to": "+ String(key),", "kind": "refactor", "note": "_defu: key.toString() to String(key) in the namespace" },
+    { "file": "src/defu.ts", "from": "if (key === \"__proto__\" || key === \"constructor\") {", "to": "if (key === \"__proto__\" || key === \"constructor\" || key === \"prototype\") {", "kind": "semantic", "note": "_defu: also skip 'prototype' keys" },
+    { "file": "src/defu.ts", "from": "if (object[key] !== undefined && typeof currentValue === \"function\") {", "to": "if (object[key] != null && typeof currentValue === \"function\") {", "kind": "semantic", "note": "defuFn: a null default is no longer passed to the function" }
+  ]
+}

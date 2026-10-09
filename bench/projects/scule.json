@@ -1,0 +1,45 @@
+{
+  "name": "scule",
+  "repo": "https://github.com/unjs/scule.git",
+  "commit": "5bc68048caad7c0e7de35842c83a510e8e1a7c4f",
+  "mutate": [
+    "src/**/*.ts"
+  ],
+  "edit": {
+    "file": "src/index.ts",
+    "from": "return (str ? str[0].toUpperCase() + str.slice(1) : \"\")",
+    "to": "return (str ? str.charAt(0).toUpperCase() + str.slice(1) : \"\")",
+    "kind": "refactor",
+    "note": "upperFirst: str[0] to str.charAt(0)"
+  },
+  "callgraphEdits": [
+    {
+      "file": "src/index.ts",
+      "from": "return (str ? str[0].toUpperCase() + str.slice(1) : \"\")",
+      "to": "return (str ? str.charAt(0).toUpperCase() + str.slice(1) : \"\")",
+      "kind": "refactor",
+      "note": "upperFirst: str[0] to str.charAt(0)"
+    },
+    {
+      "file": "src/index.ts",
+      "from": "|the|to|with)$/i",
+      "to": "|the|to|via|with)$/i",
+      "kind": "semantic",
+      "note": "titleCase: 'via' becomes a lower-case exception"
+    },
+    {
+      "file": "src/index.ts",
+      "from": "const STR_SPLITTERS = [\"-\", \"_\", \"/\", \".\"]",
+      "to": "const STR_SPLITTERS = [\"-\", \"_\", \"/\", \".\", \" \"]",
+      "kind": "semantic",
+      "note": "splitByCase: space becomes a default splitter"
+    },
+    {
+      "file": "src/index.ts",
+      "from": "export function isUppercase(char = \"\")",
+      "to": "export function isUppercase(char = \"A\")",
+      "kind": "semantic",
+      "note": "isUppercase(): default argument now reports true"
+    }
+  ]
+}

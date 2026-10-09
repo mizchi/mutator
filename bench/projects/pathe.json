@@ -1,0 +1,41 @@
+{
+  "name": "pathe",
+  "repo": "https://github.com/unjs/pathe.git",
+  "commit": "bc7477a01f0bd60ada017add8142c9f9d69ccdc5",
+  "comment": "src/_glob.ts is left out: mutants there that loop while allocating make a Vitest worker run out of memory, and mutator then crashes (see docs/benchmark.md).",
+  "mutate": [
+    "src/_path.ts",
+    "src/utils.ts",
+    "src/_internal.ts"
+  ],
+  "edit": {
+    "file": "src/_path.ts",
+    "from": "path += pathTrailing || segLeading ? seg : `/${seg}`;",
+    "to": "path += pathTrailing || segLeading ? seg : \"/\" + seg;",
+    "kind": "refactor",
+    "note": "join: template literal to concatenation"
+  },
+  "callgraphEdits": [
+    {
+      "file": "src/_path.ts",
+      "from": "path += pathTrailing || segLeading ? seg : `/${seg}`;",
+      "to": "path += pathTrailing || segLeading ? seg : \"/\" + seg;",
+      "kind": "refactor",
+      "note": "join: template literal to concatenation"
+    },
+    {
+      "file": "src/_path.ts",
+      "from": "if (res.length > 2) {",
+      "to": "if (res.length > 3) {",
+      "kind": "semantic",
+      "note": "normalizeString: '..' after a 3-char result clears it instead of popping one segment ('a/b/..' becomes '.')"
+    },
+    {
+      "file": "src/_path.ts",
+      "from": "_from[0] !== _to[0]) {",
+      "to": "_from[0].toLowerCase() !== _to[0].toLowerCase()) {",
+      "kind": "semantic",
+      "note": "relative: drive letters compared case-insensitively"
+    }
+  ]
+}

@@ -1,64 +1,64 @@
-# stryker-js instrumenter 解析 (f2a49ff, Babel 8) — subagent 報告の保存版 (要点)
-パスは packages/instrumenter/src/ 起点
+# stryker-js instrumenter analysis (f2a49ff, Babel 8) — saved subagent report (key points)
+Paths are relative to packages/instrumenter/src/
 
-## パイプライン
-- instrumenter.ts:37-83: ファイル直列に parse → transformBabel (1 traverse で mutant 生成+配置) → @babel/generator 全文再印字 (sourceMaps:false)
-- dispatch parsers/create-parser.ts:48-78: JS (Babel + stage-1, ユーザー babel config を読む) / TS,TSX (preset-typescript, legacy decorators) / HTML,Vue (angular-html-parser で <script> 抽出) / Svelte (preprocess placeholder + remap)
-- ID はグローバル連番 (mutant-collector.ts)、filter で欠番発生
+## Pipeline
+- instrumenter.ts:37-83: per file, serially: parse → transformBabel (generates and places mutants in a single traverse) → full reprint with @babel/generator (sourceMaps:false)
+- dispatch parsers/create-parser.ts:48-78: JS (Babel + stage-1, reads the user's babel config) / TS,TSX (preset-typescript, legacy decorators) / HTML,Vue (extracts <script> with angular-html-parser) / Svelte (preprocess placeholders + remap)
+- IDs are a global sequence (mutant-collector.ts); filtering leaves gaps
 
-## Mutator カタログ (mutators/mutate.ts:20-38, 17 種)
-| name | 変換 | ガード |
+## Mutator catalog (mutators/mutate.ts:20-38, 17 kinds)
+| name | Transformation | Guard |
 |---|---|---|
-| ArithmeticOperator | + ↔ -, * ↔ /, % → * | オペランドが文字列/テンプレなら除外 |
-| ArrayDeclaration | [a]→[], []→["Stryker was here"], Array(x)→Array() | callee は Array 識別子のみ |
-| ArrowFunction | () => expr → () => undefined | block body / 既に undefined は除外 |
-| AssignmentOperator | += ↔ -=, *= ↔ /=, %=→*=, <<= ↔ >>=, &= ↔ \|=, &&= ↔ \|\|=, ??=→&&= | 右辺文字列で非論理代入は除外 |
-| BlockStatement | {...} → {} | 空除外、constructor で super()+param property/初期化 field 時除外 |
+| ArithmeticOperator | + ↔ -, * ↔ /, % → * | excluded if an operand is a string/template |
+| ArrayDeclaration | [a]→[], []→["Stryker was here"], Array(x)→Array() | callee must be the Array identifier |
+| ArrowFunction | () => expr → () => undefined | excludes block bodies / already undefined |
+| AssignmentOperator | += ↔ -=, *= ↔ /=, %=→*=, <<= ↔ >>=, &= ↔ \|=, &&= ↔ \|\|=, ??=→&&= | non-logical assignment excluded when the RHS is a string |
+| BlockStatement | {...} → {} | excludes empty blocks, and constructors with super() + parameter properties/initialized fields |
 | BooleanLiteral | true ↔ false, !x → x | |
-| ConditionalExpression | ループ test→false, if test→true/false, 比較/論理→true/false (親 \|\| なら false のみ、&& なら true のみ), case consequent 空 | fallthrough case 除外 |
-| CallExpression | call(); → ; / throw → ; | super() 除外、サブツリー内唯一の mutant の時のみ |
+| ConditionalExpression | loop test→false, if test→true/false, comparison/logical→true/false (only false under a \|\| parent, only true under &&), empty case consequent | excludes fallthrough cases |
+| CallExpression | call(); → ; / throw → ; | excludes super(); only when it is the sole mutant in the subtree |
 | EqualityOperator | < → <=,>= / <= → <,> / > → >=,<= / >= → >,< / == ↔ != / === ↔ !== | |
 | LogicalOperator | && ↔ \|\|, ?? → && | |
-| MethodExpression | charAt/filter/reverse/slice/sort/substr/substring/trim 除去、startsWith↔endsWith, every↔some, toUpper↔toLower, trimStart↔trimEnd, min↔max, setX 系 | obj.ident 形のみ |
-| ObjectLiteral | 非空 {} → {} | |
-| StringLiteral | "" ↔ "Stryker was here!", 非空→"" (template も) | import/export/JSX attr/型/key/require/Symbol/import() 除外 |
+| MethodExpression | removes charAt/filter/reverse/slice/sort/substr/substring/trim, startsWith↔endsWith, every↔some, toUpper↔toLower, trimStart↔trimEnd, min↔max, setX family | obj.ident form only |
+| ObjectLiteral | non-empty {} → {} | |
+| StringLiteral | "" ↔ "Stryker was here!", non-empty→"" (templates too) | excludes import/export/JSX attr/types/keys/require/Symbol/import() |
 | UnaryOperator | +x ↔ -x, ~x → x | |
 | UpdateOperator | ++ ↔ -- | |
 | Regex | weapon-regex level 1 | |
-| OptionalChaining | a?.b → a.b 等 | |
+| OptionalChaining | a?.b → a.b etc. | |
 
-- スキップ (syntax-helpers.ts:160-216): TSAsExpression サブツリー丸ごと (`(a+b) as T` も対象外、satisfies は対象 = 非対称), enum, decorator, import, 型ノード, declare
+- Skips (syntax-helpers.ts:160-216): entire TSAsExpression subtrees (`(a+b) as T` is excluded too, while satisfies is included = asymmetric), enum, decorator, import, type nodes, declare
 
-## 配置 (mutation switching)
-- 全 expression/statement を placementMap に登録 → mutant を最寄りの「置ける祖先」に紐付け、enter で clone に 1 mutation 適用、exit で placer が置換 → 各分岐は「原文 + 1 mutation」
-- expression: `act("2") ? m2 : act("1") ? m1 : (stryCov("1","2"), orig)` / statement: if-else chain / switch-case: case 内 if-else
-- 置けない位置: object key, member/call チェーン途中 (this と ?. 短絡保護), tagged template, delete オペランド, 代入左辺 → 親へ繰り上げ
-- .name 保持のため無名 function/arrow に名前付与 / IIFE
-- 潜在バグ: label 付きループを if で包むと continue label 破壊、switch-case placer が case 内 let/const スコープ変更、HTML offset 列ずれ疑い
+## Placement (mutation switching)
+- Registers every expression/statement in placementMap → binds each mutant to the nearest "placeable ancestor", applies 1 mutation to a clone on enter, the placer replaces on exit → each branch is "original + 1 mutation"
+- expression: `act("2") ? m2 : act("1") ? m1 : (stryCov("1","2"), orig)` / statement: if-else chain / switch-case: if-else inside the case
+- Unplaceable positions: object keys, middle of member/call chains (protects this and ?. short-circuiting), tagged templates, delete operands, assignment LHS → hoisted to the parent
+- Names anonymous function/arrow to preserve .name / IIFE
+- Latent bugs: wrapping labeled loops in if breaks continue label, the switch-case placer changes the scope of let/const in cases, suspected column drift in HTML offsets
 
-## ランタイムヘッダ (syntax-helpers.ts:21-70)
-stryNS (globalThis.__stryker__ + env __STRYKER_ACTIVE_MUTANT__ fallback) / stryCov (currentTestId で perTest/static 振り分け) / stryMutAct (hitCount > hitLimit で throw → 無限ループ検出)。関数宣言 hoisting + 自己書き換え lazy init。
+## Runtime header (syntax-helpers.ts:21-70)
+stryNS (globalThis.__stryker__ + env __STRYKER_ACTIVE_MUTANT__ fallback) / stryCov (splits perTest/static by currentTestId) / stryMutAct (throws when hitCount > hitLimit → infinite-loop detection). Function declaration hoisting + self-rewriting lazy init.
 
-## 無効化
-- `// Stryker disable|restore [next-line] names[: reason]`、Babel leadingComments 依存 → oxc では行ベースで再定義が必要
-- 優先: コメント → excludedMutations → ignorer。ignored も報告するが配置しない
-- Ignorer API は Babel NodePath 直結 (パーサ非互換の最大要因)
+## Disabling
+- `// Stryker disable|restore [next-line] names[: reason]`, relies on Babel leadingComments → must be redefined line-based for oxc
+- Precedence: comments → excludedMutations → ignorer. Ignored mutants are reported but not placed
+- The Ignorer API is tied directly to Babel NodePath (the biggest source of parser incompatibility)
 
-## Static mutant
-- dry run で currentTestId 不在時の hit = static → 環境 reload + 全テスト必要。ignoreStatic で Ignored
+## Static mutants
+- A hit during the dry run without a currentTestId = static → requires an environment reload + all tests. Ignored with ignoreStatic
 - planner: mutant-test-planner.ts:88-216
 
-## 外部契約
-{id, location, mutatorName, replacement 文字列} のみ。typescript-checker は文字列スプライスで適用 (script-file.ts:27) → テキストスプライス方式で互換可能
+## External contract
+Only {id, location, mutatorName, replacement string}. typescript-checker applies it by string splicing (script-file.ts:27) → a text-splice approach can stay compatible
 
-## 性能
-- perf 閾値 22.8KB/948 mutant で 325ms (~70KB/s)
-- コスト: Babel parse+config 解決 > scope 付き traverse > placementMap 操作 > Mutant.applied の deep clone O(M×S) > generator 全文再印字 > disableTypeChecks 再パース > 直列
-- oxc 化で効く: span+テキスト合成 (clone/再印字廃止、書式保持、sourcemap)、並列化。ただし wall time はテスト実行支配
+## Performance
+- perf threshold: 325ms for 22.8KB/948 mutants (~70KB/s)
+- Costs: Babel parse + config resolution > scoped traverse > placementMap operations > deep clone in Mutant.applied O(M×S) > full reprint by generator > reparse in disableTypeChecks > serial processing
+- What oxc would fix: span + text composition (no clone/reprint, preserves formatting, sourcemap), parallelism. But wall time is dominated by test execution
 
-## テキスト方式で自前ガード必要
-全置換を括弧で囲む、ASI (式文先頭 `(` に `;`)、`**` と単項、for-init 内 `in`、new callee、arrow object body、宣言文を if で包まない、label、case 内 lexical
+## Guards needed for a text-based approach
+Wrap every replacement in parentheses, ASI (`;` before an expression statement starting with `(`), `**` with unary, `in` inside for-init, new callee, arrow object body, do not wrap declarations in if, labels, lexical declarations in case
 
-## 真似すべき / レガシー
-- 真似: mutation switching + lazy helper + globalThis ns、hitLimit、static/perTest 分類、最寄り祖先への自動繰り上げ、.name 保持、&&/|| 等価削減、ignored も報告、丁寧な配置エラー
-- 捨てる: Babel NodePath API、ユーザー babel config、stage-1/Flow、全文再印字、TSAs 丸ごとスキップ、ID 欠番、Svelte/HTML ハック、new Function fallback
+## Worth copying / legacy
+- Copy: mutation switching + lazy helpers + globalThis ns, hitLimit, static/perTest classification, automatic hoisting to the nearest ancestor, .name preservation, &&/|| equivalence reduction, reporting ignored mutants, careful placement errors
+- Discard: Babel NodePath API, user babel config, stage-1/Flow, full reprint, skipping whole TSAs subtrees, ID gaps, Svelte/HTML hacks, new Function fallback

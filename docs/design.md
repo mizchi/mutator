@@ -1,163 +1,163 @@
-# mutator 設計メモ (draft)
+# mutator design notes (draft)
 
-調査元: `docs/research/` (stryker-js f2a49ff / cargo-mutants 9b09f6c / pitest 1.22.0 / Google・Meta 論文 / parser ベンチ)。2026-10-08 時点。
+Sources: `docs/research/` (stryker-js f2a49ff / cargo-mutants 9b09f6c / pitest 1.22.0 / Google and Meta papers / parser benchmarks). As of 2026-10-08.
 
-## ゴール
+## Goals
 
-- vitest 前提の高速な JS/TS mutation testing
-- **差分駆動**: 変更箇所だけ mutate し、変更に関係するテストだけ流し、それ以外は前回結果を再利用
-- コアは小さく独立したライブラリ (vitest / Node fs / プロセス管理に依存しない)
+- Fast JS/TS mutation testing built on vitest
+- **Diff-driven**: mutate only changed code, run only tests related to the change, reuse previous results for everything else
+- A small, independent core library (no dependency on vitest / Node fs / process management)
 
-## stryker が遅い理由 (調査結論)
+## Why stryker is slow (findings)
 
-1. mutant ごとに test run を起動し直す (vitest: `ctx.start` で module 再評価、jest: `runCLI`)
-2. sandbox に全ファイルコピー + timeout 時は process 再 fork
-3. dry run が単一 process・毎回フル
-4. テスト順序最適化なし → bail が効かない
-5. incremental が弱い: 位置 + replacement 文字列 key、依存変更を検知しない、dry run を省略できない
-6. Babel 直列 instrument + mutant ごと deep clone (O(M×S)) + 全文再印字 (ただし wall time への寄与は小)
-7. 多ランナー抽象 (typed-inject / RxJS / reloadEnvironment 1 bit capability) による複雑さ
+1. It restarts a test run for every mutant (vitest: module re-evaluation via `ctx.start`, jest: `runCLI`)
+2. It copies all files into a sandbox, and re-forks the process on timeout
+3. The dry run is single-process and always full
+4. No test ordering → bail is ineffective
+5. Weak incremental mode: keyed by position + replacement string, does not detect dependency changes, cannot skip the dry run
+6. Serial Babel instrumentation + a deep clone per mutant (O(M×S)) + full reprinting (though its contribution to wall time is small)
+7. Complexity from the multi-runner abstraction (typed-inject / RxJS / the 1-bit reloadEnvironment capability)
 
-## レイヤ構成
+## Layers
 
 ```
-@mutator/core      純関数のみ。入力: (path, source, options) / diff / 前回 cache。出力: データ
-  ├─ instrument    oxc-parser + magic-string。{code, map, mutants[]} を返す
-  ├─ mutators      (node, parents, src) -> Replacement[] の純関数群
-  ├─ identity      MutantKey / ScopeHash の算出
-  ├─ diff          unified diff parse → changed ranges → mutant 選択
-  ├─ plan          coverage + cache → 実行計画 (どの mutant をどのテスト順で)
-  └─ cache         再利用判定 (保存形式はシリアライズ可能なデータのみ)
-@mutator/vitest    vite plugin (enforce:'pre', transform で core.instrument)、Vitest Node API 駆動、
-                   provide('activeMutant') 切替、per-test coverage 収集、worker pool、timeout
-mutator (cli)      git 呼び出し、fs、レポート出力
+@mutator/core      Pure functions only. Input: (path, source, options) / diff / previous cache. Output: data
+  ├─ instrument    oxc-parser + magic-string. Returns {code, map, mutants[]}
+  ├─ mutators      Pure functions (node, parents, src) -> Replacement[]
+  ├─ identity      Computes MutantKey / ScopeHash
+  ├─ diff          unified diff parse → changed ranges → mutant selection
+  ├─ plan          coverage + cache → execution plan (which mutants, in which test order)
+  └─ cache         Reuse decisions (persisted format is serializable data only)
+@mutator/vitest    vite plugin (enforce:'pre', core.instrument in transform), drives the Vitest Node API,
+                   provide('activeMutant') switching, per-test coverage collection, worker pool, timeout
+mutator (cli)      git invocation, fs, report output
 ```
 
-instrument が純関数なので、後で Rust napi (oxc_semantic が必要になった時など) に差し替え可能。
+Because instrument is a pure function, it can later be swapped for a Rust napi implementation (e.g. when oxc_semantic becomes necessary).
 
-## instrument (stryker から継承 + 改善)
+## instrument (inherited from stryker + improvements)
 
-- **継承**: mutation switching、自己書き換え lazy ヘルパ、`globalThis` namespace、hitLimit による無限ループ検出、static/perTest coverage 振り分け、最寄りの置ける祖先への自動繰り上げ、`.name` 保持、`&&`/`||` 文脈での等価削減、ignored mutant も報告
-- **改善**: AST clone/再印字をやめ span + テキスト合成 (書式保持・sourcemap 付き)、post-order で入れ子 mutant を合成、2 パス採番で ID 欠番なし、`as`/`satisfies` を一貫して扱う (型部分のみスキップ)
-- **自前ガード必須**: 括弧付け、ASI、宣言文/label 付きループ/case 内 lexical を statement placer で包まない
-- 無効化コメントは `Program.comments` から行ベースで定義し直す
+- **Inherited**: mutation switching, self-rewriting lazy helpers, `globalThis` namespace, infinite-loop detection via hitLimit, static/perTest coverage split, automatic hoisting to the nearest placeable ancestor, `.name` preservation, equivalence reduction in `&&`/`||` contexts, reporting ignored mutants too
+- **Improved**: no AST clone/reprint; span + text composition instead (preserves formatting, with sourcemap); post-order composition of nested mutants; two-pass numbering with no ID gaps; consistent handling of `as`/`satisfies` (skip only the type part)
+- **Guards we must implement ourselves**: parenthesization, ASI, never wrapping declarations / labeled loops / lexical declarations inside case with the statement placer
+- Disable comments are redefined line-based from `Program.comments`
 
-## mutator 方針
+## Mutator policy
 
-- stryker 17 種をベースに、cargo-mutants の **FnValue** (TS 戻り値型注釈から値を生成: boolean→true/false、number→0/1/-1、string→""/"xyzzy"、T[]→[]、Promise<T>→…) を追加
-- cargo-mutants 由来の除外: `==`→`<=` 系の等価になりやすい置換を作らない、単項は削除のみ、置換値が元と同一なら skip、switch case 削除は default がある時のみ
-- **arid node 抑制** (Google: `arid(n) = simple(n) ? expert(n) : children.every(arid)`): console/logger、tracing/metrics、`Date.now`、`process.env.NODE_ENV` / `import.meta.env`、`Math.min/max` 引数、`end/flush/close`、assert/invariant メッセージ等。ルールは設定で宣言的に追加可能に
-- オプション: 1 行 (1 statement) 1 mutant モード (Google: changelist あたり 820 → 7)
+- Based on stryker's 17 mutators, plus cargo-mutants' **FnValue** (generate values from TS return type annotations: boolean→true/false, number→0/1/-1, string→""/"xyzzy", T[]→[], Promise<T>→…)
+- Exclusions borrowed from cargo-mutants: no replacements prone to equivalence such as `==`→`<=`, unary operators are deletion-only, skip when the replacement equals the original, delete switch cases only when a default exists
+- **Arid node suppression** (Google: `arid(n) = simple(n) ? expert(n) : children.every(arid)`): console/logger, tracing/metrics, `Date.now`, `process.env.NODE_ENV` / `import.meta.env`, `Math.min/max` arguments, `end/flush/close`, assert/invariant messages, etc. Rules can be added declaratively via config
+- Option: one mutant per line (per statement) mode (Google: 820 → 7 per changelist)
 
-## 差分駆動の高速化 (本命)
+## Diff-driven speedups (the main goal)
 
-### 1. Mutant identity (位置非依存)
+### 1. Mutant identity (position-independent)
 
 ```
 MutantKey = hash(file, scopePath, astPathInScope, mutatorId, replacement)
-ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈を除外)
+ScopeHash = hash(normalized AST of the enclosing function; excluding comments, whitespace, type annotations)
 ```
 
-- 行・列を key に入れない (stryker / cargo-mutants / PIT はここが弱い)
-- 関数の ScopeHash が変わったらその scope の mutant は新規扱い (mutmut 方式)
-- top-level は statement 単位で 1 scope
+- No line/column in the key (stryker / cargo-mutants / PIT are weak here)
+- When a function's ScopeHash changes, mutants in that scope are treated as new (mutmut approach)
+- At top level, each statement is one scope
 
-### 2. 結果キャッシュと再利用判定 (PIT 1.22 + 依存 hash)
+### 2. Result cache and reuse decisions (PIT 1.22 + dependency hash)
 
-| 前回 | 再利用条件 | 不成立時 |
+| Previous | Reuse condition | Otherwise |
 |---|---|---|
-| Killed | ScopeHash 不変 & 前回 killer が存在し不変 | killer を先頭に再実行 |
-| Survived | ScopeHash・depsHash・被覆 test 不変 & 被覆 test の追加なし | 追加/変更 test を先頭に |
-| NoCoverage | ScopeHash 不変 & 被覆 0 のまま | 通常 |
-| Timeout | ScopeHash & depsHash 不変 | 通常 |
+| Killed | ScopeHash unchanged & previous killer exists and is unchanged | Re-run with the killer first |
+| Survived | ScopeHash, depsHash, covering tests unchanged & no covering tests added | Added/changed tests first |
+| NoCoverage | ScopeHash unchanged & still zero coverage | Normal |
+| Timeout | ScopeHash & depsHash unchanged | Normal |
 
-- `depsHash`: runtime call graph (なければ import graph) で到達する ScopeHash の Merkle 合成。stryker / PIT が見ていない依存先の変更を拾う
-- `env` (lockfile / tsconfig / vitest config / node / tool / mutator set version) が変われば全無効化
-- 結果は filter 前の生データで保存。中断時も部分保存
-- **coverage 計測 (dry run) 自体も差分化**: 変更 scope に触れうる test + 新規/変更 test だけ再計測
+- `depsHash`: Merkle composition of the ScopeHashes reachable via the runtime call graph (or the import graph if unavailable). Catches dependency changes that stryker / PIT ignore
+- If `env` (lockfile / tsconfig / vitest config / node / tool / mutator set version) changes, invalidate everything
+- Results are stored as raw data before filtering. Partial results are saved on interruption too
+- **Coverage measurement (dry run) is itself diff-driven**: re-measure only tests that may touch changed scopes + new/changed tests
 
-### 3. diff スコープ (cargo-mutants --in-diff の改良版)
+### 3. Diff scope (an improved cargo-mutants --in-diff)
 
-- git を内部で呼ぶ (`merge-base`、`-M --no-prefix`)。外部 diff 入力時は new 側テキストと実ファイルの整合チェック (不一致は専用 exit code)
-- 判定は行ではなく **区間交差**。`--scope=node|function` で関数単位モードも提供し、シグネチャ変更も拾う
-- **テストのみ変更** → そのテストが被覆する Survived/NoCoverage を再実行 (cargo-mutants は何もしない)
-- rename は old→new マップでキャッシュ継承
+- Calls git internally (`merge-base`, `-M --no-prefix`). With external diff input, checks that the new-side text matches the actual files (mismatch → dedicated exit code)
+- Selection uses **range intersection**, not lines. `--scope=node|function` also offers a per-function mode that catches signature changes
+- **Test-only changes** → re-run the Survived/NoCoverage mutants covered by those tests (cargo-mutants does nothing)
+- Renames inherit cache entries via an old→new map
 
-### 4. テスト選択と実行順
+### 4. Test selection and execution order
 
-- per-test coverage で絞る (主)、`vitest related` 相当の module graph (補助)
-- 順序: 前回 killer → 兄弟 mutant の killer → 直接 hit するテスト → 実行時間短い順。bail 1
-- mutant は推定時間の短い順に流す
-- timeout: 選んだテスト群の baseline × factor + const
+- Narrow by per-test coverage (primary), with a module graph equivalent to `vitest related` (auxiliary)
+- Order: previous killer → killers of sibling mutants → tests that hit directly → shortest runtime first. bail 1
+- Mutants run in order of shortest estimated time
+- timeout: baseline of the selected tests × factor + const
 
-## 実行モデル (vitest adapter)
+## Execution model (vitest adapter)
 
-- PoC 済み (`docs/research/analysis-parsers.md`): `createVitest` に `enforce:'pre'` plugin を渡し in-memory instrument、`provide` + `runTestFiles` で切替。transform は 1 回、1 mutant ≈ 50ms
-- sandbox コピー不要 (fs に書く non-hermetic テスト用に opt-in で残す)
-- static mutant は別キューで module 再 import
-- worker pool は Vitest インスタンス常駐を N 個。timeout 時のみ再生成
-- snapshot 自動更新を禁止 (cargo-mutants の INSTA_UPDATE=no 相当)
+- PoC done (`docs/research/analysis-parsers.md`): pass an `enforce:'pre'` plugin to `createVitest` for in-memory instrumentation, switch via `provide` + `runTestFiles`. One transform, ≈ 50ms per mutant
+- No sandbox copy (kept as opt-in for non-hermetic tests that write to fs)
+- Static mutants go to a separate queue with module re-import
+- The worker pool keeps N resident Vitest instances, recreated only on timeout
+- Automatic snapshot updates are forbidden (equivalent to cargo-mutants' INSTA_UPDATE=no)
 
-## 出力 (cargo-mutants 準拠)
+## Output (following cargo-mutants)
 
-- `mutants.json` (開始前全件) / `outcomes.json` (逐次) / 各 mutant の diff / GitHub annotation (`::warning` で missed のみ)
-- exit code: baseline 失敗 > timeout > survived > 0、diff 不整合は別コード
-- shard `k/n`、`--list --json`
+- `mutants.json` (all mutants, before start) / `outcomes.json` (incremental) / per-mutant diffs / GitHub annotations (`::warning`, missed only)
+- exit code: baseline failure > timeout > survived > 0, separate code for diff mismatch
+- shard `k/n`, `--list --json`
 
-## 実装状況 (2026-10-08)
+## Implementation status (2026-10-08)
 
-- [x] core: instrument (18 mutators, 配置 3 種, ASI ガード), identity, scope hash, diff, plan
-- [x] vitest: plugin, setup (perTest / static coverage, provide/inject 切替), Session
-- [x] cli: dry run → plan → 実行 → snapshot, `--since`, レポート, GitHub annotation
-- [x] 無効化コメント (`// mutator-disable-next-line`, Stryker コメント互換)
-- [x] 並列実行 (Session を N 個, `-j`)
-- [x] dry run の差分化 (snapshot に test index / static / touched を保存し、影響を受けるテストファイルだけ再収集)
-- [x] path-portable な key / snapshot (CI キャッシュ可)
-- [x] early exit は vitest `bail` ではなく reporter 観測 + cancel (bail は kill を取りこぼす)
-- [x] FnValue mutator (TS 戻り値型)、Regex (weapon-regex level 1 相当の自前実装)、CallExpression (`call();` → `;`、throw は対象外)、`for (;;)` → `for (;false;)`
-- [x] arid node 抑制 (logging 系 callee、Google の compound 規則。`--no-arid` / `--arid-callee`)
-- [x] test fingerprint を module graph 込みにする (ヘルパー / fixture の内容、mutate 対象ソースは residual hash)
-- [x] ~~1 run で複数 mutant~~ 試して取り下げ: 速くなったのは run 内の Vitest worker 並列の分で、固定コスト償却ではなかった。`-j 1` では 186s→116s だが既定の `-j 6` では 57s→85s と悪化 (early exit が効きにくく tail が伸びる)
-- [x] レポート: mutation-testing-elements JSON (schema v2) / HTML (`--reporter json|html`)
-- [x] 公開準備: tsc で dist、publishConfig、`pkf run pack-smoke`
-- [x] 独立レビュー (incremental vs cold の不一致 9 件) をすべて E2E 化して修正
+- [x] core: instrument (18 mutators, 3 placement kinds, ASI guard), identity, scope hash, diff, plan
+- [x] vitest: plugin, setup (perTest / static coverage, provide/inject switching), Session
+- [x] cli: dry run → plan → run → snapshot, `--since`, reports, GitHub annotations
+- [x] Disable comments (`// mutator-disable-next-line`, Stryker comment compatible)
+- [x] Parallel execution (N Sessions, `-j`)
+- [x] Diff-driven dry run (snapshot stores the test index / static / touched; only affected test files are re-collected)
+- [x] Path-portable keys / snapshots (CI-cacheable)
+- [x] Early exit via reporter observation + cancel rather than vitest `bail` (bail misses kills)
+- [x] FnValue mutator (TS return types), Regex (own implementation roughly equivalent to weapon-regex level 1), CallExpression (`call();` → `;`, throw excluded), `for (;;)` → `for (;false;)`
+- [x] Arid node suppression (logging callees, Google's compound rule. `--no-arid` / `--arid-callee`)
+- [x] Test fingerprint includes the module graph (contents of helpers / fixtures; mutated source files contribute a residual hash)
+- [x] ~~Multiple mutants per run~~ tried and dropped: the speedup came from Vitest worker parallelism within a run, not from amortizing fixed costs. With `-j 1` it went 186s→116s, but with the default `-j 6` it got worse, 57s→85s (early exit is less effective and the tail grows)
+- [x] Reports: mutation-testing-elements JSON (schema v2) / HTML (`--reporter json|html`)
+- [x] Publishing prep: dist via tsc, publishConfig, `pkf run pack-smoke`
+- [x] Independent review (9 incremental-vs-cold mismatches): all turned into E2E tests and fixed
 
-## 実験: 静的コールグラフによる再実行の絞り込み (`--experimental-callgraph`)
+## Experiment: narrowing re-runs with a static call graph (`--experimental-callgraph`)
 
-通常 (sound) モードでは「変更された関数を実行したテスト」がカバーする survivor をすべて再実行する。
-実験モードではさらに「survivor の関数と変更された関数が静的コールグラフ上でどちらかの向きに到達可能」な場合だけ再実行する。
-コールグラフは instrument が集めた呼び出し (`f()`, `obj.m()`, `this.m()`) と import を名前で解決したもの。
-テストコードを経由した値の受け渡し (`expect(f(g(x)))` で f の変更が g の mutant の検出可否を変える) は辺にならないので unsound。
-そのため既定 off、モード切り替えで snapshot は無効化 (env hash に含む)。
+In normal (sound) mode, every survivor covered by "tests that executed a changed function" is re-run.
+Experimental mode additionally re-runs it only if "the survivor's function and the changed function are reachable from one another, in either direction, on the static call graph".
+The call graph is built from the calls collected by instrument (`f()`, `obj.m()`, `this.m()`) and imports, resolved by name.
+Values passed through test code (in `expect(f(g(x)))`, a change to f can alter whether a mutant in g is detected) do not become edges, so this is unsound.
+It is therefore off by default, and switching modes invalidates the snapshot (included in the env hash).
 
-`node scripts/callgraph-experiment.ts <root> <file> <from> <to>...` で、同じ cold snapshot から両モードを走らせ、
-「sound は再実行したが callgraph は再利用した」mutant の判定を比較する。unjs/ufo、意味を変えない編集 4 件:
+`node scripts/callgraph-experiment.ts <root> <file> <from> <to>...` runs both modes from the same cold snapshot and
+compares verdicts for mutants that "sound re-ran but callgraph reused". unjs/ufo, 4 semantics-preserving edits:
 
-| 編集 | sound | callgraph | 刈り込み | 判定の食い違い |
+| Edit | sound | callgraph | Pruned | Verdict mismatches |
 |---|---|---|---:|---:|
-| `withoutBase` 条件に `&& true` | 46 件 / 3.5s | 46 件 / 3.3s | 0 | 0 |
-| `parseURL` の連結をテンプレートに | 578 件 / 14.8s | 175 件 / 6.7s | 403 | 0 |
-| `isRelative` の配列順 | 19 件 / 3.1s | 17 件 / 3.3s | 2 | 0 |
-| `withQuery` の spread を `Object.assign` に | 89 件 / 6.2s | 58 件 / 5.1s | 34 | 0 |
+| `&& true` added to a `withoutBase` condition | 46 / 3.5s | 46 / 3.3s | 0 | 0 |
+| `parseURL` concatenation → template literal | 578 / 14.8s | 175 / 6.7s | 403 | 0 |
+| array order in `isRelative` | 19 / 3.1s | 17 / 3.3s | 2 | 0 |
+| spread → `Object.assign` in `withQuery` | 89 / 6.2s | 58 / 5.1s | 34 | 0 |
 
-多くのテストが通る関数 (parseURL) の編集で効く。この 4 例では取りこぼしなし。ただし意味を変える編集や、テストが値を合成するスタイルでは食い違いが出うるので、継続的に測る。
+It pays off for edits to functions that many tests pass through (parseURL). No misses in these 4 cases. However, semantics-changing edits or tests that compose values may produce mismatches, so we keep measuring.
 
-## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, 負荷なし)
+## Benchmark (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, idle machine)
 
 | run | mutator | stryker 10 |
 |---|---:|---:|
-| cold (並列, 既定) | **29s** (1109 mutants, 83.9%) | 36s (1016 mutants, 82.6%) |
-| 変更なし再実行 | **0.33s** | 3.5s (`--incremental`) |
-| 1 関数編集後 | **1.0s** (`--since HEAD`, 18 実行) / 10.7s (全体, 48 実行) | 3.8s (`--incremental`) |
+| cold (parallel, default) | **29s** (1109 mutants, 83.9%) | 36s (1016 mutants, 82.6%) |
+| re-run with no changes | **0.33s** | 3.5s (`--incremental`) |
+| after editing 1 function | **1.0s** (`--since HEAD`, 18 run) / 10.7s (whole project, 48 run) | 3.8s (`--incremental`) |
 
-- 両者が生成する mutant の判定は一致。mutator 別の生成数・検出数もほぼ同じ。
-- 計測上の注意 (実際に踏んだもの):
-  - ufo clone 内に残っていた `.stryker-tmp/sandbox` のテストを重複して拾うと 2 倍遅くなる (Vitest の既定 exclude に入っていない)
-  - forks pool の worker が無限ループ mutant の timeout 後に孤児プロセスとして残り、CPU を食い続けていた (threads pool 既定化で解消)。これが残っていると全計測が 2〜3 倍ぶれる。以前の表の数値 (54s / 57s / 186s 等) はこの影響を受けている
+- Verdicts agree for the mutants both tools generate. Per-mutator generated and detected counts are also nearly the same.
+- Measurement pitfalls (ones we actually hit):
+  - Picking up duplicated tests from a leftover `.stryker-tmp/sandbox` in the ufo clone makes runs 2x slower (it is not in Vitest's default exclude)
+  - forks pool workers were left behind as orphan processes after infinite-loop mutants timed out, and kept consuming CPU (fixed by defaulting to the threads pool). While they linger, every measurement swings by 2-3x. Numbers from earlier versions of this table (54s / 57s / 186s etc.) were affected by this
 
-## 未決事項
+## Open questions
 
-- parser: oxc-parser (npm, raw transfer) を採用予定。oxc は 0.x で breaking change が多いので version pin
-- 型エラーになる mutant (unviable) の扱い: tsgo 常駐で事前 check するか、実行時 TypeError を killed とするか
-- stryker の report schema (mutation-testing-elements) 互換を取るか
-- Vue/Svelte SFC 対応の優先度
+- parser: planning to adopt oxc-parser (npm, raw transfer). oxc is 0.x with frequent breaking changes, so pin the version
+- Handling mutants that cause type errors (unviable): pre-check with a resident tsgo, or count runtime TypeErrors as killed
+- Whether to be compatible with stryker's report schema (mutation-testing-elements)
+- Priority of Vue/Svelte SFC support

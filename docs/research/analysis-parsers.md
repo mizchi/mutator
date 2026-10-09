@@ -1,144 +1,144 @@
-# JS/TS mutation testing tool 向け parser / transform エコシステム評価 (2026-10-08 時点)
+# Evaluation of the parser / transform ecosystem for a JS/TS mutation testing tool (as of 2026-10-08)
 
-調査方法: npm registry / crates.io API でバージョン確認、oxc と stryker-js を shallow clone して source を読んだ (`~/ghq/github.com/oxc-project/oxc` sparse, `~/ghq/github.com/stryker-mutator/stryker-js`)。手元でマイクロベンチと vitest PoC を実行 (Apple M3 Pro, Node v24.14.1)。
-ベンチ / PoC のコード: `scratchpad/bench/b.mjs`, `scratchpad/poc/{mutate-plugin.mjs,run.mjs,setup.ts}`。
+Method: checked versions via the npm registry / crates.io API, shallow-cloned oxc and stryker-js and read the source (`~/ghq/github.com/oxc-project/oxc` sparse, `~/ghq/github.com/stryker-mutator/stryker-js`). Ran micro-benchmarks and a vitest PoC locally (Apple M3 Pro, Node v24.14.1).
+Benchmark / PoC code: `scratchpad/bench/b.mjs`, `scratchpad/poc/{mutate-plugin.mjs,run.mjs,setup.ts}`.
 
-## 0. バージョン一覧 (2026-10-08)
+## 0. Versions (2026-10-08)
 
-| 対象 | version | 備考 |
+| Target | version | Notes |
 |---|---|---|
-| oxc crates (`oxc`, `oxc_parser`, `oxc_ast`, `oxc_ast_visit`, `oxc_traverse`, `oxc_semantic`, `oxc_codegen`, `oxc_transformer`, `oxc_span`, `oxc_napi`) | 0.153.0 (2026-10-05) | まだ 0.x、ほぼ毎週 minor で breaking あり |
+| oxc crates (`oxc`, `oxc_parser`, `oxc_ast`, `oxc_ast_visit`, `oxc_traverse`, `oxc_semantic`, `oxc_codegen`, `oxc_transformer`, `oxc_span`, `oxc_napi`) | 0.153.0 (2026-10-05) | still 0.x, a breaking minor almost every week |
 | `oxc_sourcemap` | 9.0.0 | |
 | npm `oxc-parser` / `oxc-transform` / `oxc-minify` / `@oxc-project/types` | 0.153.0 | napi + wasm fallback |
-| `string_wizard` (crate, Rust 版 magic-string, rolldown 由来) | 1.2.13 | |
+| `string_wizard` (crate, Rust magic-string, from rolldown) | 1.2.13 | |
 | npm `magic-string` | 1.4.3 | |
 | `swc_core` / `swc_ecma_parser` | 82.0.0 / 46.0.0 | npm `@swc/core` 1.16.13 |
 | `@babel/parser` | 8.0.7 | |
 | `tree-sitter` / `web-tree-sitter` | 0.27.0 | |
-| `tree-sitter-typescript` | 0.23.2 (2024-11 から更新なし) | |
+| `tree-sitter-typescript` | 0.23.2 (no updates since 2024-11) | |
 | `ast-grep-core` / `@ast-grep/napi` | 0.45.3 | |
-| `biome_js_parser` (crates.io) | 0.5.7 (2024-03 で止まっている) | 実質 git 依存でしか使えない。npm `@biomejs/js-api` 6.0.0 は parser API ではない |
-| `vitest` / `vite` / `rolldown` | 5.0.3 / 8.3.3 / 1.2.13 | Vite 8 は TS/JSX 変換が esbuild → Oxc |
-| `@stryker-mutator/core` / `vitest-runner` / `instrumenter` | 10.0.0 | instrumenter は Babel ベース |
+| `biome_js_parser` (crates.io) | 0.5.7 (stuck since 2024-03) | effectively usable only as a git dependency. npm `@biomejs/js-api` 6.0.0 is not a parser API |
+| `vitest` / `vite` / `rolldown` | 5.0.3 / 8.3.3 / 1.2.13 | Vite 8 switched TS/JSX transforms from esbuild to Oxc |
+| `@stryker-mutator/core` / `vitest-runner` / `instrumenter` | 10.0.0 | instrumenter is Babel-based |
 | `@vue/compiler-sfc` / `svelte` / `@vitejs/plugin-vue` | 3.5.43 / 5.57.2 / 6.0.9 | |
 | `napi` (napi-rs) | 3.14.2 | |
 
 ## 1. oxc
 
-### 1.1 できること
-- **Parse TS/JSX/TSX**: 可能。拡張子 or `lang: 'js'|'jsx'|'ts'|'tsx'|'dts'` で切替 (`napi/parser/src-js/index.d.ts`)。Stage 3 decorators, `import defer/source` まで対応。
-- **AST + span**: Rust 側は全ノードが `Span { start: u32, end: u32 }` (UTF-8 byte offset)。npm 側は ESTree / TS-ESTree 準拠で `start`/`end` (JS 側は UTF-16 offset に変換済み。magic-string にそのまま渡せる)、`range` は option。
+### 1.1 Capabilities
+- **Parse TS/JSX/TSX**: yes. Switched by extension or `lang: 'js'|'jsx'|'ts'|'tsx'|'dts'` (`napi/parser/src-js/index.d.ts`). Supports Stage 3 decorators and even `import defer/source`.
+- **AST + span**: on the Rust side every node has `Span { start: u32, end: u32 }` (UTF-8 byte offsets). On the npm side it is ESTree / TS-ESTree compliant with `start`/`end` (already converted to UTF-16 offsets on the JS side, so they can be passed straight to magic-string); `range` is optional.
 - **Walk**:
-  - Rust: `oxc_ast_visit::Visit` (read-only, `visit_ts_type` / `visit_ts_type_annotation` 等を override して型位置に降りない制御が容易) / `VisitMut` / `oxc_traverse` (親参照 + scope 付きで AST を書き換える、transformer 用)。
-  - npm: `Visitor` class (`new Visitor({ BinaryExpression(n){...}, 'X:exit'(n){...} })`)、`visitorKeys` export。raw transfer lazy 用の `experimentalGetLazyVisitor()` もある。
-- **型位置の判別**: TS-ESTree なので型は `TSTypeAnnotation`, `TSTypeReference`, `TSAsExpression`, `TSSatisfiesExpression`, `TSNonNullExpression` 等の専用ノード。式ノードと型ノードが構文上区別されるので、mutator は「`TS*Type*` 配下に入らない」「`TSAsExpression.expression` だけ見る」で精度よく扱える。`oxc_semantic` (Rust) なら symbol/reference に `ReferenceFlags::Type` / `Value` があり、`import type` 由来か等の semantic 判定も可能 (npm 側からは semantic は使えない。`showSemanticErrors` だけ)。
-- **編集済みソースの出力**:
-  - (A) span ベースの文字列 splice (JS: `magic-string`, Rust: `string_wizard`)。元のフォーマット・コメントを保ち、sourcemap も `generateMap({hires:'boundary'})` で出る。mutation instrumentation (mutant schemata = 全 mutant を三項演算子で埋め込む) にはこれが最適。
-  - (B) `oxc_codegen`: AST を再出力。sourcemap 付き出力可能だが再フォーマットされ、AST を mutate する手間 (`oxc_traverse` + `AstBuilder`) がかかる。mutant 単体の差分表示や「mutated AST から再生成」が必要な場面以外は不要。
-- **TS strip**: `oxc-transform` の `transformSync(filename, code, { sourcemap: true, typescript: {...} })`、Rust は `oxc_transformer`。`isolatedDeclarationSync` もある。instrument → strip の 2 段にすると sourcemap の合成が要るが、Vite/Vitest 経由なら Vite が map を chain してくれる。
-- **ESM 情報**: `result.module` に `staticImports/staticExports/dynamicImports/importMetas` (span 付き)。import graph 解析 (どの test がどの source を import するか) に再利用可能。
+  - Rust: `oxc_ast_visit::Visit` (read-only; easy to avoid descending into type positions by overriding `visit_ts_type` / `visit_ts_type_annotation` etc.) / `VisitMut` / `oxc_traverse` (rewrites the AST with parent references + scopes, for transformers).
+  - npm: `Visitor` class (`new Visitor({ BinaryExpression(n){...}, 'X:exit'(n){...} })`), `visitorKeys` export. There is also `experimentalGetLazyVisitor()` for raw transfer lazy.
+- **Telling type positions apart**: being TS-ESTree, types are dedicated nodes such as `TSTypeAnnotation`, `TSTypeReference`, `TSAsExpression`, `TSSatisfiesExpression`, `TSNonNullExpression`. Since expression nodes and type nodes are syntactically distinct, mutators can be precise with "do not enter under `TS*Type*`" and "look only at `TSAsExpression.expression`". `oxc_semantic` (Rust) has `ReferenceFlags::Type` / `Value` on symbols/references, allowing semantic checks such as whether something comes from `import type` (semantic is not available from npm; only `showSemanticErrors`).
+- **Emitting edited source**:
+  - (A) span-based string splicing (JS: `magic-string`, Rust: `string_wizard`). Preserves the original formatting and comments, and sourcemaps come from `generateMap({hires:'boundary'})`. Best fit for mutation instrumentation (mutant schemata = embedding all mutants as ternaries).
+  - (B) `oxc_codegen`: re-emits the AST. Can output with sourcemaps, but reformats the code and requires effort to mutate the AST (`oxc_traverse` + `AstBuilder`). Unnecessary except where per-mutant diff display or "regenerate from the mutated AST" is needed.
+- **TS strip**: `oxc-transform`'s `transformSync(filename, code, { sourcemap: true, typescript: {...} })`, `oxc_transformer` in Rust. There is also `isolatedDeclarationSync`. A two-stage instrument → strip needs sourcemap composition, but via Vite/Vitest, Vite chains the maps.
+- **ESM info**: `result.module` has `staticImports/staticExports/dynamicImports/importMetas` (with spans). Reusable for import graph analysis (which test imports which source).
 
 ### 1.2 raw transfer
-- 既定の `parseSync` は Rust 側で AST を JSON 文字列化 → JS で `JSON.parse`。
-- `experimentalRawTransfer: true` は Rust arena のバッファを JS と共有し、JS 側 deserializer が直接オブジェクト化する (`napi/parser/src-js/raw-transfer/eager.js`)。`experimentalLazy: true` は必要なノードだけ getter で deserialize (lazy visitor)。`rawTransferSupported()` で可否判定 (64bit LE + 新しめの Node が条件)。
-- オプション名に `experimental` が残っている点は注意 (API 変更リスク)。
+- The default `parseSync` serializes the AST to a JSON string on the Rust side → `JSON.parse` in JS.
+- `experimentalRawTransfer: true` shares the Rust arena buffer with JS, and a JS-side deserializer builds objects directly (`napi/parser/src-js/raw-transfer/eager.js`). `experimentalLazy: true` deserializes only the needed nodes via getters (lazy visitor). `rawTransferSupported()` checks availability (requires 64-bit LE + a recent Node).
+- Note that the option names still carry `experimental` (API change risk).
 
-### 1.3 実測 (M3 Pro, Node 24, 5 回平均)
+### 1.3 Measurements (M3 Pro, Node 24, mean of 5 runs)
 
-| 処理 | checker.ts (2.9MB) | App.tsx (415KB) |
+| Operation | checker.ts (2.9MB) | App.tsx (415KB) |
 |---|---|---|
-| oxc `parseSync` (JSON 経路) | 100.3ms | 15.6ms |
+| oxc `parseSync` (JSON path) | 100.3ms | 15.6ms |
 | **oxc raw transfer** | **29.3ms** | **5.5ms** |
 | `@babel/parser` 8 (typescript plugin) | 83.4ms | 12.9ms |
 | `@swc/core` `parseSync` | 173.0ms | 25.3ms |
 | `@ast-grep/napi` parse | 129.1ms | 21.6ms |
 | `oxc-transform` strip TS + sourcemap | 29.9ms | 4.7ms |
 | `@swc/core` transform strip TS + sourcemap | 87.0ms | 14.1ms |
-| oxc Visitor + magic-string で BinaryExpression schemata 埋め込み + sourcemap | 41.3ms (2720 mutants) | 6.5ms (402 mutants) |
+| oxc Visitor + magic-string embedding BinaryExpression schemata + sourcemap | 41.3ms (2720 mutants) | 6.5ms (402 mutants) |
 
-観察:
-- JS へ AST を渡す経路では「parse 速度」より「JS オブジェクト化コスト」が支配的。oxc の JSON 経路は Babel より遅いが、raw transfer で約 3x 速くなる。
-- 公式ベンチ (https://github.com/oxc-project/bench-javascript-parser , node bindings) でも checker.ts で oxc ~60ms / babel ~206ms / swc ~621ms 程度。Rust-native では oxc は swc 比 3x 以上 (https://github.com/oxc-project/bench-javascript-parser-written-in-rust)。transformer は swc 比 2〜4x、Babel 比 ~40x を主張 (https://oxc.rs/docs/guide/benchmarks , https://github.com/oxc-project/bench-javascript-transformer-written-in-rust)。いずれもプロジェクト自身のベンチなので割り引くこと。
-- **結論: 3MB の巨大ファイルでも instrument 全体で ~70ms。mutation testing の総時間はテスト実行が 99% 以上を占めるので、parser 選定は「速度」より「AST 精度・保守性・エコシステム整合 (Vite 8 = Oxc)」で決めてよい。**
+Observations:
+- When handing the AST to JS, "JS object materialization cost" dominates over "parse speed". oxc's JSON path is slower than Babel, but raw transfer makes it about 3x faster.
+- The official benchmark (https://github.com/oxc-project/bench-javascript-parser , node bindings) also shows roughly oxc ~60ms / babel ~206ms / swc ~621ms on checker.ts. Rust-native, oxc is 3x+ faster than swc (https://github.com/oxc-project/bench-javascript-parser-written-in-rust). The transformer claims 2-4x over swc and ~40x over Babel (https://oxc.rs/docs/guide/benchmarks , https://github.com/oxc-project/bench-javascript-transformer-written-in-rust). These are all the project's own benchmarks, so discount accordingly.
+- **Conclusion: even for a huge 3MB file, the whole instrumentation takes ~70ms. Test execution accounts for 99%+ of total mutation testing time, so the parser can be chosen for "AST precision, maintainability, ecosystem fit (Vite 8 = Oxc)" rather than "speed".**
 
-## 2. 代替候補
+## 2. Alternatives
 
-| 候補 | Pros | Cons (この用途) |
+| Candidate | Pros | Cons (for this use) |
 |---|---|---|
-| **swc** (`swc_ecma_parser` 46 / `@swc/core` 1.16) | 成熟、Rust で高速、wasm plugin (Vitiate が vite transform で SWC wasm plugin を使って instrument している例: https://vitiate.js.org/concepts/how-it-works/) | JS binding は JSON serialize で遅い (実測 oxc raw の 6x)。JS API の span は呼び出し毎に累積する global BytePos で扱いづらい。独自 AST (非 ESTree)。crate の major が頻繁 (swc_core 82)。Vite/Vitest エコシステムの主流から外れつつある |
-| **Babel** (`@babel/parser` 8) | Stryker が使用。プラグイン/型が豊富、純 JS で native 依存なし、意外に速い (oxc JSON 経路より速い) | 変換 (`@babel/traverse` + generator) は遅い。Rust 化の道がない |
-| **tree-sitter** + `tree-sitter-typescript` 0.23.2 | エラー耐性、incremental、多言語 (Vue/Svelte grammar も community にある) | CST で ESTree 的な意味構造が弱い。`tree-sitter-typescript` が 2024-11 から更新停止で新構文 (TS 5.x 後半〜6/7、`using`, `import defer` 等) の追随が不安。scope/semantic なし。parse も oxc より遅い |
-| **ast-grep** (`@ast-grep/napi` 0.45.3 / `ast-grep-core`) | YAML/pattern でユーザー定義 mutator を書ける (`$A + $B` → `$A - $B`)。rule の静的定義と相性が良い。`findAll` + `replace` + `commitEdits` | tree-sitter ベースなので上記の弱点をそのまま継承。型位置判定は kind / `inside` ルール頼み。core engine にするより「ユーザー拡張 mutator 用 DSL」として併用が筋 |
-| **Biome parser** (`biome_js_parser`) | lossless CST (rowan 系)、エラー回復が強い、v2.3〜2.4 で Vue/Svelte/Astro を experimental 対応 (https://biomejs.dev/blog/biome-v2-4 , https://biomejs.dev/internals/language-support) | crates.io は 0.5.7 (2024-03) で止まり、外部利用は git 依存。公式に library 提供を想定していない。npm から parser API を使えない。Oxc より遅い (oxc は 5x と主張) |
+| **swc** (`swc_ecma_parser` 46 / `@swc/core` 1.16) | mature, fast in Rust, wasm plugins (example: Vitiate instruments with an SWC wasm plugin in a vite transform: https://vitiate.js.org/concepts/how-it-works/) | JS binding serializes to JSON and is slow (6x oxc raw in our measurement). Spans in the JS API are global BytePos values that accumulate across calls, awkward to handle. Own AST (non-ESTree). Frequent crate majors (swc_core 82). Drifting out of the Vite/Vitest mainstream |
+| **Babel** (`@babel/parser` 8) | used by Stryker. Rich plugins/types, pure JS with no native deps, surprisingly fast (faster than oxc's JSON path) | transformation (`@babel/traverse` + generator) is slow. No path to Rust |
+| **tree-sitter** + `tree-sitter-typescript` 0.23.2 | error tolerance, incremental, multi-language (community Vue/Svelte grammars exist) | CST with weak ESTree-like semantic structure. `tree-sitter-typescript` has not been updated since 2024-11, so keeping up with new syntax (late TS 5.x to 6/7, `using`, `import defer` etc.) is doubtful. No scope/semantics. Parsing is also slower than oxc |
+| **ast-grep** (`@ast-grep/napi` 0.45.3 / `ast-grep-core`) | users can write mutators in YAML/patterns (`$A + $B` → `$A - $B`). Good fit for statically defined rules. `findAll` + `replace` + `commitEdits` | tree-sitter based, so it inherits the weaknesses above. Type-position detection relies on kind / `inside` rules. Better used alongside as a "DSL for user-defined mutators" than as the core engine |
+| **Biome parser** (`biome_js_parser`) | lossless CST (rowan-style), strong error recovery, experimental Vue/Svelte/Astro support in v2.3-2.4 (https://biomejs.dev/blog/biome-v2-4 , https://biomejs.dev/internals/language-support) | crates.io stuck at 0.5.7 (2024-03); external use requires a git dependency. Not officially intended as a library. Parser API not available from npm. Slower than Oxc (oxc claims 5x) |
 
 ### Vue / Svelte SFC
-- oxc / swc / Babel いずれも SFC 自体は parse しない。oxc も template linting 非対応 (https://oxc.rs/compatibility)。
-- 現実解: `@vue/compiler-sfc` の `parse()` (descriptor.script / scriptSetup に `loc.start.offset` あり) / `svelte/compiler` の `parse()` (`instance` / `module` script の start/end) で script block の offset を取り、その中身を oxc に `lang` 指定で渡し、mutation の span に block offset を足して元ファイル全体の magic-string に適用。Stryker も同方式 (`packages/instrumenter/src/parsers/html-parser.ts`, `svelte-parser.ts`, `create-parser.ts` で `.vue` を HTML として扱い script を抽出)。
-- template 内の式 (`{{ a + b }}`, `{#if x > 0}`) を mutate したい場合は、compiler の template AST から式範囲を取り、式単位で oxc に `parseSync('x.ts', '(' + expr + ')')` する二段構え。Biome の SFC 対応は experimental で依存するには早い。
-- Vite 経路なら `enforce: 'pre'` plugin で `.vue`/`.svelte` の **生ソース** を書き換えてから framework plugin に渡すのが安全 (コンパイル後の render code を mutate すると無意味な mutant が大量発生する)。
+- None of oxc / swc / Babel parse SFCs themselves. oxc also does not support template linting (https://oxc.rs/compatibility).
+- Practical approach: get script block offsets via `@vue/compiler-sfc`'s `parse()` (descriptor.script / scriptSetup have `loc.start.offset`) / `svelte/compiler`'s `parse()` (start/end of the `instance` / `module` script), pass the contents to oxc with `lang`, add the block offset to the mutation spans, and apply them to a magic-string of the whole original file. Stryker does the same (`packages/instrumenter/src/parsers/html-parser.ts`, `svelte-parser.ts`, `create-parser.ts` treat `.vue` as HTML and extract the script).
+- To mutate expressions inside templates (`{{ a + b }}`, `{#if x > 0}`), take expression ranges from the compiler's template AST and parse each expression with oxc via `parseSync('x.ts', '(' + expr + ')')`, a two-stage approach. Biome's SFC support is experimental and too early to depend on.
+- On the Vite path, it is safest to rewrite the **raw source** of `.vue`/`.svelte` in an `enforce: 'pre'` plugin before handing it to the framework plugin (mutating the compiled render code produces large numbers of meaningless mutants).
 
-## 3. 統合アプローチ
+## 3. Integration approaches
 
-### 3.1 Stryker (v10) vitest-runner の現状 (source 読み)
-- `packages/vitest-runner/src/vitest-test-runner.ts`: `createVitest('test', { watch:false, pool:'threads', maxWorkers:1, bail:1, coverage:false, includeTaskLocation:true, ... })` を **1 worker 1 instance で使い回す**。
-- **Vite transform hook は使っていない**。instrumenter (Babel) が全 mutant を schemata 形式で埋め込んだファイルを **sandbox ディレクトリにコピーして書き出し**、vitest はそれを普通に読む (`inPlace` オプションで元ファイル上書きも可)。
-- mutant 切替は `ctx.provide('activeMutant', id)` → setup file (`stryker-setup.ts`, sandbox に copy されて `setupFiles` 先頭に挿入) で `inject()` して `globalThis.__stryker__.activeMutant` に代入。`mutantActivation: 'static' | 'runtime'` で、module top-level で評価される static mutant は即時設定 + reload が必要という区別。
-- dry-run では `beforeEach` で `currentTestId` を設定し、instrument コード側の coverage counter が mutant → test の対応 (perTest coverage) を `suite.meta` 経由で返す。mutant run は `testNamePattern` + `related` で関係テストだけ流す。hitLimit で無限ループ検出。
-- Angular CLI 側の issue でも「Vitest instance への access と provide API が必要」という要求が出ている (https://github.com/angular/angular-cli/issues/32182)。
+### 3.1 Current state of the Stryker (v10) vitest-runner (from reading the source)
+- `packages/vitest-runner/src/vitest-test-runner.ts`: **reuses one instance per worker** via `createVitest('test', { watch:false, pool:'threads', maxWorkers:1, bail:1, coverage:false, includeTaskLocation:true, ... })`.
+- **It does not use the Vite transform hook**. The instrumenter (Babel) embeds all mutants in schemata form and **copies and writes the files into a sandbox directory**, which vitest then reads normally (the `inPlace` option can overwrite the original files instead).
+- Mutant switching: `ctx.provide('activeMutant', id)` → a setup file (`stryker-setup.ts`, copied into the sandbox and inserted at the head of `setupFiles`) `inject()`s it and assigns it to `globalThis.__stryker__.activeMutant`. `mutantActivation: 'static' | 'runtime'` distinguishes static mutants evaluated at module top level, which need immediate setting + reload.
+- In the dry run, `beforeEach` sets `currentTestId`, and coverage counters in the instrumented code return the mutant → test mapping (perTest coverage) via `suite.meta`. Mutant runs execute only related tests via `testNamePattern` + `related`. hitLimit detects infinite loops.
+- An Angular CLI issue also raises the need for "access to the Vitest instance and the provide API" (https://github.com/angular/angular-cli/issues/32182).
 
-### 3.2 Vite `transform` hook による in-memory instrumentation (PoC で検証済み)
-`scratchpad/poc/` で vitest 5.0.3 + oxc-parser raw transfer + magic-string の PoC を作成:
-- `createVitest('test', opts, { plugins: [mutatePlugin()] })` で `enforce:'pre'` の plugin を注入。`src/**/*.ts` の TS 生ソースを parse → `BinaryExpression` を `(globalThis.__mut?.active === ID ? (mutated) : (orig))` に置換、map 付きで返す (TS strip は後段の Vite 内蔵 Oxc に任せる)。
-- setup file で `beforeAll(() => globalThis.__mut = { active: inject('activeMutant') })`、node 側は `vitest.provide('activeMutant', id)` → `vitest.runTestFiles([...])`。
-- 結果:
+### 3.2 In-memory instrumentation via the Vite `transform` hook (verified with a PoC)
+Built a PoC in `scratchpad/poc/` with vitest 5.0.3 + oxc-parser raw transfer + magic-string:
+- Inject an `enforce:'pre'` plugin via `createVitest('test', opts, { plugins: [mutatePlugin()] })`. Parse the raw TS source of `src/**/*.ts` → replace `BinaryExpression` with `(globalThis.__mut?.active === ID ? (mutated) : (orig))`, returning a map (TS stripping is left to Vite's built-in Oxc downstream).
+- Setup file: `beforeAll(() => globalThis.__mut = { active: inject('activeMutant') })`; on the node side, `vitest.provide('activeMutant', id)` → `vitest.runTestFiles([...])`.
+- Result:
   ```
-  active=-1 ok=true 368ms transforms=1   (初回: 起動 + transform)
+  active=-1 ok=true 368ms transforms=1   (first: startup + transform)
   active=0  ok=false 64ms transforms=1   (+ -> - : killed)
-  active=1  ok=true 50ms transforms=1    (>= -> > : survived, 境界値テスト欠如を正しく検出)
+  active=1  ok=true 50ms transforms=1    (>= -> > : survived, correctly detects missing boundary test)
   active=-1 ok=true 47ms transforms=1
   ```
-  **transform は 1 回だけ**、以降の mutant 切替は provide/inject のみで再 transform / invalidate 不要。1 mutant 50ms 程度 (極小ケース)。sandbox copy も disk 書き込みも不要。
-- 注意点:
-  - Vitest は Vite の transform 結果を in-memory (+ v5 では `fsModuleCache`) に保持する。instrument 方針を変えたら `vitest.invalidateFile(path)` / `vitest.clearCache()` (v5+) が必要 (https://vitest.dev/advanced/api/vitest)。schemata 方式なら変える必要がない。
-  - `isolate: true` (default) ならテストファイルごとに module が再評価されるので top-level の static mutant も効く。`isolate:false` / `pool: 'threads'` で module を共有する構成では static mutant は再 import が必要 (Stryker の `static` activation と同じ問題)。
-  - user の `vitest.config` の plugin 列に後から差し込むので、`enforce:'pre'` でも他の pre plugin (vue 等) との順序に注意。`.vue` は vue plugin より前で生 SFC を書き換える。
-  - Vite 8 は内部で Oxc transform を使うため、instrument 後の TS strip / JSX 変換は Vite に任せられ、二重 parse 以外のコストはない。sourcemap も Vite が chain する。
-  - node_modules / `server.deps.external` 扱いの module は transform を通らないので対象外 (通常問題なし)。
-  - vitest 以外 (jest, node:test, mocha) は Vite pipeline がないので、この方式は使えない → 汎用には「disk 書き出し (sandbox/in-place)」か「Node の module loader hook (`module.registerHooks` の load hook)」で同じ instrument 関数を呼ぶ adapter が必要。instrument 関数は `(filename, code) => { code, map, mutants[] }` の純関数にしておけば 3 経路で共有できる。
+  **Only one transform**; subsequent mutant switches need only provide/inject, with no re-transform / invalidate. About 50ms per mutant (tiny case). No sandbox copy or disk writes.
+- Caveats:
+  - Vitest keeps Vite transform results in memory (+ `fsModuleCache` in v5). If the instrumentation strategy changes, `vitest.invalidateFile(path)` / `vitest.clearCache()` (v5+) is required (https://vitest.dev/advanced/api/vitest). With the schemata approach there is no need to change it.
+  - With `isolate: true` (default), modules are re-evaluated per test file, so top-level static mutants take effect. In configurations sharing modules via `isolate:false` / `pool: 'threads'`, static mutants need a re-import (the same problem as Stryker's `static` activation).
+  - Since the plugin is inserted into the user's `vitest.config` plugin list after the fact, watch the order relative to other pre plugins (vue etc.) even with `enforce:'pre'`. For `.vue`, rewrite the raw SFC before the vue plugin.
+  - Vite 8 uses Oxc transform internally, so TS stripping / JSX transformation after instrumentation can be left to Vite, with no cost beyond a double parse. Vite also chains the sourcemaps.
+  - Modules in node_modules / treated as `server.deps.external` do not go through transform, so they are out of scope (normally not a problem).
+  - Runners other than vitest (jest, node:test, mocha) have no Vite pipeline, so this approach does not apply → a general solution needs an adapter that calls the same instrument function via "disk write (sandbox/in-place)" or "Node's module loader hook (`module.registerHooks` load hook)". Keeping instrument a pure function `(filename, code) => { code, map, mutants[] }` lets all three paths share it.
 
-### 3.3 選択肢比較
+### 3.3 Comparison of options
 
-| 案 | 内容 | Pros | Cons |
+| Option | Description | Pros | Cons |
 |---|---|---|---|
-| (a) Rust CLI + child process で Node test runner を起動 | oxc crates で instrument、sandbox に書き出し、`vitest run` 等を spawn | 単一 binary 配布、instrument 最速、runner 非依存 | Vitest instance を使い回せない (mutant ごと / バッチごとに起動コスト数百 ms〜秒)、provide/inject や per-test coverage の取得に結局 JS 側 reporter/setup が必要、sandbox copy コスト。**最も遅くなりがち** |
-| (b) Rust napi addon + Node/TS orchestrator | instrument を oxc Rust (`oxc_parser` + `Visit` + `string_wizard` + `oxc_semantic`) で実装し napi-rs で公開、orchestrator / vite plugin は TS | JS AST 化コストゼロ (Rust 内で完結)、`oxc_semantic` で型/値参照の精密判定、in-process で vitest 再利用 | napi のクロスビルド・配布 (napi-rs で定型化されているが CI 負担)、oxc 0.x の breaking 追随、開発 iteration が遅い |
-| (c) pure JS: `oxc-parser` (raw transfer) + `magic-string` | すべて TS で書き、vite plugin / vitest API を直接使う | 最小構成で PoC 済み、Vite/Vitest と同じ言語・同じ process、配布が npm だけ (oxc-parser は prebuilt + wasm fallback)、TDD が速い | semantic (scope/symbol) が JS からは使えない (必要なら軽量な自前 scope 解析 or 後から (b) へ)、raw transfer が `experimental` |
+| (a) Rust CLI + child process launching a Node test runner | instrument with oxc crates, write to a sandbox, spawn `vitest run` etc. | single binary distribution, fastest instrumentation, runner-agnostic | cannot reuse the Vitest instance (startup cost of hundreds of ms to seconds per mutant / batch); provide/inject and per-test coverage still need a JS-side reporter/setup; sandbox copy cost. **Tends to be the slowest** |
+| (b) Rust napi addon + Node/TS orchestrator | implement instrument in oxc Rust (`oxc_parser` + `Visit` + `string_wizard` + `oxc_semantic`) exposed via napi-rs; orchestrator / vite plugin in TS | zero JS AST materialization cost (stays inside Rust), precise type/value reference checks via `oxc_semantic`, reuses vitest in-process | cross-building and distributing napi (standardized by napi-rs, but a CI burden), keeping up with oxc 0.x breaking changes, slower development iteration |
+| (c) pure JS: `oxc-parser` (raw transfer) + `magic-string` | write everything in TS, use the vite plugin / vitest API directly | minimal setup, PoC done, same language and process as Vite/Vitest, npm-only distribution (oxc-parser ships prebuilt + wasm fallback), fast TDD | semantics (scope/symbol) unavailable from JS (if needed, a lightweight custom scope analysis, or move to (b) later); raw transfer is `experimental` |
 
-## 4. 推奨
+## 4. Recommendation
 
-**(c) から始めて、instrument 層だけ将来 (b) に差し替え可能な契約で設計する。**
+**Start with (c), and design the contract so that only the instrument layer can later be swapped for (b).**
 
-1. **Parser: oxc (`oxc-parser` 0.153, `experimentalRawTransfer` / lazy)。** 理由: TS-ESTree で型位置が構文的に分離、raw transfer で JS 側最速 (Babel 比 ~3x)、Vite 8 / Rolldown / Vitest と同じ toolchain なので構文サポートのズレが起きにくい。swc は JS binding が遅く span が扱いにくい、tree-sitter-typescript は更新停止、Biome は library 利用を想定していない。
-2. **出力: AST codegen ではなく span splice (`magic-string`、Rust 化時は `string_wizard`)。** mutant schemata (全 mutant を `__mut.active === id ? m : orig` で埋め込む) で元フォーマット・コメント保持、sourcemap は `generateMap` で無料。ネストした mutant (式の中の式) は「子から順に overwrite した文字列を親の orig/mutated に使う」post-order で組み立てる必要がある (単純な slice 置換は内側 mutant を失う)。TS strip は自前でやらず Vite (Oxc) or `oxc-transform` に任せる。
-3. **実行: Vitest を第一 target とし、Node API (`createVitest` + `provide` + `runTestFiles`/`runTestSpecifications`) + `enforce:'pre'` の Vite plugin で in-memory instrumentation。** sandbox copy 不要、transform 1 回、mutant 切替は provide/inject のみ (PoC で確認)。Stryker の差分 = sandbox を捨てられる点と、worker 並列 (複数 vitest instance or `maxWorkers` + mutant を worker に割り振る) を自前で最適化できる点。
-4. **契約層を厳密に**: `instrument(file, code, opts) -> { code, map, mutants: {id, file, span, mutator, replacement}[] }` を純関数として定義。Vitest plugin / Node `module.registerHooks` loader / disk 書き出しの 3 adapter がこれを共有。Rust napi 版を作っても同じ契約で差し替え、同一 fixture で出力一致テスト。
-5. **SFC**: `@vue/compiler-sfc` / `svelte/compiler` で script block offset を抽出 → oxc。template 式は後回し。
-6. **ユーザー定義 mutator** が欲しくなったら ast-grep の pattern 構文を DSL として採用検討 (core にはしない)。
-7. **(b) に移る判断基準**: profile で instrument が全体の数 % を超える、または `oxc_semantic` 由来の判定 (equivalent mutant 除外、型専用 import 判定) が必須になったとき。現状の実測 (3MB で 70ms) では必要性は低い。
+1. **Parser: oxc (`oxc-parser` 0.153, `experimentalRawTransfer` / lazy).** Reasons: type positions are syntactically separated in TS-ESTree; raw transfer is the fastest on the JS side (~3x vs Babel); same toolchain as Vite 8 / Rolldown / Vitest, so syntax support is unlikely to drift. swc's JS binding is slow and its spans are awkward, tree-sitter-typescript is no longer updated, and Biome is not intended for library use.
+2. **Output: span splicing (`magic-string`, `string_wizard` if moved to Rust) rather than AST codegen.** Mutant schemata (embedding every mutant as `__mut.active === id ? m : orig`) preserve the original formatting and comments, and sourcemaps come for free via `generateMap`. Nested mutants (expressions within expressions) must be assembled post-order, using the string with children overwritten first as the parent's orig/mutated (naive slice replacement loses inner mutants). Do not strip TS ourselves; leave it to Vite (Oxc) or `oxc-transform`.
+3. **Execution: target Vitest first, with in-memory instrumentation via the Node API (`createVitest` + `provide` + `runTestFiles`/`runTestSpecifications`) + an `enforce:'pre'` Vite plugin.** No sandbox copy, one transform, mutant switching via provide/inject only (confirmed by the PoC). The difference from Stryker = the sandbox can be dropped, and worker parallelism (multiple vitest instances or `maxWorkers` + distributing mutants to workers) can be optimized ourselves.
+4. **Keep the contract layer strict**: define `instrument(file, code, opts) -> { code, map, mutants: {id, file, span, mutator, replacement}[] }` as a pure function. The Vitest plugin / Node `module.registerHooks` loader / disk-write adapters all share it. A Rust napi version would swap in under the same contract, with output-equality tests on the same fixtures.
+5. **SFC**: extract script block offsets with `@vue/compiler-sfc` / `svelte/compiler` → oxc. Template expressions later.
+6. If **user-defined mutators** become desirable, consider adopting ast-grep's pattern syntax as a DSL (not as the core).
+7. **Criteria for moving to (b)**: profiling shows instrument exceeding a few percent of the total, or checks based on `oxc_semantic` (excluding equivalent mutants, detecting type-only imports) become essential. Given current measurements (70ms for 3MB), the need is low.
 
-## 参考 URL
+## Reference URLs
 - oxc parser usage: https://oxc.rs/docs/guide/usage/parser
 - oxc benchmarks: https://oxc.rs/docs/guide/benchmarks
 - bench (node bindings): https://github.com/oxc-project/bench-javascript-parser
 - bench (rust): https://github.com/oxc-project/bench-javascript-parser-written-in-rust
 - bench transformer: https://github.com/oxc-project/bench-javascript-transformer-written-in-rust
-- oxc compatibility (framework 対応): https://oxc.rs/compatibility
+- oxc compatibility (framework support): https://oxc.rs/compatibility
 - Vitest Node API: https://vitest.dev/advanced/api/vitest
 - Vite 8 migration (esbuild → Oxc): https://vite.dev/guide/migration.html
 - Stryker vitest-runner source: https://github.com/stryker-mutator/stryker-js/tree/master/packages/vitest-runner/src
 - Stryker instrumenter source: https://github.com/stryker-mutator/stryker-js/tree/master/packages/instrumenter/src
 - Angular CLI issue (Stryker × Vitest instance): https://github.com/angular/angular-cli/issues/32182
-- Vitiate (vite transform 内で SWC wasm instrument する fuzzer): https://vitiate.js.org/concepts/how-it-works/
+- Vitiate (a fuzzer that instruments with SWC wasm inside a vite transform): https://vitiate.js.org/concepts/how-it-works/
 - Biome v2.4 / language support: https://biomejs.dev/blog/biome-v2-4 , https://biomejs.dev/internals/language-support
 - crates: https://crates.io/crates/oxc , https://crates.io/crates/string_wizard , https://crates.io/crates/swc_core , https://crates.io/crates/ast-grep-core , https://crates.io/crates/biome_js_parser
 - npm: https://www.npmjs.com/package/oxc-parser , https://www.npmjs.com/package/oxc-transform , https://www.npmjs.com/package/magic-string , https://www.npmjs.com/package/@ast-grep/napi

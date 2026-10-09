@@ -1,42 +1,42 @@
-# 差分検出 / incremental 手法調査 — subagent 報告の保存版 (要点)
+# Survey of diff detection / incremental techniques — saved subagent report (key points)
 
 ## identity
-- PIT: 命令 index (MutationIdentifier.java:29-43) / Stryker: file@line:col + mutator + replacement + diff-match-patch 再配置 / mutmut: 関数名 + 連番 + 関数 hash 無効化 (__main__.py:198-215)
-- 推奨: MutantKey = hash(file, scopePath, astPathInScope, mutatorId, replacement)。行列は入れない。ScopeHash = 正規化 AST (コメント/空白/型注釈除外) の hash、変われば scope 内 mutant は新規
+- PIT: instruction index (MutationIdentifier.java:29-43) / Stryker: file@line:col + mutator + replacement + diff-match-patch relocation / mutmut: function name + sequence number + invalidation by function hash (__main__.py:198-215)
+- Recommended: MutantKey = hash(file, scopePath, astPathInScope, mutatorId, replacement). No line/column. ScopeHash = hash of the normalized AST (excluding comments/whitespace/type annotations); when it changes, mutants in the scope are new
 
-## cache 再利用判定 (PIT 1.22.0 IncrementalAnalyser:73-111 を拡張)
-| prev | 再利用条件 | 不成立時 |
+## Cache reuse decisions (extending PIT 1.22.0 IncrementalAnalyser:73-111)
+| prev | Reuse condition | Otherwise |
 |---|---|---|
-| Killed | scope 不変 & killer 存在・不変 | killer 先頭で再実行 |
-| Survived | scope・depsHash・被覆 test 不変 & test 追加なし | 追加/変更 test 先頭 |
-| NoCoverage | scope 不変 & 被覆 0 のまま | 通常 |
-| Timeout | scope & deps 不変 | 通常 |
-| env (lockfile/tsconfig/runner config/node/tool/mutator ver) 変化 | 全無効 or warn (mutmut on_dependency_change) | |
-- depsHash: runtime call graph (or import graph) 到達 scopeHash の Merkle 合成 ← PIT/Stryker の穴
-- 結果は interceptor 適用前の生データで保存 (PIT HistoryResultInterceptor)
-- coverage 計測自体も差分化 (PIT History.limitTests, mutmut の新規 test のみ再収集)
-- PIT 1.23.0 以降 history は arcmutate 有償プラグインへ移動
+| Killed | scope unchanged & killer exists and is unchanged | re-run with killer first |
+| Survived | scope, depsHash, covering tests unchanged & no tests added | added/changed tests first |
+| NoCoverage | scope unchanged & still zero coverage | normal |
+| Timeout | scope & deps unchanged | normal |
+| env (lockfile/tsconfig/runner config/node/tool/mutator ver) changed | invalidate all or warn (mutmut on_dependency_change) | |
+- depsHash: Merkle composition of the scopeHashes reachable via the runtime call graph (or import graph) ← a gap in PIT/Stryker
+- Store results as raw data before interceptors are applied (PIT HistoryResultInterceptor)
+- Make coverage measurement itself incremental too (PIT History.limitTests, mutmut re-collects only new tests)
+- From PIT 1.23.0 on, history moved to the paid arcmutate plugin
 
-## diff スコープ
-- Google / cargo-mutants / Mull gitDiffRef / gremlins: changed hunk ∩ covered lines のみ mutate
-- test のみ変更 → その test が覆う Survived を再実行 (Stryker の added 規則)
-- test 選択: per-test coverage 主、call graph → module graph (vitest related) 補助
-- 全体スコアは定期 full run かサンプリング (Gopinath 2015)
+## Diff scope
+- Google / cargo-mutants / Mull gitDiffRef / gremlins: mutate only changed hunks ∩ covered lines
+- Test-only changes → re-run the Survived mutants covered by that test (Stryker's "added" rule)
+- Test selection: per-test coverage primarily, call graph → module graph (vitest related) as auxiliary
+- Overall score from periodic full runs or sampling (Gopinath 2015)
 
-## ranking / early exit
-- 前回 killer → 兄弟 mutant の killer → 直接 hit test (+1000 bonus, TestInfoPriorisationComparator.java:41-53) → 速い・狭い test。bail 1
-- mutant は推定時間短い順 (mutmut :1014) or survivability 順 (Google)
-- weak mutation 事前チェック: mutated 値 vs original 値を比較、infection しない test を外す。0 件なら equivalent 候補
+## Ranking / early exit
+- previous killer → killers of sibling mutants → directly hitting tests (+1000 bonus, TestInfoPriorisationComparator.java:41-53) → fast, narrow tests. bail 1
+- Mutants in order of shortest estimated time (mutmut :1014) or by survivability (Google)
+- Weak mutation pre-check: compare the mutated value vs the original value and drop tests that are not infected. If none remain, it is an equivalent candidate
 
 ## arid (Google: arid(n) = simple(n) ? expert(n) : children.every(arid))
-- 中央値 820 → 77 (1 行 1 mutant) → 7 (+arid)、productive 80% → 89%
-- JS ルール案: console/logger/debug, performance/OTel/metrics/Sentry, Date.now/performance.now/timer 値, new Array(n)/Buffer.alloc, NODE_ENV/import.meta.env/import.meta.main, ===↔==, Math.min/max/clamp 引数, length<0 類, memo lookup, end/flush/close, toString/toJSON/getter, TS 型構文 (as/satisfies/!/declare/.d.ts), 生成コード, assert/invariant 引数・エラーメッセージ
-- ast-grep/設定で宣言的に、ユーザーの not-useful フィードバックで育てる
+- Median 820 → 77 (1 mutant per line) → 7 (+arid), productive 80% → 89%
+- Proposed JS rules: console/logger/debug, performance/OTel/metrics/Sentry, Date.now/performance.now/timer values, new Array(n)/Buffer.alloc, NODE_ENV/import.meta.env/import.meta.main, ===↔==, Math.min/max/clamp arguments, length<0 and similar, memo lookup, end/flush/close, toString/toJSON/getter, TS type syntax (as/satisfies/!/declare/.d.ts), generated code, assert/invariant arguments and error messages
+- Declarative via ast-grep/config, grown from users' not-useful feedback
 
-## 等価・冗長削減
-- TCE (C: equivalent 7%, duplicate 21%) → JS 近似: mutated scope を minify した hash 比較
-- subsumption (kill matrix 蓄積)、mutant schemata (Untch 1993)、EMS 軽量版
+## Equivalence / redundancy reduction
+- TCE (C: equivalent 7%, duplicate 21%) → JS approximation: compare hashes of the minified mutated scope
+- subsumption (accumulate a kill matrix), mutant schemata (Untch 1993), lightweight EMS
 
-## 参考 URL
+## Reference URLs
 Google 2018 https://research.google/pubs/state-of-mutation-testing-at-google/ / 2021 https://arxiv.org/abs/2102.11378 / Meta https://arxiv.org/abs/2010.13464 / Stryker incremental https://stryker-mutator.io/docs/stryker-js/incremental/ / Mull https://mull.readthedocs.io/en/0.31.0/IncrementalMutationTesting.html / TCE https://orbilu.uni.lu/bitstream/10993/20289/1/ICSE15.pdf / ReMT https://userweb.cs.txstate.edu/~rp31/papersSSE/regrMuteTest.pdf
-補助ソース: scratchpad/pit122/, scratchpad/ext/
+Supporting sources: scratchpad/pit122/, scratchpad/ext/

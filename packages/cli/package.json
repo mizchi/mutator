@@ -23,6 +23,7 @@
   ],
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*",
+    "@mizchi/mutator-jest": "workspace:*",
     "@mizchi/mutator-typecheck": "workspace:*",
     "@mizchi/mutator-vitest": "workspace:*"
   },
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "ajv": "8.20.0",
+    "jest": "30.5.2",
     "mutation-testing-report-schema": "3.9.0"
   }
 }

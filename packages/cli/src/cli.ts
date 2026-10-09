@@ -14,10 +14,11 @@ const USAGE = `usage: mutator [options]
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
   --include <glob>     sources to mutate, repeatable (default: src/**/*.{ts,tsx,js,...})
   --exclude <glob>     sources to skip, repeatable
-  --config <file>      vitest config file
+  --runner <name>      vitest, jest (experimental, native ESM only) or auto (default)
+  --config <file>      test runner config file (vitest or jest)
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
-  -j, --concurrency <n>  parallel Vitest instances (default: half the CPUs)
+  -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)
   --full-dry-run       collect coverage from every test file (ignore the cached coverage)
   --experimental-callgraph  after edits, re-run only survivors connected to changed code
                        in the static call graph (faster, may miss value flows through tests)

@@ -22,8 +22,12 @@ export interface MutatorConfig {
   since?: string;
   scope?: 'node' | 'scope';
   concurrency?: number;
+  /** Test runner (default 'auto': vitest or jest, from the project's config files / dependencies). */
+  runner?: 'vitest' | 'jest' | 'auto';
   /** Vitest config file, relative to the project root. */
   vitestConfig?: string;
+  /** Jest config file, relative to the project root (experimental Jest support). */
+  jestConfig?: string;
   arid?: boolean | { callees?: string[] };
   experimentalCallgraph?: boolean;
   fullDryRun?: boolean;
@@ -74,8 +78,10 @@ const properties = {
   exclude: strings('Globs of sources to skip.'),
   since: { description: 'Git ref: only run mutants inside `git diff <since>`.', type: 'string' },
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
-  concurrency: { description: 'Parallel Vitest instances.', type: 'integer', minimum: 1 },
+  concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
+  runner: { description: 'Test runner; auto picks vitest or jest from config files and installed packages.', enum: ['vitest', 'jest', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },
+  jestConfig: { description: 'Jest config file, relative to the root (experimental, native ESM only).', type: 'string' },
   arid: {
     description: 'Arid (logging-only) code suppression: false runs those mutants too; callees replaces the logging call patterns.',
     anyOf: [{ type: 'boolean' }, { type: 'object', additionalProperties: false, properties: { callees: strings('Logging call patterns, e.g. "metrics.*".') } }],

@@ -33,12 +33,24 @@
       ]
     },
     "concurrency": {
-      "description": "Parallel Vitest instances.",
+      "description": "Parallel test-runner sessions.",
       "type": "integer",
       "minimum": 1
     },
+    "runner": {
+      "description": "Test runner; auto picks vitest or jest from config files and installed packages.",
+      "enum": [
+        "vitest",
+        "jest",
+        "auto"
+      ]
+    },
     "vitestConfig": {
       "description": "Vitest config file, relative to the root.",
+      "type": "string"
+    },
+    "jestConfig": {
+      "description": "Jest config file, relative to the root (experimental, native ESM only).",
       "type": "string"
     },
     "arid": {

@@ -26,7 +26,7 @@ import {
 } from '@mizchi/mutator-core';
 import { createTypeChecker } from '@mizchi/mutator-typecheck';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
-import { createSession } from '@mizchi/mutator-vitest';
+import { type Runner, createRunnerSession, detectRunner } from './runner.ts';
 import { changedFiles, gitDiff } from './git.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
@@ -45,7 +45,12 @@ export interface RunOptions {
   since?: string;
   scope?: SelectMode;
   snapshotPath?: string;
+  /** Test runner (default 'auto': see `detectRunner`). */
+  runner?: Runner | 'auto';
+  /** Vitest config file (also used for Jest when `jestConfigFile` is not set). */
   configFile?: string;
+  /** Jest config file. */
+  jestConfigFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
   /**
@@ -68,7 +73,7 @@ export interface RunOptions {
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
   fullDryRun?: boolean;
-  /** Parallel Vitest instances running mutants (default: half the CPUs). */
+  /** Parallel runner sessions running mutants (default: half the CPUs). */
   concurrency?: number;
   log?: (message: string) => void;
 }
@@ -137,13 +142,18 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
     ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
   };
+  const runner = !options.runner || options.runner === 'auto' ? detectRunner(root, options.jestConfigFile ?? options.configFile) : options.runner;
+  const configFile = runner === 'jest' ? (options.jestConfigFile ?? options.configFile) : options.configFile;
+  log(`runner: ${runner}`);
   const sessionOptions = {
     root,
-    include: (file: string) => targets.has(file),
+    targets,
     ...instrumentOptions,
-    ...(options.configFile ? { configFile: options.configFile } : {}),
+    pluginModules: plugins.modules,
+    hasPluginObjects: plugins.hasObjects,
+    ...(configFile ? { configFile } : {}),
   };
-  const session = await createSession(sessionOptions);
+  const session = await createRunnerSession(runner, sessionOptions);
   const sessions = [session];
   const unguard = guardWorkerExits(log);
   try {
@@ -152,7 +162,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const residual = residualHashes(root, scopes, mutants);
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
     // Mutation settings change which mutants are placed (and thus covered): part of the environment.
-    const settings = JSON.stringify({ arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
+    const settings = JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
@@ -232,8 +242,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
     const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), jobs.length));
     // In parallel mode every mutant session gets a single worker so sessions do not
-    // oversubscribe the CPU; a lone session keeps Vitest's default workers.
-    const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createSession({ ...sessionOptions, maxWorkers: 1 })));
+    // oversubscribe the CPU; a lone session keeps the runner's default workers.
+    const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(runner, { ...sessionOptions, maxWorkers: 1 })));
     if (concurrency > 1) sessions.push(...workers);
     for (const s of workers) s.useTestIndex(merged.index);
     let executed = 0;

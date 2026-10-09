@@ -113,6 +113,19 @@ describe('resolveOptions', () => {
   });
 });
 
+describe('runner options', () => {
+  test('runner and jestConfig from the config file; --runner overrides', async () => {
+    const root = project({ runner: 'jest', jestConfig: 'jest.unit.js' });
+    expect((await resolve(root)).run).toMatchObject({ runner: 'jest', jestConfigFile: join(root, 'jest.unit.js') });
+    expect((await resolve(root, '--runner', 'vitest')).run.runner).toBe('vitest');
+    expect((await resolve(project())).run.runner).toBe('auto');
+  });
+
+  test('an unknown runner is a ConfigError', async () => {
+    await expect(resolve(project(), '--runner', 'mocha')).rejects.toThrow('--runner must be one of "vitest", "jest", "auto"');
+  });
+});
+
 describe('plugins options', () => {
   test('config plugins / excludedMutators reach run options; CLI flags override', async () => {
     const root = project({ plugins: ['./a.ts'], excludedMutators: ['Regex'] });

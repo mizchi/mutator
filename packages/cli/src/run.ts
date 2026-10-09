@@ -57,6 +57,8 @@ export interface ReportEntry {
   /** run: executed now, reuse: taken from the snapshot, skipped: outside --since and no cached result */
   source: 'run' | 'reuse' | 'static' | 'skipped';
   killedBy: string[];
+  /** Tests that executed the mutant in the (merged) coverage run. */
+  coveredBy: string[];
 }
 
 export interface Report {
@@ -138,28 +140,29 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const jobs: { index: number; entry: Extract<PlanEntry, { kind: 'run' }> }[] = [];
     for (const entry of entries) {
       const { mutant } = entry;
+      const coveredBy = [...(merged.coverage.get(mutant.key) ?? [])];
       switch (entry.kind) {
         case 'ignored':
           results.push(toResult(mutant, 'Ignored', [], []));
-          report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [] });
+          report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy });
           break;
         case 'noCoverage':
           results.push(toResult(mutant, 'NoCoverage', [], []));
-          report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [] });
+          report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [], coveredBy });
           break;
         case 'reuse':
           // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
-          results.push({ ...entry.result, coveredBy: merged.coverage.get(mutant.key) ?? [] });
-          report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy });
+          results.push({ ...entry.result, coveredBy });
+          report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy });
           break;
         case 'run':
           if (inScope && !inScope.has(mutant.key)) {
             // Keep the coverage so the next run can still select tests for it.
-            results.push(toResult(mutant, 'Pending', [], merged.coverage.get(mutant.key) ?? []));
-            report.push({ mutant, status: 'Pending', source: 'skipped', killedBy: [] });
+            results.push(toResult(mutant, 'Pending', [], coveredBy));
+            report.push({ mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy });
           } else {
             jobs.push({ index: report.length, entry });
-            report.push({ mutant, status: 'Pending', source: 'run', killedBy: [] });
+            report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
           }
           break;
       }
@@ -186,8 +189,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           });
           executed++;
           log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-          results.push(toResult(mutant, outcome.status, outcome.killedBy, merged.coverage.get(mutant.key) ?? [], outcome.durationMs));
-          report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy };
+          const { coveredBy } = report[index]!;
+          results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
+          report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
         }
       }),
     );

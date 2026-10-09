@@ -56,15 +56,16 @@ local secretlint: Task = new {
     upstream=$(git rev-parse --symbolic-full-name '@{push}' 2>/dev/null \
             || git rev-parse --symbolic-full-name '@{u}' 2>/dev/null \
             || true)
+    # Command substitution drops NUL bytes, so keep the -z list in a file.
+    list=$(mktemp)
+    trap 'rm -f "$list"' EXIT
     if [ -n "$upstream" ]; then
-      files=$(git diff --name-only --diff-filter=ACMR -z "${upstream}..HEAD")
+      git diff --name-only --diff-filter=ACMR -z "${upstream}..HEAD" > "$list"
     else
-      files=$(git ls-files -z)
+      git ls-files -z > "$list"
     fi
-    if [ -z "$files" ]; then
-      exit 0
-    fi
-    printf '%s' "$files" | xargs -0 pnpm exec secretlint --
+    [ -s "$list" ] || exit 0
+    xargs -0 pnpm exec secretlint -- < "$list"
     """#
   cache = false
   inputs { ".secretlintrc.json"; "package.json"; "pnpm-lock.yaml" }

@@ -118,6 +118,9 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] arid node 抑制 (logging 系 callee、Google の compound 規則。`--no-arid` / `--arid-callee`)
 - [x] test fingerprint を module graph 込みにする (ヘルパー / fixture の内容、mutate 対象ソースは residual hash)
 - [x] ~~1 run で複数 mutant~~ 試して取り下げ: 速くなったのは run 内の Vitest worker 並列の分で、固定コスト償却ではなかった。`-j 1` では 186s→116s だが既定の `-j 6` では 57s→85s と悪化 (early exit が効きにくく tail が伸びる)
+- [x] レポート: mutation-testing-elements JSON (schema v2) / HTML (`--reporter json|html`)
+- [x] 公開準備: tsc で dist、publishConfig、`pkf run pack-smoke`
+- [x] 独立レビュー (incremental vs cold の不一致 9 件) をすべて E2E 化して修正
 
 ## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, 負荷なし)
 

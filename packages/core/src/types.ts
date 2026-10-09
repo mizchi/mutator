@@ -111,6 +111,8 @@ export interface InstrumentOptions {
   excludedMutators?: readonly MutatorName[];
   /** Custom mutators, run in addition to the built-in ones. */
   mutators?: readonly MutatorDefinition[];
+  /** Mark every mutant under nodes they flag as ignored (like StrykerJS ignorers). */
+  ignorers?: readonly MutantIgnorer[];
   /**
    * Arid node suppression: mutants in logging-only code are reported as ignored
    * (default on). `false` disables it; `callees` replaces the logging call patterns.
@@ -248,10 +250,20 @@ export interface MutatorDefinition {
   visit(node: AstNode, context: MutatorVisitContext): readonly MutationSpec[] | undefined | void;
 }
 
-/** What a plugin module exports (default export): custom mutators and logging-call patterns. */
+/**
+ * Ignores whole subtrees: when `shouldIgnore` returns a reason for a node, every
+ * mutant under it is reported as ignored (`<name>: <reason>`) and never run.
+ */
+export interface MutantIgnorer {
+  name: string;
+  shouldIgnore(node: AstNode, context: MutatorVisitContext): string | undefined | void;
+}
+
+/** What a plugin module exports (default export): custom mutators, ignorers, logging-call patterns. */
 export interface MutatorPlugin {
   name: string;
   mutators?: readonly MutatorDefinition[];
+  ignorers?: readonly MutantIgnorer[];
   /** Extra arid (logging) callee patterns, e.g. `metrics.*`. */
   aridCallees?: readonly string[];
 }

@@ -1,9 +1,42 @@
 import type { Frame } from './ast.ts';
 import type { Candidate, MutatorContext } from './mutators.ts';
-import { BUILTIN_MUTATOR_NAMES, type MutatorDefinition, type MutatorPlugin } from './types.ts';
+import { BUILTIN_MUTATOR_NAMES, type MutantIgnorer, type MutatorDefinition, type MutatorPlugin } from './types.ts';
 
 export const defineMutator = (definition: MutatorDefinition): MutatorDefinition => definition;
 export const definePlugin = (plugin: MutatorPlugin): MutatorPlugin => plugin;
+export const defineIgnorer = (ignorer: MutantIgnorer): MutantIgnorer => ignorer;
+
+/** Reason (`<ignorer>: <reason>`) when the anchor or one of its ancestors is ignored. */
+export function createIgnoreCheck(ignorers: readonly MutantIgnorer[], file: string, source: string): (anchor: Frame) => string | undefined {
+  if (ignorers.length === 0) return () => undefined;
+  const memo = new Map<object, string | null>();
+  const reasonFor = (frame: Frame): string | null => {
+    const cached = memo.get(frame.node);
+    if (cached !== undefined) return cached;
+    let reason: string | null = null;
+    for (const ignorer of ignorers) {
+      let result;
+      try {
+        result = ignorer.shouldIgnore(frame.node, { source, parent: frame.parent?.node, key: frame.key, text: (r) => source.slice(r.start, r.end) });
+      } catch (error) {
+        throw new Error(`ignorer ${ignorer.name} failed on ${file} at offset ${frame.node.start}: ${(error as Error).message}`, { cause: error });
+      }
+      if (result) {
+        reason = `${ignorer.name}: ${result}`;
+        break;
+      }
+    }
+    memo.set(frame.node, reason);
+    return reason;
+  };
+  return (anchor) => {
+    for (let f: Frame | undefined = anchor; f; f = f.parent) {
+      const reason = reasonFor(f);
+      if (reason) return reason;
+    }
+    return undefined;
+  };
+}
 
 const BUILTIN = new Set<string>(BUILTIN_MUTATOR_NAMES);
 

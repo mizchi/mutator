@@ -131,9 +131,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
 
   const plugins = await loadPlugins(root, options.plugins ?? []);
   const arid = combineArid(options.arid, plugins.aridCallees);
-  const instrumentOptions: Pick<InstrumentOptions, 'arid' | 'mutators' | 'excludedMutators'> = {
+  const instrumentOptions: InstrumentFlags = {
     ...(arid !== undefined ? { arid } : {}),
     ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
+    ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
     ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
   };
   const sessionOptions = {
@@ -319,7 +320,9 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-function collectSources(root: string, files: readonly string[], instrumentOptions: Pick<InstrumentOptions, 'arid' | 'mutators' | 'excludedMutators'>) {
+type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators'>;
+
+function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
   const scopes = new Map<string, Scope[]>();
   const graphSources: CallGraphSource[] = [];
   const mutants = files.flatMap((file) => {

@@ -2,7 +2,7 @@ import MagicString from 'magic-string';
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
 import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
-import { adaptMutator } from './plugin.ts';
+import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
@@ -40,6 +40,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const excluded = new Set<string>(options.excludedMutators ?? []);
   const active = [...mutators, ...(options.mutators ?? []).map((definition) => adaptMutator(definition, file))];
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
+  const ignoredBy = createIgnoreCheck(options.ignorers ?? [], file, source);
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
 
@@ -107,7 +108,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       replacement: candidate.replacement,
       scope,
     };
-    const reason = disabled(candidate.mutator, candidate.range.start) ?? (isArid(candidate.anchor) ? 'arid: logging' : undefined);
+    const reason = disabled(candidate.mutator, candidate.range.start) ?? ignoredBy(candidate.anchor) ?? (isArid(candidate.anchor) ? 'arid: logging' : undefined);
     const placement = reason ? undefined : findPlacement(candidate.anchor);
     if (reason) {
       mutant.ignored = reason;

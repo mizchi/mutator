@@ -81,4 +81,22 @@ describe('plugins', { timeout: 60_000 }, () => {
     const report = await runMutation({ root, concurrency: 1, plugins: ['./mutators/fallbacks.ts'], excludedMutators: ['DropFallback', 'StringLiteral'] });
     expect(report.entries.some((e) => e.mutant.mutator === 'DropFallback' || e.mutant.mutator === 'StringLiteral')).toBe(false);
   });
+
+  test('ignorers from a plugin (or a bare ignorer export) skip whole subtrees', async () => {
+    const ignorer = `import { defineIgnorer } from ${JSON.stringify(core)};
+export default defineIgnorer({
+  name: 'no-env',
+  shouldIgnore(node) {
+    if (node.type === 'FunctionDeclaration' && node.id?.name === 'port') return 'environment defaults';
+  },
 });
+`;
+    const root = project({ 'mutators/no-env.ts': ignorer });
+    const report = await runMutation({ root, concurrency: 1, plugins: ['./mutators/no-env.ts'] });
+    const inPort = report.entries.filter((e) => e.mutant.scope.id === 'port');
+    expect(inPort.length).toBeGreaterThan(0);
+    expect(inPort.every((e) => e.status === 'Ignored')).toBe(true);
+    expect(report.executed).toBe(0);
+  });
+});
+

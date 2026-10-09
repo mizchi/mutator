@@ -10,6 +10,7 @@ export interface PluginOptions {
   excludedMutators?: InstrumentOptions['excludedMutators'];
   arid?: InstrumentOptions['arid'];
   mutators?: InstrumentOptions['mutators'];
+  ignorers?: InstrumentOptions['ignorers'];
   /** Mutant identity uses paths relative to this directory. */
   root?: string;
 }
@@ -39,6 +40,7 @@ export function mutatorPlugin(registry: MutantRegistry, options: PluginOptions):
         ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
         ...(options.arid !== undefined ? { arid: options.arid } : {}),
         ...(options.mutators ? { mutators: options.mutators } : {}),
+        ...(options.ignorers ? { ignorers: options.ignorers } : {}),
         ...(options.root ? { identity: relative(options.root, file) } : {}),
       });
       registry.byFile.set(file, result.mutants);

@@ -1,7 +1,7 @@
 import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 import { applyMutant, instrument } from '../src/instrument.ts';
-import { defineMutator, definePlugin } from '../src/plugin.ts';
+import { defineIgnorer, defineMutator, definePlugin } from '../src/plugin.ts';
 
 // Replace `a ?? b` with `a` (drop the fallback).
 const dropFallback = defineMutator({
@@ -77,5 +77,44 @@ describe('custom mutators', () => {
   test('definePlugin bundles mutators and arid callees', () => {
     const plugin = definePlugin({ name: 'my-plugin', mutators: [dropFallback], aridCallees: ['metrics.*'] });
     expect(plugin).toEqual({ name: 'my-plugin', mutators: [dropFallback], aridCallees: ['metrics.*'] });
+  });
+});
+
+describe('ignorers', () => {
+  // Ignore everything inside `invariant(...)` calls (assertion messages and conditions).
+  const invariants = defineIgnorer({
+    name: 'invariant',
+    shouldIgnore(node) {
+      if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'invariant') return 'assertion helper';
+    },
+  });
+  const src = 'function f(a) { invariant(a > 0, "a must be positive"); return a + 1; }';
+
+  test('mutants anywhere under an ignored node are reported as ignored with the reason', () => {
+    const { mutants, code } = instrument('a.js', src, { ignorers: [invariants] });
+    const inside = mutants.filter((m) => m.range.start >= src.indexOf('invariant') && m.range.end <= src.indexOf(');') + 1);
+    expect(inside.length).toBeGreaterThan(0);
+    expect(new Set(inside.map((m) => m.ignored))).toEqual(new Set(['invariant: assertion helper']));
+    expect(mutants.find((m) => m.original === 'a + 1')!.ignored).toBeUndefined();
+    expect(code).not.toContain(JSON.stringify(inside[0]!.key));
+  });
+
+  test('apply to custom mutators too, and keys stay unchanged', () => {
+    const plain = instrument('a.js', src).mutants.map((m) => m.key);
+    expect(instrument('a.js', src, { ignorers: [invariants] }).mutants.map((m) => m.key)).toEqual(plain);
+  });
+
+  test('disable comments win over ignorers (more specific reason)', () => {
+    const { mutants } = instrument('a.js', `// mutator-disable-next-line\n${src}`, { ignorers: [invariants] });
+    expect(mutants.every((m) => m.ignored === 'disabled')).toBe(true);
+  });
+
+  test('an ignorer throwing is reported with its name', () => {
+    const throwing = defineIgnorer({ name: 'Boom', shouldIgnore: () => { throw new Error('bad'); } });
+    expect(() => instrument('a.js', 'y = 1 + 1;', { ignorers: [throwing] })).toThrow(/Boom.*bad/);
+  });
+
+  test('definePlugin accepts ignorers', () => {
+    expect(definePlugin({ name: 'p', ignorers: [invariants] }).ignorers).toEqual([invariants]);
   });
 });

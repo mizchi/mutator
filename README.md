@@ -105,6 +105,23 @@ export default definePlugin({
 { "plugins": ["./mutators/fallbacks.ts"], "excludedMutators": ["Regex"] }
 ```
 
+Ignorers (like StrykerJS's) skip whole subtrees: every mutant under a node for which `shouldIgnore` returns a reason is reported as `Ignored` (`<ignorer>: <reason>`) and never run.
+
+```ts
+import { defineIgnorer } from '@mizchi/mutator';
+
+export default defineIgnorer({
+  name: 'invariant',
+  shouldIgnore(node) {
+    if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'invariant') {
+      return 'assertion helper';
+    }
+  },
+});
+```
+
+Plugins may export `ignorers` next to `mutators`. Disable comments take precedence over ignorers, and ignorers over arid suppression.
+
 A mutation replaces the visited node (or a `range` inside it) with text. Placement (mutation switching, parentheses, ASI), identity, disable comments and arid suppression are handled by the engine exactly as for built-in mutators; output that no longer parses is rejected with the mutator's name. Plugins can be relative paths or package names (published plugins must ship JavaScript: Node does not strip types under `node_modules`). Editing a plugin invalidates cached results. CLI: `--plugin <module>`, `--exclude-mutator <name>`.
 
 ## Type checking

@@ -1,7 +1,7 @@
 import { relative } from 'node:path';
 import type { Report, ReportEntry } from './run.ts';
 
-const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'Ignored', 'Pending'] as const;
+const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'CompileError', 'Ignored', 'Pending'] as const;
 
 export function formatSummary(report: Report, root: string): string {
   const counts = new Map<string, number>();

@@ -124,6 +124,8 @@ export type MutantStatus =
   | 'Timeout'
   | 'RuntimeError'
   | 'Ignored'
+  /** Does not type-check; never run, excluded from the score. */
+  | 'CompileError'
   /** Planned for execution but not run (e.g. outside --since); kept for its coverage, never reused. */
   | 'Pending';
 

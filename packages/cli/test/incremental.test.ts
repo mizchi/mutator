@@ -161,3 +161,23 @@ describe('worker crashes', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe('type checking', { timeout: 120_000 }, () => {
+  test('mutants that do not type-check are CompileError and are not run', async () => {
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'nodenext', moduleResolution: 'nodenext', allowImportingTsExtensions: true }, include: ['src'] }),
+      'src/a.ts': 'export function size(o?: { n: number }): number | undefined {\n  return o?.n;\n}\nexport function evens(): number[] {\n  const out: number[] = [];\n  out.push(2);\n  return out;\n}\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { evens, size } from '../src/a.ts';\ntest('a', () => { expect(size({ n: 1 })).toBe(1); expect(size()).toBe(undefined); expect(evens()).toEqual([2]); });\n",
+    });
+    const report = await runMutation({ root, concurrency: 1 });
+    const status = (original: string, replacement: string) => report.entries.find((e) => e.mutant.original === original && e.mutant.replacement === replacement);
+    expect(status('?.', '.')).toMatchObject({ status: 'CompileError', source: 'static' });
+    expect(status('[]', '["Stryker was here!"]')).toMatchObject({ status: 'CompileError' });
+    expect(report.entries.filter((e) => e.status === 'CompileError').every((e) => e.killedBy.length === 0)).toBe(true);
+
+    const untyped = await runMutation({ root, concurrency: 1, typecheck: false, snapshotPath: join(root, '.mutator/untyped.json') });
+    expect(untyped.entries.some((e) => e.status === 'CompileError')).toBe(false);
+    expect(untyped.executed).toBeGreaterThan(report.executed);
+  });
+});
+

@@ -11,7 +11,17 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["packages/*/src", "packages/*/test", "scripts"]
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "scripts"
+  ],
+  "exclude": [
+    "**/fixtures/**",
+    "**/node_modules/**"
+  ]
 }

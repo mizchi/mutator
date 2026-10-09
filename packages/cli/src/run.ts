@@ -23,6 +23,7 @@ import {
   selectMutants,
   toResult,
 } from '@mizchi/mutator-core';
+import { createTypeChecker } from '@mizchi/mutator-typecheck';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
@@ -51,6 +52,12 @@ export interface RunOptions {
    * flow between functions through test code.
    */
   callGraph?: boolean;
+  /**
+   * Type-check planned mutants with the project's TypeScript first; those that do not
+   * compile become `CompileError` and are not run. `'auto'` (default): when the
+   * project has `typescript` and a tsconfig.json.
+   */
+  typecheck?: boolean | 'auto';
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -131,7 +138,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const residual = residualHashes(root, scopes, mutants);
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
     // Mutation settings change which mutants are placed (and thus covered): part of the environment.
-    const settings = JSON.stringify({ arid: options.arid ?? null, callGraph: options.callGraph ?? false });
+    const settings = JSON.stringify({ arid: options.arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto' });
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
@@ -199,7 +206,16 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       }
     }
 
-    log(`${mutants.length} mutants, ${jobs.length} to run`);
+    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', jobs.map((j) => j.entry.mutant), log);
+    for (let i = jobs.length - 1; i >= 0; i--) {
+      const { index, entry } = jobs[i]!;
+      const error = uncompilable.get(entry.mutant.key);
+      if (error === undefined) continue;
+      results.push(toResult(entry.mutant, 'CompileError', [], []));
+      report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy: merged.coverage.get(entry.mutant.key) ?? [] };
+      jobs.splice(i, 1);
+    }
+    log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
     const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), jobs.length));
     // In parallel mode every mutant session gets a single worker so sessions do not
     // oversubscribe the CPU; a lone session keeps Vitest's default workers.
@@ -246,6 +262,27 @@ export async function runMutation(options: RunOptions): Promise<Report> {
 
 function defaultConcurrency(): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
+}
+
+const TS_FILE = /\.(c|m)?tsx?$/;
+
+/** Mutant key -> first new type error, for mutants of TypeScript files that do not compile. */
+async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void): Promise<Map<string, string>> {
+  const candidates = mutants.filter((m) => TS_FILE.test(m.file));
+  if (setting === false || candidates.length === 0) return new Map();
+  const checker = await createTypeChecker({ root });
+  if (!checker) {
+    if (setting === true) throw new Error('typecheck: no typescript package or tsconfig.json found in the project');
+    return new Map();
+  }
+  try {
+    const started = performance.now();
+    const result = checker.check(candidates);
+    log(`typecheck (TypeScript ${checker.version}): ${candidates.length} mutants in ${((performance.now() - started) / 1000).toFixed(1)}s`);
+    return result;
+  } finally {
+    checker.close();
+  }
 }
 
 /** Static mutant key -> tests of the test files whose module loading executed it. */

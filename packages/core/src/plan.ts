@@ -104,7 +104,8 @@ export function plan(input: PlanInput): PlanEntry[] {
     if (prev.scopeHash !== m.scope.hash || prev.file !== m.file) return false;
     const unaffected = (t: string) => !affects(t, m);
     if (prev.status === 'Killed') return prev.killedBy.some((t) => testById.has(t) && unaffected(t));
-    if (prev.status === 'Ignored' || prev.status === 'Pending') return false;
+    // Re-checked every run: cheap, and the types it depends on may live in other files.
+    if (prev.status === 'Ignored' || prev.status === 'Pending' || prev.status === 'CompileError') return false;
     // A static mutant influences every test through module loading, so any affected test invalidates it.
     if (isStatic && anyAffected) return false;
     if (!prev.coveredBy.every(unaffected)) return false;

@@ -190,6 +190,9 @@ importers:
       '@mizchi/mutator-core':
         specifier: workspace:*
         version: link:../core
+      '@mizchi/mutator-typecheck':
+        specifier: workspace:*
+        version: link:../typecheck
       '@mizchi/mutator-vitest':
         specifier: workspace:*
         version: link:../vitest
@@ -209,6 +212,19 @@ importers:
       oxc-parser:
         specifier: 0.153.0
         version: 0.153.0
+
+  packages/typecheck:
+    dependencies:
+      '@mizchi/mutator-core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      typescript6:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
+      typescript7:
+        specifier: npm:typescript@7.0.2
+        version: typescript@7.0.2
 
   packages/vitest:
     dependencies:
@@ -1176,6 +1192,11 @@ packages:
     resolution: {integrity: sha512-TeTSQ6H5YHvpqVwBRcnLDCBnDOHWYu7IvGbHT6N8AOymcr9PJGjc1GTtiWZTYg0NCgYwvnYWEkVChQAr9bjfwA==}
     engines: {node: '>=16'}
 
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -2067,6 +2088,8 @@ snapshots:
   type-fest@3.13.1: {}
 
   type-fest@4.41.0: {}
+
+  typescript@6.0.3: {}
 
   typescript@7.0.2:
     optionalDependencies:

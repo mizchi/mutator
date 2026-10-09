@@ -1,17 +1,14 @@
 {
-  "name": "@mizchi/mutator",
+  "name": "@mizchi/mutator-typecheck",
   "version": "0.0.0",
   "type": "module",
-  "description": "Diff-driven mutation testing for Vitest",
+  "description": "Type-check mutants with the project's TypeScript (6 via the compiler API, 7 via the native API)",
   "license": "MIT",
   "author": "mizchi",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mizchi/mutator.git",
-    "directory": "packages/cli"
-  },
-  "bin": {
-    "mutator": "./src/cli.ts"
+    "directory": "packages/typecheck"
   },
   "exports": {
     ".": "./src/index.ts"
@@ -20,11 +17,6 @@
     "dist",
     "src"
   ],
-  "dependencies": {
-    "@mizchi/mutator-core": "workspace:*",
-    "@mizchi/mutator-typecheck": "workspace:*",
-    "@mizchi/mutator-vitest": "workspace:*"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepack": "tsc -p tsconfig.build.json"
@@ -35,13 +27,13 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
       }
-    },
-    "bin": {
-      "mutator": "./dist/cli.js"
     }
   },
+  "dependencies": {
+    "@mizchi/mutator-core": "workspace:*"
+  },
   "devDependencies": {
-    "ajv": "8.20.0",
-    "mutation-testing-report-schema": "3.9.0"
+    "typescript6": "npm:typescript@6.0.3",
+    "typescript7": "npm:typescript@7.0.2"
   }
 }

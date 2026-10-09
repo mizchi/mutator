@@ -76,6 +76,15 @@ export default defineConfig({
 
 Boolean flags accept a `--no-` prefix (`--no-fail-on-survived`) to override a config file value.
 
+## Type checking
+
+Mutants of TypeScript files are type-checked with the project's own `typescript` before any test runs; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:
+
+- TypeScript ≤ 6: the compiler API (LanguageService with in-memory overrides)
+- TypeScript ≥ 7: the native API (`typescript/unstable/sync`) with a virtual file system, about 3–7× faster
+
+`typecheck: 'auto'` (default) enables it when `typescript` and `tsconfig.json` are present; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
+
 ## CI (pull requests)
 
 Cache the snapshot per base branch so a PR only runs mutants its diff can affect:

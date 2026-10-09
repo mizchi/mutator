@@ -68,6 +68,13 @@ describe('resolveOptions', () => {
     });
   });
 
+  test('typecheck: config value, overridden by --no-typecheck', async () => {
+    const root = project({ typecheck: true });
+    expect((await resolve(root)).typecheck).toBe(true);
+    expect((await resolve(root, '--no-typecheck')).typecheck).toBe(false);
+    expect((await resolve(project())).typecheck).toBeUndefined();
+  });
+
   test('CLI flags override the config file', async () => {
     const root = project({ since: 'main', scope: 'scope', reporters: ['json'], failOnSurvived: true, arid: false, thresholds: { break: 70, high: 95 } });
     const options = await resolve(root, '--since', 'dev', '--scope', 'node', '--reporter', 'html', '--no-fail-on-survived', '--arid-callee', 'x.*', '--threshold-break', '40');

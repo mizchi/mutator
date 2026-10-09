@@ -6,7 +6,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/pack" "$work/app"
-for p in core vitest cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
+for p in core vitest typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
 cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test,vitest.config.ts} "$work/app/"
 cat > "$work/app/package.json" <<JSON
 {
@@ -24,6 +24,7 @@ packages: []
 overrides:
   "@mizchi/mutator-core": "file:$work/pack/mizchi-mutator-core-0.0.0.tgz"
   "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-0.0.0.tgz"
+  "@mizchi/mutator-typecheck": "file:$work/pack/mizchi-mutator-typecheck-0.0.0.tgz"
 YAML
 cd "$work/app"
 pnpm install --prefer-offline >/dev/null

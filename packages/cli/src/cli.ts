@@ -22,6 +22,7 @@ const USAGE = `usage: mutator [options]
   --experimental-callgraph  after edits, re-run only survivors connected to changed code
                        in the static call graph (faster, may miss value flows through tests)
   --no-arid            also run mutants in logging-only code (console.*, logger.*, *.debug, ...)
+  --[no-]typecheck     type-check mutants with the project's TypeScript first (default: auto)
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'
   --reporter <name>    text (default), json, html; repeatable
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)

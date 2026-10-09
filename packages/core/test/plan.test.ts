@@ -494,3 +494,26 @@ describe('Pending results', () => {
     expect(runTests(only(plan(input({ mutants: [m], tests: [t1], previous }))))).toEqual(['t1']);
   });
 });
+
+describe('related (experimental call graph)', () => {
+  it('a changed scope only invalidates survivors of related scopes', () => {
+    const changedFn = mutant('c1', { scope: 'changed', hash: 'new' });
+    const caller = mutant('k1', { scope: 'caller' });
+    const bystander = mutant('k2', { scope: 'bystander' });
+    const t = test('t');
+    const previous = snapshot(
+      [
+        { ...result(mutant('c1', { scope: 'changed', hash: 'old' }), 'Killed', ['t'], ['t']) },
+        result(caller, 'Survived', ['t']),
+        result(bystander, 'Survived', ['t']),
+      ],
+      [t],
+    );
+    const related = (a: string, b: string) => a === 'a.ts#caller' && b === 'a.ts#changed';
+    const entries = plan(input({ mutants: [changedFn, caller, bystander], tests: [t], previous, coverage: cov({ c1: ['t'], k1: ['t'], k2: ['t'] }), related }));
+    expect(entries.map((e) => e.kind)).toEqual(['run', 'run', 'reuse']);
+    // Without `related` every survivor covered by `t` is re-run.
+    const sound = plan(input({ mutants: [changedFn, caller, bystander], tests: [t], previous, coverage: cov({ c1: ['t'], k1: ['t'], k2: ['t'] }) }));
+    expect(sound.map((e) => e.kind)).toEqual(['run', 'run', 'run']);
+  });
+});

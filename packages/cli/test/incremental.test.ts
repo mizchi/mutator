@@ -127,4 +127,21 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     expect(verdicts(incremental)).toEqual(verdicts(cold));
     expect(incremental.entries.find((e) => e.mutant.original === 'a + 1')!.status).toBe('Killed');
   });
+
+  test('experimental call graph keeps survivors of unrelated functions', async () => {
+    const root = project({
+      'src/a.ts': 'export function edited(n: number): number {\n  return n + 1;\n}\nexport function bystander(n: number): boolean {\n  return n >= 0;\n}\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { bystander, edited } from '../src/a.ts';\ntest('both', () => { expect(edited(1)).toBe(2); expect(bystander(5)).toBe(true); });\n",
+    });
+    const runEdit = async (callGraph: boolean) => {
+      const snapshotPath = join(root, `.mutator/${callGraph}.json`);
+      write(root, 'src/a.ts', 'export function edited(n: number): number {\n  return n + 1;\n}\nexport function bystander(n: number): boolean {\n  return n >= 0;\n}\n');
+      await runMutation({ root, concurrency: 1, callGraph, snapshotPath });
+      write(root, 'src/a.ts', 'export function edited(n: number): number {\n  return 1 + n;\n}\nexport function bystander(n: number): boolean {\n  return n >= 0;\n}\n');
+      const report = await runMutation({ root, concurrency: 1, callGraph, snapshotPath });
+      return new Set(report.entries.filter((e) => e.source === 'run').map((e) => e.mutant.scope.id));
+    };
+    expect(await runEdit(false)).toEqual(new Set(['edited', 'bystander']));
+    expect(await runEdit(true)).toEqual(new Set(['edited']));
+  });
 });

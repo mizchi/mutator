@@ -18,6 +18,8 @@ node packages/cli/src/cli.ts --root <project> --since main  # PR mode
 
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--config <vitest config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--no-arid` / `--arid-callee <pattern>`.
 
+`--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
+
 Mutants in logging-only code (calls matching `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`, and blocks / ifs that only log) are reported as `Ignored (arid)` and not run, following Google's arid-node rule. Disable per line with `// mutator-disable-next-line [Mutator]: reason` (StrykerJS `// Stryker disable` comments are honoured too).
 
 ### Reports

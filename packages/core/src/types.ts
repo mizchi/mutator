@@ -80,6 +80,22 @@ export interface InstrumentResult {
   mutants: Mutant[];
   /** Every scope of the file (functions and top-level statements), with or without mutants. */
   scopes: Scope[];
+  /** Call sites by scope, with the callee as written (`f`, `obj.m`, `this.m`), for call graphs. */
+  calls: CallSite[];
+  /** Value imports of the file. */
+  imports: ImportBinding[];
+}
+
+export interface CallSite {
+  scope: string;
+  callee: string;
+}
+
+export interface ImportBinding {
+  local: string;
+  /** Exported name, `default`, or `*` for namespace imports. */
+  imported: string;
+  source: string;
 }
 
 export interface InstrumentOptions {
@@ -162,6 +178,13 @@ export interface PlanInput {
   toolVersion: string;
   envHash: string;
   options?: PlanOptions;
+  /**
+   * Experimental: whether a change in scope `changed` can affect mutants of scope
+   * `mutant` (keys `${file}#${scopeId}`). When set, a test that ran changed code only
+   * invalidates results of mutants in related scopes. Unsound for values passed
+   * between functions through test code.
+   */
+  related?: (mutant: string, changed: string) => boolean;
 }
 
 export type PlanEntry =

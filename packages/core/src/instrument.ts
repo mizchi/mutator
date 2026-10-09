@@ -1,13 +1,13 @@
 import MagicString from 'magic-string';
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
-import { type Frame, type Node, isFunction, walk } from './ast.ts';
+import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { RUNTIME_ACT, RUNTIME_COV, runtimeHeader } from './runtime.ts';
 import { ScopeTracker, normalize } from './scope.ts';
-import type { InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
+import type { CallSite, ImportBinding, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
 
@@ -44,6 +44,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const tracker = new ScopeTracker(source, scopeHash);
   const path: string[] = [];
   const found: { candidate: Candidate; scope: Scope; astPath: string }[] = [];
+  const calls: CallSite[] = [];
   const scopes = new Map<Node, Scope>();
 
   walk(
@@ -56,6 +57,10 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       }
       const info = tracker.current;
       if (!info) return;
+      if (frame.node.type === 'CallExpression' || frame.node.type === 'NewExpression') {
+        const callee = calleeName(frame.node.callee);
+        if (callee) calls.push({ scope: info.id, callee });
+      }
       for (const mutate of mutators) {
         for (const candidate of mutate(frame, ctx)) {
           if (excluded.has(candidate.mutator)) continue;
@@ -116,7 +121,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()] };
+    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
   }
 
   const s = new MagicString(source);
@@ -124,7 +129,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   for (const p of ordered) emitPlacement(s, source, p, placements);
   const { at, text } = headerInsertion(program);
   s.prependRight(at, text);
-  return { code: s.toString(), map: toMap(s, file), mutants, scopes: [...scopes.values()] };
+  return { code: s.toString(), map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
@@ -363,6 +368,34 @@ function isSuperCall(node: Node): boolean {
 
 function isSuperConstructor(fn: Frame, body: Node): boolean {
   return fn.parent?.node.type === 'MethodDefinition' && fn.parent.node.kind === 'constructor' && body.body.some((st: Node) => st.type === 'ExpressionStatement' && isSuperCall(st.expression));
+}
+
+// ---- call graph facts -------------------------------------------------------
+
+/** `f`, `a.b.c`, `this.m` — or undefined for computed / dynamic callees. */
+function calleeName(callee: Node): string | undefined {
+  const n = unwrap(callee.type === 'ChainExpression' ? callee.expression : callee);
+  if (n.type === 'Identifier') return n.name;
+  if (n.type === 'ThisExpression') return 'this';
+  if (n.type === 'MemberExpression' && !n.computed && n.property.type === 'Identifier') {
+    const object = calleeName(n.object);
+    return object && `${object}.${n.property.name}`;
+  }
+  return undefined;
+}
+
+function importBindings(program: Node): ImportBinding[] {
+  const out: ImportBinding[] = [];
+  for (const st of program.body as Node[]) {
+    if (st.type !== 'ImportDeclaration' || st.importKind === 'type') continue;
+    for (const spec of st.specifiers as Node[]) {
+      if (spec.importKind === 'type') continue;
+      const imported =
+        spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.type === 'ImportNamespaceSpecifier' ? '*' : (spec.imported.name ?? spec.imported.value);
+      out.push({ local: spec.local.name, imported, source: st.source.value });
+    }
+  }
+  return out;
 }
 
 // ---- helpers ----------------------------------------------------------------

@@ -122,6 +122,26 @@ ScopeHash = hash(囲む関数の正規化 AST; コメント・空白・型注釈
 - [x] 公開準備: tsc で dist、publishConfig、`pkf run pack-smoke`
 - [x] 独立レビュー (incremental vs cold の不一致 9 件) をすべて E2E 化して修正
 
+## 実験: 静的コールグラフによる再実行の絞り込み (`--experimental-callgraph`)
+
+通常 (sound) モードでは「変更された関数を実行したテスト」がカバーする survivor をすべて再実行する。
+実験モードではさらに「survivor の関数と変更された関数が静的コールグラフ上でどちらかの向きに到達可能」な場合だけ再実行する。
+コールグラフは instrument が集めた呼び出し (`f()`, `obj.m()`, `this.m()`) と import を名前で解決したもの。
+テストコードを経由した値の受け渡し (`expect(f(g(x)))` で f の変更が g の mutant の検出可否を変える) は辺にならないので unsound。
+そのため既定 off、モード切り替えで snapshot は無効化 (env hash に含む)。
+
+`node scripts/callgraph-experiment.ts <root> <file> <from> <to>...` で、同じ cold snapshot から両モードを走らせ、
+「sound は再実行したが callgraph は再利用した」mutant の判定を比較する。unjs/ufo、意味を変えない編集 4 件:
+
+| 編集 | sound | callgraph | 刈り込み | 判定の食い違い |
+|---|---|---|---:|---:|
+| `withoutBase` 条件に `&& true` | 46 件 / 3.5s | 46 件 / 3.3s | 0 | 0 |
+| `parseURL` の連結をテンプレートに | 578 件 / 14.8s | 175 件 / 6.7s | 403 | 0 |
+| `isRelative` の配列順 | 19 件 / 3.1s | 17 件 / 3.3s | 2 | 0 |
+| `withQuery` の spread を `Object.assign` に | 89 件 / 6.2s | 58 件 / 5.1s | 34 | 0 |
+
+多くのテストが通る関数 (parseURL) の編集で効く。この 4 例では取りこぼしなし。ただし意味を変える編集や、テストが値を合成するスタイルでは食い違いが出うるので、継続的に測る。
+
 ## ベンチマーク (unjs/ufo, 7 files / 489 tests, M3 Pro 12 cores, 2026-10-09, 負荷なし)
 
 | run | mutator | stryker 10 |

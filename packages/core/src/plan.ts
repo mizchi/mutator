@@ -55,13 +55,14 @@ function changedTests(previous: RunSnapshot, tests: readonly TestInfo[]): Set<st
   return changed;
 }
 
-/** Tests that previously covered a scope whose hash changed or which disappeared. */
-function testsTouchingChangedScopes(previous: RunSnapshot, mutants: readonly Mutant[]): Set<string> {
+/** Test -> changed scopes (hash changed or disappeared) it previously covered. */
+function changedScopesByTest(previous: RunSnapshot, mutants: readonly Mutant[]): Map<string, Set<string>> {
   const current = new Map(mutants.map((m) => [scopeKey(m.file, m.scope.id), m.scope.hash]));
-  const out = new Set<string>();
+  const out = new Map<string, Set<string>>();
   for (const r of previous.results) {
-    if (current.get(scopeKey(r.file, r.scopeId)) === r.scopeHash) continue;
-    for (const t of r.coveredBy) out.add(t);
+    const sk = scopeKey(r.file, r.scopeId);
+    if (current.get(sk) === r.scopeHash) continue;
+    for (const t of r.coveredBy) out.set(t, (out.get(t) ?? new Set()).add(sk));
   }
   return out;
 }
@@ -74,9 +75,20 @@ export function plan(input: PlanInput): PlanEntry[] {
 
   const testById = new Map(tests.map((t) => [t.id, t]));
   const prevByKey = new Map(previous?.results.map((r) => [r.key, r]));
-  const affected = previous
-    ? new Set([...changedTests(previous, tests), ...testsTouchingChangedScopes(previous, mutants)])
-    : new Set<string>();
+  const changed = previous ? changedTests(previous, tests) : new Set<string>();
+  const touched = previous ? changedScopesByTest(previous, mutants) : new Map<string, Set<string>>();
+  const anyAffected = changed.size > 0 || touched.size > 0;
+  // A test that ran changed code affects a mutant; with `related`, only when the
+  // mutant's scope and the changed scope are connected (experimental call graph).
+  const affects = (t: string, m: Mutant): boolean => {
+    if (changed.has(t)) return true;
+    const scopes = touched.get(t);
+    if (!scopes) return false;
+    if (!input.related) return true;
+    const own = scopeKey(m.file, m.scope.id);
+    for (const c of scopes) if (input.related(own, c)) return true;
+    return false;
+  };
 
   // test -> number of mutants it killed, per scope (for sibling-killer ordering)
   const killsByScope = new Map<string, Map<string, number>>();
@@ -90,11 +102,11 @@ export function plan(input: PlanInput): PlanEntry[] {
 
   const canReuse = (m: Mutant, prev: MutantResult, isStatic: boolean): boolean => {
     if (prev.scopeHash !== m.scope.hash || prev.file !== m.file) return false;
-    const unaffected = (t: string) => !affected.has(t);
+    const unaffected = (t: string) => !affects(t, m);
     if (prev.status === 'Killed') return prev.killedBy.some((t) => testById.has(t) && unaffected(t));
     if (prev.status === 'Ignored' || prev.status === 'Pending') return false;
     // A static mutant influences every test through module loading, so any affected test invalidates it.
-    if (isStatic && affected.size > 0) return false;
+    if (isStatic && anyAffected) return false;
     if (!prev.coveredBy.every(unaffected)) return false;
     if (prev.status === 'Timeout' || prev.status === 'RuntimeError') return true;
     const now = coverage?.get(m.key);
@@ -162,7 +174,7 @@ export function testsToRecollect(input: {
   const current = new Set(input.tests.map((t) => t.id));
   const wanted = new Set([
     ...changedTests(previous, input.tests),
-    ...testsTouchingChangedScopes(previous, input.mutants),
+    ...changedScopesByTest(previous, input.mutants).keys(),
   ]);
   const known = new Set(previous.results.map((r) => scopeKey(r.file, r.scopeId)));
   const unknown = new Set(

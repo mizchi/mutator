@@ -16,6 +16,8 @@ const USAGE = `usage: mutator [options]
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel Vitest instances (default: half the CPUs)
   --full-dry-run       collect coverage from every test file (ignore the cached coverage)
+  --experimental-callgraph  after edits, re-run only survivors connected to changed code
+                       in the static call graph (faster, may miss value flows through tests)
   --no-arid            also run mutants in logging-only code (console.*, logger.*, *.debug, ...)
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'
   --reporter <name>    text (default), json, html; repeatable
@@ -37,6 +39,7 @@ const { values } = parseArgs({
     'fail-on-survived': { type: 'boolean', default: false },
     'full-dry-run': { type: 'boolean', default: false },
     'no-arid': { type: 'boolean', default: false },
+    'experimental-callgraph': { type: 'boolean', default: false },
     'arid-callee': { type: 'string', multiple: true },
     help: { type: 'boolean', short: 'h', default: false },
   },
@@ -69,6 +72,7 @@ try {
     ...(values.config ? { configFile: resolve(values.config) } : {}),
     ...(values.concurrency ? { concurrency: Number(values.concurrency) } : {}),
     fullDryRun: values['full-dry-run'],
+    callGraph: values['experimental-callgraph'],
     ...(values['no-arid'] ? { arid: false as const } : values['arid-callee'] ? { arid: { callees: values['arid-callee'] } } : {}),
     log: (message) => console.error(message),
   });

@@ -1,7 +1,8 @@
 import { existsSync, globSync, readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import {
+  type CallGraphSource,
   type InstrumentOptions,
   type Mutant,
   type MutantResult,
@@ -11,12 +12,14 @@ import {
   type RunSnapshot,
   type Scope,
   type SelectMode,
+  buildCallGraph,
   changedLines,
   hash,
   instrument,
   lineRanges,
   parseUnifiedDiff,
   plan,
+  relatedScopes,
   selectMutants,
   toResult,
 } from '@mizchi/mutator-core';
@@ -42,6 +45,12 @@ export interface RunOptions {
   configFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
+  /**
+   * Experimental: only invalidate survivors whose function is connected to a changed
+   * function in the static call graph. Faster after edits, but unsound when values
+   * flow between functions through test code.
+   */
+  callGraph?: boolean;
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -98,11 +107,11 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const sessions = [session];
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const { mutants, scopes } = collectSources(root, files, options.arid);
+    const { mutants, scopes, graphSources } = collectSources(root, files, options.arid);
     const residual = residualHashes(root, scopes, mutants);
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
     // Mutation settings change which mutants are placed (and thus covered): part of the environment.
-    const settings = JSON.stringify({ arid: options.arid ?? null });
+    const settings = JSON.stringify({ arid: options.arid ?? null, callGraph: options.callGraph ?? false });
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
@@ -130,6 +139,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       previous: valid ? previous : undefined,
       toolVersion: TOOL_VERSION,
       envHash,
+      ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
@@ -217,14 +227,30 @@ function defaultConcurrency(): number {
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-function collectSources(root: string, files: readonly string[], arid: InstrumentOptions['arid']): { mutants: Mutant[]; scopes: Map<string, Scope[]> } {
+function collectSources(root: string, files: readonly string[], arid: InstrumentOptions['arid']) {
   const scopes = new Map<string, Scope[]>();
+  const graphSources: CallGraphSource[] = [];
   const mutants = files.flatMap((file) => {
     const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...(arid !== undefined ? { arid } : {}) });
     scopes.set(file, result.scopes);
+    graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;
   });
-  return { mutants, scopes };
+  return { mutants, scopes, graphSources };
+}
+
+const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];
+
+/** Relative import specifier -> one of the mutated files (TS-style `.js` -> `.ts` included). */
+function importResolver(files: readonly string[]) {
+  const known = new Set(files);
+  return (from: string, specifier: string): string | undefined => {
+    if (!specifier.startsWith('.')) return undefined;
+    const base = join(dirname(from), specifier);
+    const stems = [base, base.replace(/\.(c|m)?js$/, '.$1ts').replace(/\.jsx$/, '.tsx')];
+    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) if (known.has(stem + suffix)) return stem + suffix;
+    return undefined;
+  };
 }
 
 /** Mutants touched by the diff, plus mutants covered by tests in changed test files. */

@@ -14,3 +14,4 @@ export {
   verifyDiff,
 } from './diff.ts';
 export { mergeCoverage, plan, testsToRecollect, toResult } from './plan.ts';
+export { type CallGraph, type CallGraphSource, buildCallGraph, relatedScopes } from './callgraph.ts';

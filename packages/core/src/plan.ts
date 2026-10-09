@@ -116,7 +116,7 @@ export function plan(input: PlanInput): PlanEntry[] {
   };
 
   const selectTests = (m: Mutant, prev: MutantResult | undefined, isStatic: boolean): string[] => {
-    if (isStatic) return tests.map((t) => t.id);
+    if (isStatic) return [...(input.staticTests?.get(m.key) ?? tests.map((t) => t.id))];
     if (coverage) return [...new Set(coverage.get(m.key) ?? [])];
     if (previous) return prev ? prev.coveredBy.filter((t) => testById.has(t)) : [];
     return tests.map((t) => t.id);

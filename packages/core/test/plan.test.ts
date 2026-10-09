@@ -517,3 +517,18 @@ describe('related (experimental call graph)', () => {
     expect(sound.map((e) => e.kind)).toEqual(['run', 'run', 'run']);
   });
 });
+
+describe('staticTests', () => {
+  it('a static mutant runs only the tests of files that loaded it', () => {
+    const m = mutant('s1');
+    const [t1, t2] = [test('a#x', 5), test('b#y', 50)];
+    const entry = only(plan(input({ mutants: [m], tests: [t1, t2], staticKeys: new Set(['s1']), staticTests: new Map([['s1', ['a#x']]]) })));
+    expect(entry).toMatchObject({ kind: 'run', isStatic: true, tests: ['a#x'] });
+  });
+
+  it('falls back to all tests when unknown', () => {
+    const m = mutant('s1');
+    const [t1, t2] = [test('a#x'), test('b#y')];
+    expect(runTests(only(plan(input({ mutants: [m], tests: [t1, t2], staticKeys: new Set(['s1']) }))))).toEqual(['a#x', 'b#y']);
+  });
+});

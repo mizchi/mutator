@@ -25,7 +25,7 @@ import {
 } from '@mizchi/mutator-core';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
-import { type CliSnapshot, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
+import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
@@ -156,6 +156,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       tests: merged.tests,
       coverage: merged.coverage,
       staticKeys: merged.staticKeys,
+      staticTests: staticTestsOf(merged),
       previous: valid ? previous : undefined,
       toolVersion: TOOL_VERSION,
       envHash,
@@ -245,6 +246,20 @@ export async function runMutation(options: RunOptions): Promise<Report> {
 
 function defaultConcurrency(): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
+}
+
+/** Static mutant key -> tests of the test files whose module loading executed it. */
+function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
+  const testsByFile = new Map<string, string[]>();
+  for (const t of merged.tests) {
+    const file = t.id.slice(0, t.id.indexOf('#'));
+    testsByFile.set(file, [...(testsByFile.get(file) ?? []), t.id]);
+  }
+  const out = new Map<string, string[]>();
+  for (const [file, keys] of merged.staticByFile) {
+    for (const key of keys) out.set(key, [...(out.get(key) ?? []), ...(testsByFile.get(file) ?? [])]);
+  }
+  return out;
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */

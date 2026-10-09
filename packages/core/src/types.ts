@@ -174,6 +174,8 @@ export interface PlanInput {
   coverage: ReadonlyMap<string, readonly string[]> | undefined;
   /** Mutants hit while modules were loading (outside any test). */
   staticKeys: ReadonlySet<string>;
+  /** Static mutant key -> tests of the files that loaded it (default: every test). */
+  staticTests?: ReadonlyMap<string, readonly string[]>;
   previous: RunSnapshot | undefined;
   toolVersion: string;
   envHash: string;

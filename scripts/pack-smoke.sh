@@ -26,7 +26,7 @@ overrides:
   "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-0.0.0.tgz"
 YAML
 cd "$work/app"
-pnpm install --offline >/dev/null
+pnpm install --prefer-offline >/dev/null
 ./node_modules/.bin/mutator -j 1 | tee "$work/out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/out.txt"
 echo "pack-smoke: ok"

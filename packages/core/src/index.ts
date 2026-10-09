@@ -15,3 +15,6 @@ export {
 } from './diff.ts';
 export { mergeCoverage, plan, testsToRecollect, toResult } from './plan.ts';
 export { type CallGraph, type CallGraphSource, buildCallGraph, relatedScopes } from './callgraph.ts';
+export { DEFAULT_ARID_CALLEES } from './arid.ts';
+export { defineMutator, definePlugin } from './plugin.ts';
+export { BUILTIN_MUTATOR_NAMES } from './types.ts';

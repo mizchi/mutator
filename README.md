@@ -76,6 +76,37 @@ export default defineConfig({
 
 Boolean flags accept a `--no-` prefix (`--no-fail-on-survived`) to override a config file value.
 
+## Custom mutators (plugins)
+
+Everything works without configuration; plugins only add mutators. A plugin module's default export is a plugin, a mutator, or an array of them:
+
+```ts
+// mutators/fallbacks.ts
+import { defineMutator, definePlugin } from '@mizchi/mutator';
+
+export default definePlugin({
+  name: 'fallbacks',
+  mutators: [
+    defineMutator({
+      name: 'DropFallback',
+      // Called for every runtime AST node (oxc ESTree); type positions are never visited.
+      visit(node, ctx) {
+        if (node.type === 'LogicalExpression' && node.operator === '??') {
+          return [{ replacement: ctx.text(node.left) }]; // `a ?? b` -> `a`
+        }
+      },
+    }),
+  ],
+  aridCallees: ['metrics.*'], // extra logging-like calls to suppress
+});
+```
+
+```json
+{ "plugins": ["./mutators/fallbacks.ts"], "excludedMutators": ["Regex"] }
+```
+
+A mutation replaces the visited node (or a `range` inside it) with text. Placement (mutation switching, parentheses, ASI), identity, disable comments and arid suppression are handled by the engine exactly as for built-in mutators; output that no longer parses is rejected with the mutator's name. Plugins can be relative paths or package names (published plugins must ship JavaScript: Node does not strip types under `node_modules`). Editing a plugin invalidates cached results. CLI: `--plugin <module>`, `--exclude-mutator <name>`.
+
 ## Type checking
 
 Mutants of TypeScript files are type-checked with the project's own `typescript` before any test runs; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:

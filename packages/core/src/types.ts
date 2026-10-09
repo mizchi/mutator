@@ -1,25 +1,31 @@
 // Contract layer of @mizchi/mutator-core.
-// Everything here is plain serializable data; no runtime / fs / test-runner dependency.
+// Plain data and plugin contracts; no runtime / fs / test-runner dependency.
 
-export type MutatorName =
-  | 'ArithmeticOperator'
-  | 'ArrayDeclaration'
-  | 'ArrowFunction'
-  | 'AssignmentOperator'
-  | 'BlockStatement'
-  | 'BooleanLiteral'
-  | 'CallExpression'
-  | 'ConditionalExpression'
-  | 'EqualityOperator'
-  | 'FnValue'
-  | 'LogicalOperator'
-  | 'MethodExpression'
-  | 'ObjectLiteral'
-  | 'OptionalChaining'
-  | 'Regex'
-  | 'StringLiteral'
-  | 'UnaryOperator'
-  | 'UpdateOperator';
+export const BUILTIN_MUTATOR_NAMES = [
+  'ArithmeticOperator',
+  'ArrayDeclaration',
+  'ArrowFunction',
+  'AssignmentOperator',
+  'BlockStatement',
+  'BooleanLiteral',
+  'CallExpression',
+  'ConditionalExpression',
+  'EqualityOperator',
+  'FnValue',
+  'LogicalOperator',
+  'MethodExpression',
+  'ObjectLiteral',
+  'OptionalChaining',
+  'Regex',
+  'StringLiteral',
+  'UnaryOperator',
+  'UpdateOperator',
+] as const;
+
+export type BuiltinMutatorName = (typeof BUILTIN_MUTATOR_NAMES)[number];
+
+/** Built-in names, or the name of a custom mutator from a plugin. */
+export type MutatorName = BuiltinMutatorName | (string & {});
 
 /** 1-based line, 0-based column (same convention as most editors / sourcemaps). */
 export interface Position {
@@ -101,8 +107,10 @@ export interface ImportBinding {
 export interface InstrumentOptions {
   /** Restrict mutation to these source ranges (e.g. derived from a diff). */
   ranges?: readonly Range[];
-  /** Mutators to exclude. */
+  /** Mutators to exclude (built-in or custom names). */
   excludedMutators?: readonly MutatorName[];
+  /** Custom mutators, run in addition to the built-in ones. */
+  mutators?: readonly MutatorDefinition[];
   /**
    * Arid node suppression: mutants in logging-only code are reported as ignored
    * (default on). `false` disables it; `callees` replaces the logging call patterns.
@@ -204,3 +212,46 @@ export type PlanEntry =
       isStatic: boolean;
       timeoutMs: number;
     };
+
+// ---- plugins ----------------------------------------------------------------
+
+/** An oxc ESTree node (TS-ESTree for TypeScript); type positions are never visited. */
+export interface AstNode {
+  type: string;
+  start: number;
+  end: number;
+  [key: string]: any;
+}
+
+export interface MutatorVisitContext {
+  source: string;
+  /** Parent node, and the property of the parent holding this node. */
+  parent: AstNode | undefined;
+  key: string;
+  /** Source text of a node or range. */
+  text(range: Range): string;
+}
+
+export interface MutationSpec {
+  /** Text replacing `range` (default: the whole visited node). */
+  replacement: string;
+  /** Must lie inside the visited node. */
+  range?: Range;
+}
+
+/**
+ * A custom mutator. `visit` is called for every runtime node; placement
+ * (mutation switching), identity, arid / disable handling are done by the engine.
+ */
+export interface MutatorDefinition {
+  name: string;
+  visit(node: AstNode, context: MutatorVisitContext): readonly MutationSpec[] | undefined | void;
+}
+
+/** What a plugin module exports (default export): custom mutators and logging-call patterns. */
+export interface MutatorPlugin {
+  name: string;
+  mutators?: readonly MutatorDefinition[];
+  /** Extra arid (logging) callee patterns, e.g. `metrics.*`. */
+  aridCallees?: readonly string[];
+}

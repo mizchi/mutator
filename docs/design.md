@@ -125,6 +125,8 @@ ScopeHash = hash(normalized AST of the enclosing function; excluding comments, w
 - [x] Type checking of mutants (`@mizchi/mutator-typecheck`): TS ≤ 6 via the compiler API, TS ≥ 7 via the native API; identical CompileError sets on ufo / pathe / cookie-es, native 3.5–7× faster
 - [x] Config file (`mutator.config.{ts,mts,mjs,js,json}` + JSON Schema) and score thresholds (`thresholds.break` → exit 2)
 
+- [x] Plugins: `defineMutator` / `definePlugin` (core), `plugins` / `excludedMutators` in config; custom mutators share placement, identity, arid and disable handling; untrusted output is re-parsed
+
 ## Experiment: narrowing re-runs with a static call graph (`--experimental-callgraph`)
 
 In normal (sound) mode, every survivor covered by "tests that executed a changed function" is re-run.

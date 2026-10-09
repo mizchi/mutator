@@ -124,6 +124,20 @@
         false,
         "auto"
       ]
+    },
+    "plugins": {
+      "description": "Plugin modules (relative paths or package names) providing custom mutators.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "excludedMutators": {
+      "description": "Mutators to skip, built-in or custom, by name.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

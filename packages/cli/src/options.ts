@@ -32,6 +32,8 @@ const OPTIONS = {
   arid: { type: 'boolean' },
   'experimental-callgraph': { type: 'boolean' },
   typecheck: { type: 'boolean' },
+  plugin: { type: 'string', multiple: true },
+  'exclude-mutator': { type: 'string', multiple: true },
   'arid-callee': { type: 'string', multiple: true },
   'threshold-break': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
@@ -48,6 +50,8 @@ const FLAGS: Record<string, string> = {
   reporters: '--reporter',
   reportDir: '--report-dir',
   'thresholds.break': '--threshold-break',
+  plugins: '--plugin',
+  excludedMutators: '--exclude-mutator',
 };
 
 export type CliValues = ReturnType<typeof parseCli>;
@@ -76,6 +80,8 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     arid: values.arid === false ? false : values['arid-callee'] ? { callees: values['arid-callee'] } : undefined,
     experimentalCallgraph: values['experimental-callgraph'],
     typecheck: values.typecheck,
+    plugins: values.plugin,
+    excludedMutators: values['exclude-mutator'],
     fullDryRun: values['full-dry-run'],
     reporters: values.reporter,
     reportDir: values['report-dir'] && resolve(cwd, values['report-dir']),
@@ -116,6 +122,8 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       fullDryRun: config.fullDryRun ?? false,
       callGraph: config.experimentalCallgraph ?? false,
       ...(arid === false ? { arid } : typeof arid === 'object' ? { arid } : {}),
+      ...(config.plugins?.length ? { plugins: config.plugins } : {}),
+      ...(config.excludedMutators?.length ? { excludedMutators: config.excludedMutators } : {}),
     },
     ...(config.typecheck !== undefined ? { typecheck: config.typecheck } : {}),
     reporters: new Set(config.reporters ?? ['text']),

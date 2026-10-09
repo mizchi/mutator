@@ -112,3 +112,11 @@ describe('resolveOptions', () => {
     await expect(resolve(project({ thresholds: { low: 90 } }))).rejects.toThrow('thresholds.high (80) must be >= thresholds.low (90)');
   });
 });
+
+describe('plugins options', () => {
+  test('config plugins / excludedMutators reach run options; CLI flags override', async () => {
+    const root = project({ plugins: ['./a.ts'], excludedMutators: ['Regex'] });
+    expect((await resolve(root)).run).toMatchObject({ plugins: ['./a.ts'], excludedMutators: ['Regex'] });
+    expect((await resolve(root, '--plugin', './b.ts', '--exclude-mutator', 'FnValue')).run).toMatchObject({ plugins: ['./b.ts'], excludedMutators: ['FnValue'] });
+  });
+});

@@ -2,6 +2,7 @@ import MagicString from 'magic-string';
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
 import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
+import { adaptMutator } from './plugin.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
@@ -36,7 +37,8 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const locate = (r: Range): Location => ({ start: position(lines, r.start), end: position(lines, r.end) });
   // Nested functions are tracked as their own scopes, so they are holes in their parent's hash.
   const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals, functions.filter((f) => f.start !== node.start || f.end !== node.end)));
-  const excluded = new Set(options.excludedMutators ?? []);
+  const excluded = new Set<string>(options.excludedMutators ?? []);
+  const active = [...mutators, ...(options.mutators ?? []).map((definition) => adaptMutator(definition, file))];
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
@@ -61,7 +63,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
         const callee = calleeName(frame.node.callee);
         if (callee) calls.push({ scope: info.id, callee });
       }
-      for (const mutate of mutators) {
+      for (const mutate of active) {
         for (const candidate of mutate(frame, ctx)) {
           if (excluded.has(candidate.mutator)) continue;
           found.push({ candidate, scope: scopes.get(info.node)!, astPath: path.slice(info.depth).join('/') });
@@ -129,7 +131,9 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   for (const p of ordered) emitPlacement(s, source, p, placements);
   const { at, text } = headerInsertion(program);
   s.prependRight(at, text);
-  return { code: s.toString(), map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
+  const code = s.toString();
+  if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
+  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
@@ -368,6 +372,18 @@ function isSuperCall(node: Node): boolean {
 
 function isSuperConstructor(fn: Frame, body: Node): boolean {
   return fn.parent?.node.type === 'MethodDefinition' && fn.parent.node.kind === 'constructor' && body.body.some((st: Node) => st.type === 'ExpressionStatement' && isSuperCall(st.expression));
+}
+
+/** Custom mutators are untrusted: make sure the instrumented output still parses. */
+function assertCustomMutantsParse(file: string, source: string, code: string, mutants: readonly Mutant[], custom: ReadonlySet<string>): void {
+  if (parseSync(file, code).errors.length === 0) return;
+  for (const m of mutants) {
+    if (!custom.has(m.mutator) || m.ignored) continue;
+    if (parseSync(file, applyMutant(source, m)).errors.length > 0) {
+      throw new Error(`mutator ${m.mutator} produced invalid code in ${file}:${m.location.start.line}: ${JSON.stringify(m.original)} -> ${JSON.stringify(m.replacement)}`);
+    }
+  }
+  throw new Error(`instrumenting ${file} with custom mutators produced invalid code`);
 }
 
 // ---- call graph facts -------------------------------------------------------

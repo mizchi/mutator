@@ -12,6 +12,7 @@ import {
   type RunSnapshot,
   type Scope,
   type SelectMode,
+  DEFAULT_ARID_CALLEES,
   buildCallGraph,
   changedLines,
   hash,
@@ -24,6 +25,7 @@ import {
   toResult,
 } from '@mizchi/mutator-core';
 import { createTypeChecker } from '@mizchi/mutator-typecheck';
+import { type PluginSpec, loadPlugins } from './plugins.ts';
 import { createSession } from '@mizchi/mutator-vitest';
 import { changedFiles, gitDiff } from './git.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
@@ -58,6 +60,10 @@ export interface RunOptions {
    * project has `typescript` and a tsconfig.json.
    */
   typecheck?: boolean | 'auto';
+  /** Plugin modules (paths relative to root, package names) or plugin / mutator objects. */
+  plugins?: readonly PluginSpec[];
+  /** Mutators to skip, built-in or custom, by name. */
+  excludedMutators?: readonly string[];
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -123,10 +129,17 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   }).map((f) => join(root, f));
   const targets = new Set(files);
 
+  const plugins = await loadPlugins(root, options.plugins ?? []);
+  const arid = combineArid(options.arid, plugins.aridCallees);
+  const instrumentOptions: Pick<InstrumentOptions, 'arid' | 'mutators' | 'excludedMutators'> = {
+    ...(arid !== undefined ? { arid } : {}),
+    ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
+    ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
+  };
   const sessionOptions = {
     root,
     include: (file: string) => targets.has(file),
-    ...(options.arid !== undefined ? { arid: options.arid } : {}),
+    ...instrumentOptions,
     ...(options.configFile ? { configFile: options.configFile } : {}),
   };
   const session = await createSession(sessionOptions);
@@ -134,11 +147,11 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const unguard = guardWorkerExits(log);
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const { mutants, scopes, graphSources } = collectSources(root, files, options.arid);
+    const { mutants, scopes, graphSources } = collectSources(root, files, instrumentOptions);
     const residual = residualHashes(root, scopes, mutants);
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
     // Mutation settings change which mutants are placed (and thus covered): part of the environment.
-    const settings = JSON.stringify({ arid: options.arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto' });
+    const settings = JSON.stringify({ arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
@@ -285,6 +298,12 @@ async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: r
   }
 }
 
+/** Plugins' logging patterns extend the arid callees (the defaults, or the configured ones). */
+function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]): InstrumentOptions['arid'] {
+  if (arid === false || extra.length === 0) return arid;
+  return { callees: [...(arid?.callees ?? DEFAULT_ARID_CALLEES), ...extra] };
+}
+
 /** Static mutant key -> tests of the test files whose module loading executed it. */
 function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   const testsByFile = new Map<string, string[]>();
@@ -300,11 +319,11 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-function collectSources(root: string, files: readonly string[], arid: InstrumentOptions['arid']) {
+function collectSources(root: string, files: readonly string[], instrumentOptions: Pick<InstrumentOptions, 'arid' | 'mutators' | 'excludedMutators'>) {
   const scopes = new Map<string, Scope[]>();
   const graphSources: CallGraphSource[] = [];
   const mutants = files.flatMap((file) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...(arid !== undefined ? { arid } : {}) });
+    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
     scopes.set(file, result.scopes);
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;

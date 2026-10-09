@@ -33,6 +33,10 @@ export interface MutatorConfig {
   thresholds?: Partial<Thresholds>;
   failOnSurvived?: boolean;
   typecheck?: boolean | 'auto';
+  /** Plugin modules: paths relative to the root, or package names. */
+  plugins?: string[];
+  /** Mutators to skip (built-in or custom names). */
+  excludedMutators?: string[];
 }
 
 /** Typing helper for mutator.config.ts. */
@@ -92,6 +96,8 @@ const properties = {
   },
   failOnSurvived: { description: 'Exit 2 when a mutant survives.', type: 'boolean' },
   typecheck: { description: 'Type-check mutants before running them.', enum: [true, false, 'auto'] },
+  plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
+  excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
 } satisfies Record<keyof MutatorConfig, Schema>;
 
 export const CONFIG_KEYS = Object.keys(properties) as (keyof MutatorConfig)[];

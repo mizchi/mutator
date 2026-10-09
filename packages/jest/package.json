@@ -1,0 +1,41 @@
+{
+  "name": "@mizchi/mutator-jest",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Jest adapter for @mizchi/mutator-core (experimental)",
+  "license": "MIT",
+  "author": "mizchi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizchi/mutator.git",
+    "directory": "packages/jest"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "peerDependencies": {
+    "jest": ">=29.0.0"
+  },
+  "dependencies": {
+    "@mizchi/mutator-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "devDependencies": {
+    "jest": "30.5.2"
+  }
+}

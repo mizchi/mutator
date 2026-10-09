@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-inner",
+  "private": true,
+  "type": "module"
+}

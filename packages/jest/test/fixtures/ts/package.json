@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-ts",
+  "private": true,
+  "type": "module"
+}

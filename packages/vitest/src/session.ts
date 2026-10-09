@@ -1,11 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Mutant, type MutantStatus, type TestInfo, hash } from '@mizchi/mutator-core';
+import { type DryRunResult, type MutantRunResult, type Session, type TestInfo, type TestLocation, hash } from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
 import { createVitest } from 'vitest/node';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
 import type {} from './provided.ts';
+
+// The runner contract lives in core; re-exported for existing imports.
+export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLocation } from '@mizchi/mutator-core';
 
 // Published builds ship setup.js next to session.js.
 const SETUP_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url));
@@ -24,56 +27,6 @@ export interface SessionOptions extends PluginOptions {
    * terminated with the instance; forked workers can outlive it as orphans.
    */
   pool?: 'threads' | 'forks';
-}
-
-/** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
-export interface TestLocation {
-  moduleId: string;
-  taskId: string;
-}
-
-export interface DryRunResult {
-  tests: TestInfo[];
-  /** mutant key -> ids of tests that executed it */
-  coverage: Map<string, string[]>;
-  /** mutants executed while modules were loading */
-  staticKeys: Set<string>;
-  /** ids of tests (or modules) that failed without any mutant active */
-  failed: string[];
-  /** total hits per mutant, used to derive hit limits */
-  hits: Map<string, number>;
-  /** test id -> location, to hand to other sessions via `useTestIndex` */
-  index: Map<string, TestLocation>;
-  /** test file (relative to root) -> mutants hit while that file's modules were loading */
-  staticByFile: Map<string, Set<string>>;
-  /** test file (relative) -> local files it imports, transitively (relative, sorted), excluding node_modules */
-  deps: Map<string, string[]>;
-}
-
-export interface RunMutantOptions {
-  timeoutMs: number;
-  isStatic?: boolean;
-  hitLimit?: number;
-}
-
-export interface MutantRunResult {
-  status: Extract<MutantStatus, 'Killed' | 'Survived' | 'Timeout' | 'RuntimeError'>;
-  killedBy: string[];
-  durationMs: number;
-}
-
-export interface Session {
-  mutants(): Mutant[];
-  /** Absolute paths of the project's test files. */
-  testFiles(): Promise<string[]>;
-  /** Files every test depends on: resolved config files, setupFiles and globalSetup (absolute). */
-  configFiles(): string[];
-  /** Run tests without mutants (optionally only the given test files) and collect coverage. */
-  dryRun(files?: readonly string[]): Promise<DryRunResult>;
-  runMutant(key: string, testIds: readonly string[], options: RunMutantOptions): Promise<MutantRunResult>;
-  /** Reuse the test index of another session's dry run instead of running one. */
-  useTestIndex(index: ReadonlyMap<string, TestLocation>): void;
-  close(): Promise<void>;
 }
 
 /**

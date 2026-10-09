@@ -3,6 +3,13 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Diff-driven mutation testing for Vitest",
+  "license": "MIT",
+  "author": "mizchi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizchi/mutator.git",
+    "directory": "packages/cli"
+  },
   "bin": {
     "mutator": "./src/cli.ts"
   },

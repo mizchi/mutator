@@ -3,6 +3,13 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Vitest adapter for @mizchi/mutator-core",
+  "license": "MIT",
+  "author": "mizchi",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizchi/mutator.git",
+    "directory": "packages/vitest"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

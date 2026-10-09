@@ -15,5 +15,9 @@
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*",
     "@mizchi/mutator-vitest": "workspace:*"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "mutation-testing-report-schema": "3.9.0"
   }
 }

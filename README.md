@@ -18,6 +18,14 @@ node packages/cli/src/cli.ts --root <project> --since main  # PR mode
 
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--config <vitest config>`, `--fail-on-survived`.
 
+### Reports
+
+```sh
+node packages/cli/src/cli.ts --root <project> --reporter text --reporter html --reporter json
+```
+
+`--reporter` is repeatable: `text` (default, summary on stdout), `json` and `html`. `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.
+
 Exit codes: `0` ok, `2` survived mutants with `--fail-on-survived`, `4` tests fail without mutants.
 
 ## Packages

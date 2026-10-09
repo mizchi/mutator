@@ -212,4 +212,24 @@ describe('process hygiene', () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(descendants().filter((pid) => !before.has(pid))).toEqual([]);
   });
+
+  test('a timed-out worker stuck in a loop stops burning CPU', { timeout: 60_000 }, async () => {
+    const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
+    const session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
+    try {
+      await session.dryRun();
+      const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
+      const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
+      expect(result.status).toBe('Timeout');
+      const before = process.cpuUsage();
+      const started = performance.now();
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const used = process.cpuUsage(before);
+      const share = (used.user + used.system) / 1000 / (performance.now() - started);
+      expect(share).toBeLessThan(0.5);
+    } finally {
+      await session.close();
+    }
+  });
 });
+

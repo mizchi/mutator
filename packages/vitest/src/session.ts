@@ -225,7 +225,16 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
 }
 
 async function closeQuietly(vitest: Vitest): Promise<void> {
-  await Promise.race([vitest.close().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 2000))]);
+  const within = (ms: number, p: Promise<unknown> | undefined) => Promise.race([Promise.resolve(p).catch(() => {}), new Promise((resolve) => setTimeout(resolve, ms))]);
+  // A worker stuck in a mutant's loop never answers the graceful stop request, so
+  // `close()` alone leaves its thread spinning. Vitest's pool force-terminates
+  // workers when a second close/cancel arrives while the first is still pending.
+  const pool = (vitest as unknown as { pool?: { close?: () => Promise<void> } }).pool;
+  if (pool?.close) {
+    const first = pool.close();
+    await within(2000, Promise.all([first, pool.close()]));
+  }
+  await within(2000, vitest.close());
 }
 
 function testId(root: string, test: TestCase): string {

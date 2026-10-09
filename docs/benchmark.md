@@ -11,12 +11,14 @@ Wall-clock seconds. Each cell is the mean of two runs; both runs are in the per-
 | defu | 107 / 103 | **2.0** / 7.3 | **0.26** / 2.1 | **0.63** / 1.8 / 2.5 | 85.0 / 84.5 | 84.0 / 84.0 (100) |
 | scule | 153 / 81 | **2.9** / 6.5 | **0.25** / 2.1 | **0.68** / 1.3 / 2.1 | 86.3 / 92.6 | 92.2 / 92.2 (77) |
 | cookie-es | 727 / 725 | **12.2** / 16.7 | **0.28** / 2.2 | **0.71** / 2.5 / 2.6 | 86.9 / 86.9 | 86.3 / 86.3 (672) |
-| pathe (no `_glob.ts`) | 547 / 524 | 31.9 / **15.2** | **0.30** / 4.2 | **1.0** / 17.6 / 4.3 | 87.8 / 87.0 | 87.4 / 87.0 (500) |
+| pathe (no `_glob.ts`) | 547 / 524 | 31.9 → 16.8¹ / **15.2** | **0.30** / 4.2 | **1.0** / 17.6 / 4.3 | 87.8 / 87.0 | 87.4 / 87.0 (500) |
 | ufo | 1109 / 1011 | **23.6** / 25.9 | **1.1** / 3.0 | **1.1** / 3.6 / 3.5 | 83.9 / 82.6 | 82.6 / 82.6 (938) |
 
-- We are faster on no-change reruns (8–14x; ufo shows 3x only because of one 1.86 s outlier) and on `--since` after an edit versus Stryker's `--incremental` (3–4x). Cold runs are faster on four projects. pathe is the exception: we take about twice as long as Stryker.
+¹ After the fixes below (static mutants only run the test files that loaded them; stuck workers are terminated), pathe's cold run dropped from 31.9 s to 16.8 s with identical verdicts on all 547 mutants. The full pathe mutate set including `_glob.ts` (1021 mutants) now completes in 89 s (it previously crashed).
+
+- We are faster on no-change reruns (8–14x; ufo shows 3x only because of one 1.86 s outlier) and on `--since` after an edit versus Stryker's `--incremental` (3–4x). Cold runs are faster on four projects. pathe was the exception (about twice Stryker's time); the cause was static mutants running every test file, including the 2.9 s `glob.spec.ts` (fixed, see ¹).
 - Verdicts agree on every shared mutant except two in pathe. Stryker reports those two as Survived, but they break the test file while Vitest collects it (see pathe below). In those two cases our result is the correct one.
-- **Bug found:** our tool crashes outright when a mutant makes a Vitest worker run out of memory. This is why `pathe/src/_glob.ts` is excluded. See [Bugs found](#bugs-found).
+- **Bug found (fixed):** our tool crashed outright when a mutant made a Vitest worker run out of memory. This is why `pathe/src/_glob.ts` was excluded from the measured set. See [Bugs found](#bugs-found).
 - The call graph mode (`--experimental-callgraph`) was run on 17 edits, 12 of them semantics-changing. It never produced a verdict difference. It pruned 0–60 mutants per edit (mean 18), and the time saved was 0–2.5 s.
 
 ## Environment
@@ -215,7 +217,7 @@ The aborted first defu run did log one status difference: `src/_utils.ts:25 true
 
 ## Bugs found
 
-1. **[high] A mutant that runs a Vitest worker out of memory crashes the whole run.** With the threads pool, the worker exits with code 1. Vitest emits `Error: Worker exited unexpectedly with exit code 1 during started state` as an unhandled `'error'` event, and the CLI dies with exit 1. It writes no snapshot or report, which loses all progress: pathe died at 934 of 1001 mutants after 110 s. This happens deterministically on `pathe/src/_glob.ts`, also with `-j 1`; there `or()`'s `return false → true` makes the parser loop forever while it accumulates output. Minimal repro: a project with vitest 5.0.3 and these two files.
+1. **[high, fixed in `d3a8ab8` and `ddb0552`] A mutant that runs a Vitest worker out of memory crashes the whole run.** Root cause: on timeout the session closed Vitest gracefully; a worker stuck in the mutant's loop never answered the stop request, so its thread was never terminated (it also kept burning a core for the rest of the run) and its later exit surfaced as an unhandled `'error'` event. Now the pool is force-closed on timeout and the CLI ignores `Worker exited unexpectedly` while it runs. Original report: With the threads pool, the worker exits with code 1. Vitest emits `Error: Worker exited unexpectedly with exit code 1 during started state` as an unhandled `'error'` event, and the CLI dies with exit 1. It writes no snapshot or report, which loses all progress: pathe died at 934 of 1001 mutants after 110 s. This happens deterministically on `pathe/src/_glob.ts`, also with `-j 1`; there `or()`'s `return false → true` makes the parser loop forever while it accumulates output. Minimal repro: a project with vitest 5.0.3 and these two files.
 
    ```ts
    // src/fill.ts

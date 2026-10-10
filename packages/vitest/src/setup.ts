@@ -14,6 +14,7 @@ const ns = {
   collect: config.active === null,
   modules: [] as [readonly string[], ArrayLike<number>][],
   cov: { static: {} as Record<string, number>, perTest: {} as Record<string, Record<string, number>> },
+  inf: { static: {} as Record<string, number>, perTest: {} as Record<string, Record<string, number>> },
   testId: null as string | null,
   hits: 0,
   hitLimit: config.hitLimit,
@@ -49,6 +50,8 @@ afterEach(({ task }) => {
   ns.testId = null;
   const hits = ns.cov.perTest[task.id];
   if (hits) (task.meta as Record<string, unknown>).mutatorHits = hits;
+  const infected = ns.inf.perTest[task.id];
+  if (infected) (task.meta as Record<string, unknown>).mutatorInfected = infected;
 });
 
 // Vitest requires an object pattern for the first (fixture) argument.
@@ -63,4 +66,6 @@ afterAll(({}, suite) => {
   meta.mutatorCounts = counts;
   const shared = ns.cov.perTest[CONCURRENT];
   if (shared) meta.mutatorConcurrent = shared;
+  const sharedInfected = ns.inf.perTest[CONCURRENT];
+  if (sharedInfected) meta.mutatorConcurrentInfected = sharedInfected;
 });

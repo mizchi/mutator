@@ -69,6 +69,11 @@ export interface RunOptions {
   plugins?: readonly PluginSpec[];
   /** Mutators to skip, built-in or custom, by name. */
   excludedMutators?: readonly string[];
+  /**
+   * Weak mutation (default true): the dry run records which tests reach a mutant with a
+   * different value; covered mutants no test infects are decided Survived without running.
+   */
+  weakMutation?: boolean;
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -155,6 +160,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const plugins = await loadPlugins(root, options.plugins ?? []);
   const arid = combineArid(options.arid, plugins.aridCallees);
   const instrumentOptions: InstrumentFlags = {
+    ...(options.weakMutation === false ? { weak: false } : {}),
     ...(arid !== undefined ? { arid } : {}),
     ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
@@ -209,6 +215,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       coverage: merged.coverage,
       staticKeys: merged.staticKeys,
       staticTests: staticTestsOf(merged),
+      // Infection is known only for the tests this dry run executed.
+      ...(dry.infected ? { infection: { infected: dry.infected, observed: new Set(dry.tests.map((t) => t.id)) } } : {}),
       previous: valid ? previous : undefined,
       toolVersion: TOOL_VERSION,
       envHash,
@@ -221,6 +229,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const results: MutantResult[] = [];
   
     const jobs: { index: number; entry: Extract<PlanEntry, { kind: 'run' }> }[] = [];
+    const notInfected: number[] = [];
     for (const entry of entries) {
       const { mutant } = entry;
       const coveredBy = [...(merged.coverage.get(mutant.key) ?? [])];
@@ -228,6 +237,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         case 'ignored':
           results.push(toResult(mutant, 'Ignored', [], []));
           report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy });
+          break;
+        case 'notInfected':
+          // Covered, but no covering test reaches it with a different value: it cannot be
+          // killed. Decided after type checking (an uncompilable mutant is a CompileError).
+          notInfected.push(report.length);
+          report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy });
           break;
         case 'noCoverage':
           results.push(toResult(mutant, 'NoCoverage', [], []));
@@ -251,7 +266,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       }
     }
 
-    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', jobs.map((j) => j.entry.mutant), log);
+    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log);
+    for (const i of notInfected) {
+      const entry = report[i]!;
+      if (uncompilable.has(entry.mutant.key)) report[i] = { ...entry, status: 'CompileError' };
+      results.push(toResult(entry.mutant, report[i]!.status, [], report[i]!.status === 'CompileError' ? [] : entry.coveredBy));
+    }
     for (let i = jobs.length - 1; i >= 0; i--) {
       const { index, entry } = jobs[i]!;
       const error = uncompilable.get(entry.mutant.key);
@@ -366,7 +386,7 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 }
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators'>;
+type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators' | 'weak'>;
 
 function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
   const scopes = new Map<string, Scope[]>();

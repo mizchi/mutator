@@ -24,6 +24,8 @@ export interface DryRunResult {
   staticByFile: Map<string, Set<string>>;
   /** test file (relative) -> local files it imports, transitively (relative, sorted), excluding node_modules */
   deps: Map<string, string[]>;
+  /** Weak mutation: mutant key -> tests that reached it with a different value (runners that support it). */
+  infected?: Map<string, string[]>;
 }
 
 export interface RunMutantOptions {

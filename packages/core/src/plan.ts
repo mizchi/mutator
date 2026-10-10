@@ -149,8 +149,14 @@ export function plan(input: PlanInput): PlanEntry[] {
     const isStatic = staticKeys.has(m.key);
     const prev = prevByKey.get(m.key);
     if (prev && canReuse(m, prev, isStatic)) return { kind: 'reuse', mutant: m, result: prev };
-    const selected = selectTests(m, prev, isStatic);
+    let selected = selectTests(m, prev, isStatic);
     if (selected.length === 0) return { kind: 'noCoverage', mutant: m };
+    if (m.weak && !isStatic && input.infection) {
+      const { infected, observed } = input.infection;
+      const infecting = new Set(infected.get(m.key) ?? []);
+      selected = selected.filter((t) => !observed.has(t) || infecting.has(t));
+      if (selected.length === 0) return { kind: 'notInfected', mutant: m };
+    }
     const ordered = order(m, prev, selected);
     const total = ordered.reduce((sum, t) => sum + (testById.get(t)?.durationMs ?? 0), 0);
     return {

@@ -224,10 +224,11 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const failed: string[] = [];
   const index = new Map<string, TestLocation>();
   const staticByFile = new Map<string, Set<string>>();
+  const infected = new Map<string, string[]>();
   const seen = new Map<string, number>();
 
   for (const module of result.testModules) {
-    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorCounts?: Record<string, number> };
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorCounts?: Record<string, number> };
     const moduleStatic = new Set<string>();
     staticByFile.set(relative(root, module.moduleId), moduleStatic);
     for (const key of Object.keys(moduleMeta.mutatorStatic ?? {})) {
@@ -255,10 +256,14 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
         covering.push(id);
         coverage.set(key, covering);
       }
+      const testInfected = test.options.concurrent
+        ? (moduleMeta.mutatorConcurrentInfected ?? {})
+        : ((test.meta() as { mutatorInfected?: Record<string, number> }).mutatorInfected ?? {});
+      for (const key of Object.keys(testInfected)) infected.set(key, [...(infected.get(key) ?? []), id]);
     }
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map() };
+  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map(), infected };
 }
 
 interface GraphModule {

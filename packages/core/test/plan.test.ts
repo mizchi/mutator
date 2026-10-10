@@ -532,3 +532,35 @@ describe('staticTests', () => {
     expect(runTests(only(plan(input({ mutants: [m], tests: [t1, t2], staticKeys: new Set(['s1']) }))))).toEqual(['a#x', 'b#y']);
   });
 });
+
+describe('weak mutation (infection)', () => {
+  const weak = (key: string) => ({ ...mutant(key), weak: true });
+
+  it('runs only the covering tests that infect the mutant', () => {
+    const m = weak('k1');
+    const [t1, t2] = [test('t1'), test('t2')];
+    const entry = only(plan(input({ mutants: [m], tests: [t1, t2], coverage: cov({ k1: ['t1', 't2'] }), infection: { infected: new Map([['k1', ['t2']]]), observed: new Set(['t1', 't2']) } })));
+    expect(runTests(entry)).toEqual(['t2']);
+  });
+
+  it('a covered mutant no test infects is decided Survived without running', () => {
+    const m = weak('k1');
+    const t1 = test('t1');
+    const entry = only(plan(input({ mutants: [m], tests: [t1], coverage: cov({ k1: ['t1'] }), infection: { infected: new Map(), observed: new Set(['t1']) } })));
+    expect(entry).toMatchObject({ kind: 'notInfected' });
+  });
+
+  it('tests whose infection was not observed (coverage reused from a snapshot) are kept', () => {
+    const m = weak('k1');
+    const [t1, t2] = [test('t1'), test('t2')];
+    const entry = only(plan(input({ mutants: [m], tests: [t1, t2], coverage: cov({ k1: ['t1', 't2'] }), infection: { infected: new Map(), observed: new Set(['t1']) } })));
+    expect(runTests(entry)).toEqual(['t2']);
+  });
+
+  it('non-weak and static mutants are unaffected', () => {
+    const [m1, m2] = [mutant('k1'), weak('k2')];
+    const t1 = test('t1');
+    const entries = plan(input({ mutants: [m1, m2], tests: [t1], coverage: cov({ k1: ['t1'] }), staticKeys: new Set(['k2']), infection: { infected: new Map(), observed: new Set(['t1']) } }));
+    expect(entries.map((e) => e.kind)).toEqual(['run', 'run']);
+  });
+});

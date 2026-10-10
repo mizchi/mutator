@@ -6,7 +6,7 @@ import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
-import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, runtimeHeader } from './runtime.ts';
+import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, RUNTIME_WEAK, runtimeHeader } from './runtime.ts';
 import { ScopeTracker, normalize } from './scope.ts';
 import type { CallSite, ImportBinding, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
@@ -131,7 +131,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const ordered = [...placements.values()].sort((a, b) => a.frame.node.start - b.frame.node.start || b.frame.node.end - a.frame.node.end);
   const placedKeys = ordered.flatMap((p) => p.mutants.map((m) => m.key));
   const indexOf = new Map(placedKeys.map((key, i) => [key, i]));
-  for (const p of ordered) emitPlacement(s, source, p, placements, indexOf);
+  for (const p of ordered) emitPlacement(s, source, p, placements, indexOf, options.weak !== false);
   const { at, text } = headerInsertion(program, runtimeHeader(placedKeys));
   s.prependRight(at, text);
   const code = s.toString();
@@ -169,11 +169,12 @@ function redundantCallStatements(candidates: readonly Candidate[]): Set<Candidat
   return out;
 }
 
-function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>, indexOf: ReadonlyMap<string, number>): void {
+function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>, indexOf: ReadonlyMap<string, number>, weakProbes: boolean): void {
   const node = frame.node;
   const mutated = (m: Mutant) => source.slice(node.start, m.range.start) + m.replacement + source.slice(m.range.end, node.end);
   const act = (m: Mutant) => `${RUNTIME_ACTIVE} === ${JSON.stringify(m.key)} && ${RUNTIME_HIT}()`;
-  const cov = `${RUNTIME_COLLECT} && ${RUNTIME_COV}(${mutants.map((m) => indexOf.get(m.key)).join(', ')})`;
+  const weak = weakProbes && kind === 'expression' ? weakChecks(frame, source, mutants, mutated, indexOf) : [];
+  const cov = `${RUNTIME_COLLECT} && (${[`${RUNTIME_COV}(${mutants.map((m) => indexOf.get(m.key)).join(', ')})`, ...weak].join(', ')})`;
   let prefix: string;
   let suffix: string;
   switch (kind) {
@@ -198,6 +199,68 @@ function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }:
   }
   s.appendRight(node.start, prefix);
   s.prependLeft(node.end, suffix);
+}
+
+const WEAK_MUTATORS = new Set(['EqualityOperator', 'ArithmeticOperator', 'ConditionalExpression']);
+const WEAK_OPERATORS = new Set(['<', '<=', '>', '>=', '==', '!=', '===', '!==', '+', '-', '*', '/', '%']);
+
+/** Expressions that can be evaluated again without any observable effect. */
+function isPure(node: Node): boolean {
+  switch (node.type) {
+    case 'Identifier':
+    case 'ThisExpression':
+      return true;
+    case 'Literal':
+      return !node.regex; // a regex literal is a new object on every evaluation
+    case 'ParenthesizedExpression':
+      return isPure(node.expression);
+    case 'UnaryExpression':
+      return ['-', '+', '!', '~', 'typeof'].includes(node.operator) && isPure(node.argument);
+    case 'TemplateLiteral':
+      return node.expressions.length === 0;
+    case 'MemberExpression':
+      // `.length` of a binding: strings and arrays, no getters in practice.
+      return !node.computed && node.property.name === 'length' && node.object.type === 'Identifier';
+    default:
+      return false;
+  }
+}
+
+/**
+ * Weak-mutation probes for mutants that replace the whole placed expression and
+ * whose original and mutated forms can both be re-evaluated without side effects.
+ * Only runs in dry runs (behind the collect flag). Both forms are evaluated in
+ * place: being side-effect free, the only possible exception (TDZ, `.length` of
+ * null) is the one the original expression throws right after anyway.
+ */
+function weakChecks(frame: Frame, source: string, mutants: readonly Mutant[], mutated: (m: Mutant) => string, indexOf: ReadonlyMap<string, number>): string[] {
+  const node = frame.node;
+  const inner = unwrapParens(node);
+  const pure = (inner.type === 'BinaryExpression' && WEAK_OPERATORS.has(inner.operator) && isPure(inner.left) && isPure(inner.right)) || isPure(inner);
+  if (!pure) return [];
+  const testPosition = isTestPosition(frame);
+  const wrap = (code: string) => (testPosition ? `!!(${code})` : `(${code})`);
+  const original = source.slice(node.start, node.end);
+  const args: string[] = [];
+  for (const m of mutants) {
+    if (!WEAK_MUTATORS.has(m.mutator) || m.range.start !== node.start || m.range.end !== node.end) continue;
+    m.weak = true;
+    args.push(`${indexOf.get(m.key)}, ${wrap(mutated(m))}`);
+  }
+  // One call per evaluation: the original value, then (mutant index, mutated value) pairs.
+  return args.length ? [`${RUNTIME_WEAK}(${wrap(original)}, ${args.join(', ')})`] : [];
+}
+
+function unwrapParens(node: Node): Node {
+  return node.type === 'ParenthesizedExpression' ? unwrapParens(node.expression) : node;
+}
+
+/** The value is only used for its truthiness (if / loop / ternary test). */
+function isTestPosition(frame: Frame): boolean {
+  let f = frame;
+  while (f.parent && f.parent.node.type === 'ParenthesizedExpression') f = f.parent;
+  const parent = f.parent?.node;
+  return f.key === 'test' && parent !== undefined && ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type);
 }
 
 /** An expression statement in a statement list that would now start with `(` (outermost placement only). */
@@ -263,6 +326,7 @@ function isExpression(node: Node): boolean {
   return (
     (node.type.endsWith('Expression') && node.type !== 'ExpressionStatement') ||
     node.type === 'Literal' ||
+    node.type === 'Identifier' ||
     node.type === 'TemplateLiteral' ||
     node.type === 'JSXElement' ||
     node.type === 'JSXFragment'

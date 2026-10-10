@@ -5,6 +5,7 @@ export const RUNTIME_ACTIVE = '__mutator_a';
 export const RUNTIME_COLLECT = '__mutator_c';
 export const RUNTIME_HIT = '__mutator_hit';
 export const RUNTIME_COV = '__mutator_cov';
+export const RUNTIME_WEAK = '__mutator_w';
 
 /** Shape of `globalThis.__mutator__`, shared between instrumented code and the adapter. */
 export interface RuntimeState {
@@ -13,6 +14,8 @@ export interface RuntimeState {
   /** Record coverage (dry runs). Mutant runs set false so instrumented code skips the counters. */
   collect?: boolean;
   cov: { static: Record<string, number>; perTest: Record<string, Record<string, number>> };
+  /** Weak mutation: mutants whose value differed from the original's, per test. */
+  inf?: { static: Record<string, number>; perTest: Record<string, Record<string, number>> };
   /** Id of the running test; null while modules are loading (static coverage). */
   testId: string | null;
   hits: number;
@@ -42,6 +45,10 @@ export function runtimeHeader(keys: readonly string[]): string {
     `var __mutator_k = ${JSON.stringify(keys)}, __mutator_seen = new Int32Array(${keys.length}), __mutator_n = new Float64Array(${keys.length}), __mutator_t = {}, __mutator_g = 0;`,
     `if (${RUNTIME_COLLECT}) (__mutator_s.modules ??= []).push([__mutator_k, __mutator_n]);`,
     `function ${RUNTIME_HIT}() { var ns = globalThis.${RUNTIME_GLOBAL}; if (++ns.hits > ns.hitLimit) throw new Error("mutator: hit limit reached (" + ns.hits + ")"); return true; }`,
+    // Weak mutation (dry runs only): the side-effect-free original value, then (mutant
+    // index, mutated value) pairs; a difference marks the mutant as infected by the current test.
+    `var __mutator_iseen = new Int32Array(${keys.length}), __mutator_it = {}, __mutator_ig = 0;`,
+    `function ${RUNTIME_WEAK}(a) { var ns = __mutator_s, t = ns.testId; if (t !== __mutator_it) { __mutator_it = t; __mutator_ig++; } for (var i = 1; i < arguments.length; i += 2) { var j = arguments[i]; if (__mutator_iseen[j] === __mutator_ig || Object.is(a, arguments[i + 1])) continue; __mutator_iseen[j] = __mutator_ig; var inf = ns.inf ??= { static: {}, perTest: {} }; (t == null ? inf.static : (inf.perTest[t] ??= {}))[__mutator_k[j]] = 1; } }`,
     `function ${RUNTIME_COV}() { var ns = __mutator_s, t = ns.testId; if (t !== __mutator_t) { __mutator_t = t; __mutator_g++; } var c = null; for (var i = 0; i < arguments.length; i++) { var j = arguments[i]; __mutator_n[j]++; if (__mutator_seen[j] !== __mutator_g) { __mutator_seen[j] = __mutator_g; c ??= t == null ? ns.cov.static : (ns.cov.perTest[t] ??= {}); c[__mutator_k[j]] = 1; } } }`,
   ].join('\n');
 }

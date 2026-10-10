@@ -50,6 +50,15 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(byStatus(parallel)).toEqual(byStatus(sequential));
   });
 
+  test('weak mutation: a covered mutant no test infects is Survived without running', async () => {
+    const report = await runMutation({ root, concurrency: 1 });
+    const boundary = report.entries.find((e) => e.mutant.original === 'age >= 18' && e.mutant.replacement === 'age > 18')!;
+    expect(boundary).toMatchObject({ status: 'Survived', source: 'static' });
+    expect(boundary.coveredBy.length).toBeGreaterThan(0);
+    const flipped = report.entries.find((e) => e.mutant.original === 'age >= 18' && e.mutant.replacement === 'age < 18')!;
+    expect(flipped).toMatchObject({ status: 'Killed', source: 'run' });
+  });
+
   test('second run reuses everything from the snapshot', async () => {
     const first = await runMutation({ root });
     const second = await runMutation({ root });

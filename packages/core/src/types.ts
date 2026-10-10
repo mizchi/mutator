@@ -70,6 +70,12 @@ export interface Mutant {
   scope: Scope;
   /** Set when the mutant was found but will not be placed (disabled comment, unplaceable, ...). */
   ignored?: string;
+  /**
+   * Weak-mutation checkable: the dry run records, per test, whether this mutant's
+   * value would differ from the original's (infection). A test that never infects
+   * cannot kill it.
+   */
+  weak?: boolean;
 }
 
 export interface SourceMapLike {
@@ -111,6 +117,8 @@ export interface InstrumentOptions {
   excludedMutators?: readonly MutatorName[];
   /** Custom mutators, run in addition to the built-in ones. */
   mutators?: readonly MutatorDefinition[];
+  /** Weak-mutation probes in dry runs (default true): mutants no test infects are not run. */
+  weak?: boolean;
   /** Mark every mutant under nodes they flag as ignored (like StrykerJS ignorers). */
   ignorers?: readonly MutantIgnorer[];
   /**
@@ -188,6 +196,11 @@ export interface PlanInput {
   staticKeys: ReadonlySet<string>;
   /** Static mutant key -> tests of the files that loaded it (default: every test). */
   staticTests?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Weak mutation data from the dry run: tests that infected each weak mutant, and
+   * the tests whose infection was observed at all (others count as infecting).
+   */
+  infection?: { infected: ReadonlyMap<string, readonly string[]>; observed: ReadonlySet<string> };
   previous: RunSnapshot | undefined;
   toolVersion: string;
   envHash: string;
@@ -205,6 +218,8 @@ export type PlanEntry =
   | { kind: 'ignored'; mutant: Mutant; reason: string }
   | { kind: 'reuse'; mutant: Mutant; result: MutantResult }
   | { kind: 'noCoverage'; mutant: Mutant }
+  /** Covered, but no covering test reaches it with a different value: cannot be killed. */
+  | { kind: 'notInfected'; mutant: Mutant }
   | {
       kind: 'run';
       mutant: Mutant;

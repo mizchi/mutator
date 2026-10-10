@@ -97,16 +97,18 @@ describe('--since keeps invalidation for out-of-diff mutants', { timeout: 60_000
       git('init', '-q', '-b', 'main');
       git('add', '-A');
       git('commit', '-q', '-m', 'init');
-      await runMutation({ root, concurrency: 1 });
+      // Weak mutation would decide some of isPositive's mutants without running them;
+      // this test is about the ones that must be re-run.
+      await runMutation({ root, concurrency: 1, weakMutation: false });
 
       // `combo` covers both functions: editing `double` invalidates isPositive's results too.
       const file = join(root, 'src/a.ts');
       writeFileSync(file, readFileSync(file, 'utf8').replace('return n * 2;', 'return n + n;'));
-      const since = await runMutation({ root, concurrency: 1, since: 'HEAD' });
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
       const pending = since.entries.filter((e) => e.source === 'skipped').map((e) => e.mutant.scope.id);
       expect(new Set(pending)).toEqual(new Set(['isPositive']));
 
-      const full = await runMutation({ root, concurrency: 1 });
+      const full = await runMutation({ root, concurrency: 1, weakMutation: false });
       const rerun = full.entries.filter((e) => e.source === 'run').map((e) => e.mutant.key).sort();
       expect(rerun).toEqual(since.entries.filter((e) => e.source === 'skipped').map((e) => e.mutant.key).sort());
       expect(full.entries.some((e) => e.status === 'NoCoverage' && e.mutant.scope.id === 'isPositive')).toBe(false);

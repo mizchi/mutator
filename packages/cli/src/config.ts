@@ -41,6 +41,10 @@ export interface MutatorConfig {
   plugins?: string[];
   /** Mutators to skip (built-in or custom names). */
   excludedMutators?: string[];
+  /** Run at most this many mutants per source line (most productive mutators first); default unlimited. */
+  mutantsPerLine?: number;
+  /** Seconds from the start of the run after which no new mutant run starts; default unlimited. */
+  timeBudget?: number;
 }
 
 /** Typing helper for mutator.config.ts. */
@@ -104,6 +108,8 @@ const properties = {
   typecheck: { description: 'Type-check mutants before running them.', enum: [true, false, 'auto'] },
   plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
+  mutantsPerLine: { description: 'Run at most this many mutants per source line, most productive mutators first (default: unlimited).', type: 'integer', minimum: 1 },
+  timeBudget: { description: 'Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).', type: 'number', minimum: 0 },
 } satisfies Record<keyof MutatorConfig, Schema>;
 
 export const CONFIG_KEYS = Object.keys(properties) as (keyof MutatorConfig)[];

@@ -18,6 +18,11 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
       .join(' · '),
     `score${report.scope === 'diff' ? ' (changed code)' : ''}: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
+  const notRun = [
+    ...(report.notRun.sampled ? [`${report.notRun.sampled} sampled out (--mutants-per-line)`] : []),
+    ...(report.notRun.budget ? [`${report.notRun.budget} over the time budget (--time-budget)`] : []),
+  ];
+  if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
   // Survivors first (tests ran and missed them), then mutants no test reaches.
   const undetected = [...report.entries.filter((e) => e.status === 'Survived'), ...report.entries.filter((e) => e.status === 'NoCoverage')];
   if (undetected.length > 0) {

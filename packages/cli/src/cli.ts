@@ -28,6 +28,9 @@ const USAGE = `usage: mutator [options]
   --plugin <module>    plugin with custom mutators (path relative to root, or package), repeatable
   --exclude-mutator <name>  skip a mutator (built-in or custom), repeatable
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'
+  --mutants-per-line <n>  run at most n mutants per source line, most productive
+                       mutators first (the rest stay pending; default: unlimited)
+  --time-budget <s>    start no new mutant run after s seconds (default: unlimited)
   --reporter <name>    text (default), json, html; repeatable
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)
   --threshold-break <n>  exit 2 when the mutation score (%) is below n

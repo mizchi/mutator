@@ -14,11 +14,19 @@ const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
 describe('formatSummary', () => {
   test('lists at most 20 undetected mutants, survivors first, and counts the rest', () => {
     const entries = [...Array.from({ length: 30 }, (_, i) => entry(i, 'NoCoverage')), ...Array.from({ length: 5 }, (_, i) => entry(100 + i, 'Survived'))];
-    const report: Report = { entries, executed: 35, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1 };
+    const report: Report = { entries, executed: 35, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
     const lines = formatSummary(report, '/p').split('\n');
     const listed = lines.filter((l) => l.startsWith('  src/'));
     expect(listed).toHaveLength(20);
     expect(listed.slice(0, 5).every((l) => l.includes('Survived'))).toBe(true);
     expect(lines.at(-1)).toMatch(/15 more undetected .*--reporter json/);
+  });
+
+  test('says how many mutants were not run because of sampling or the time budget', () => {
+    const entries = [entry(0, 'Killed'), entry(1, 'Pending'), entry(2, 'Pending'), entry(3, 'Pending')];
+    const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 2, budget: 1 } };
+    expect(formatSummary(report, '/p')).toContain('not run: 2 sampled out (--mutants-per-line), 1 over the time budget (--time-budget)');
+    expect(formatSummary({ ...report, notRun: { sampled: 0, budget: 1 } }, '/p')).toContain('not run: 1 over the time budget (--time-budget)');
+    expect(formatSummary({ ...report, notRun: { sampled: 0, budget: 0 } }, '/p')).not.toContain('not run');
   });
 });

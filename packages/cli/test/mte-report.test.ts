@@ -48,6 +48,7 @@ const report: Report = {
   scope: 'all',
   score: 0.5,
   durationMs: 10,
+  notRun: { sampled: 0, budget: 0 },
 };
 
 describe('formatMutationTestingJson', () => {

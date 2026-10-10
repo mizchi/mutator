@@ -38,6 +38,8 @@ const OPTIONS = {
   'exclude-mutator': { type: 'string', multiple: true },
   'arid-callee': { type: 'string', multiple: true },
   'threshold-break': { type: 'string' },
+  'mutants-per-line': { type: 'string' },
+  'time-budget': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
@@ -56,6 +58,8 @@ const FLAGS: Record<string, string> = {
   'thresholds.break': '--threshold-break',
   plugins: '--plugin',
   excludedMutators: '--exclude-mutator',
+  mutantsPerLine: '--mutants-per-line',
+  timeBudget: '--time-budget',
 };
 
 export type CliValues = ReturnType<typeof parseCli>;
@@ -89,6 +93,8 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     plugins: values.plugin,
     excludedMutators: values['exclude-mutator'],
     fullDryRun: values['full-dry-run'],
+    mutantsPerLine: numeric(values['mutants-per-line']),
+    timeBudget: numeric(values['time-budget']),
     reporters: values.reporter,
     reportDir: values['report-dir'] && resolve(cwd, values['report-dir']),
     thresholds: values['threshold-break'] === undefined ? undefined : { break: numeric(values['threshold-break']) },
@@ -132,6 +138,8 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(arid === false ? { arid } : typeof arid === 'object' ? { arid } : {}),
       ...(config.plugins?.length ? { plugins: config.plugins } : {}),
       ...(config.excludedMutators?.length ? { excludedMutators: config.excludedMutators } : {}),
+      ...(config.mutantsPerLine !== undefined ? { mutantsPerLine: config.mutantsPerLine } : {}),
+      ...(config.timeBudget !== undefined ? { timeBudget: config.timeBudget } : {}),
     },
     ...(config.typecheck !== undefined ? { typecheck: config.typecheck } : {}),
     reporters: new Set(config.reporters ?? ['text']),

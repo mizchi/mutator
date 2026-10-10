@@ -30,6 +30,7 @@ function report(score: number, statuses: ReportEntry['status'][] = []): Report {
     scope: 'all',
     score,
     durationMs: 1,
+    notRun: { sampled: 0, budget: 0 },
   };
 }
 

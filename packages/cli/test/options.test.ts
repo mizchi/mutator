@@ -134,6 +134,25 @@ describe('plugins options', () => {
   });
 });
 
+describe('large-run options', () => {
+  test('mutantsPerLine / timeBudget from the config file; flags override', async () => {
+    const root = project({ mutantsPerLine: 2, timeBudget: 300 });
+    expect((await resolve(root)).run).toMatchObject({ mutantsPerLine: 2, timeBudget: 300 });
+    expect((await resolve(root, '--mutants-per-line', '1', '--time-budget', '600')).run).toMatchObject({ mutantsPerLine: 1, timeBudget: 600 });
+    const defaults = (await resolve(project())).run;
+    expect(defaults.mutantsPerLine).toBeUndefined();
+    expect(defaults.timeBudget).toBeUndefined();
+  });
+
+  test('invalid values are ConfigErrors naming the flag', async () => {
+    const root = project();
+    await expect(resolve(root, '--mutants-per-line', '0')).rejects.toThrow('--mutants-per-line must be >= 1');
+    await expect(resolve(root, '--mutants-per-line', '1.5')).rejects.toThrow('--mutants-per-line must be integer');
+    await expect(resolve(root, '--time-budget=-1')).rejects.toThrow('--time-budget must be >= 0');
+    await expect(resolve(root, '--time-budget', 'soon')).rejects.toThrow('--time-budget must be number');
+  });
+});
+
 describe('runner config files', () => {
   test('--config is the vitest config and --jest-config the jest config', async () => {
     const root = project();

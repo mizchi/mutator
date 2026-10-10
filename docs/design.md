@@ -92,6 +92,7 @@ ScopeHash = hash(normalized AST of the enclosing function; excluding comments, w
 - Narrow by per-test coverage (primary), with a module graph equivalent to `vitest related` (auxiliary)
 - Order: previous killer → killers of sibling mutants → tests that hit directly → shortest runtime first. bail 1
 - Mutants run in order of shortest estimated time
+- Runs estimated over 10 s are split into per-test-file shards; idle sessions take the remaining shards of started jobs (each job's first shard starts first). A shard keeps the job's timeout
 - timeout: baseline of the selected tests × factor + const
 
 ## Execution model (vitest adapter)

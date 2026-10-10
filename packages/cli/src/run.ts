@@ -33,10 +33,14 @@ import { type Runner, createRunnerSession, detectRunner } from './runner.ts';
 import { changedFiles, gitDiff } from './git.ts';
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, planDryRun, scopeTable, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
+import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
+/** Runs longer than this (estimated from the dry run) are split by test file. */
+const SHARD_TARGET_MS = 10_000;
+
 export const TOOL_VERSION = '0.0.5';
 
 export interface RunOptions {
@@ -305,39 +309,45 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       jobs.splice(i, 1);
     }
     log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
-    const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), jobs.length));
+    const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
+    // Under a budget, cheapest first: the budget then settles as many mutants as possible.
+    if (options.timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
+    // Long runs (typically static mutants, which run every test file that loaded them) are
+    // split by test file so idle sessions can take part of them.
+    const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
+    const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
+    const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), shardCount));
     // In parallel mode every mutant session gets a single worker so sessions do not
     // oversubscribe the CPU; a lone session keeps the runner's default workers.
     const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(runner, { ...sessionOptions, maxWorkers: 1 })));
     if (concurrency > 1) sessions.push(...workers);
     for (const s of workers) s.useTestIndex(merged.index);
-    const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
-    // Under a budget, cheapest first: the budget then settles as many mutants as possible.
-    if (options.timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
     const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : Infinity;
     let executed = 0;
-    let next = 0;
-    await Promise.all(
-      workers.map(async (worker) => {
-        while (next < jobs.length && performance.now() < deadline) {
-          const { index, entry } = jobs[next++]!;
-          const { mutant } = entry;
-          const outcome = await worker.runMutant(mutant.key, entry.tests, {
-            timeoutMs: entry.timeoutMs,
-            stallMs: stallBudget(entry.tests, testDurations),
-            isStatic: entry.isStatic,
-            hitLimit: Math.max(10_000, (merged.hits.get(mutant.key) ?? 0) * 100),
-          });
-          executed++;
-          log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-          const { coveredBy } = report[index]!;
-          results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
-          report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
-        }
-      }),
-    );
+    const neverStarted = await runSharded({
+      workers: workers.length,
+      jobs: sharded,
+      shouldStop: () => performance.now() >= deadline,
+      // A shard keeps its job's timeout: test durations leave out module loading, so a
+      // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
+      run: (worker, { entry }, tests) =>
+        workers[worker]!.runMutant(entry.mutant.key, [...tests], {
+          timeoutMs: entry.timeoutMs,
+          stallMs: stallBudget(tests, testDurations),
+          isStatic: entry.isStatic,
+          hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
+        }),
+      onDone: ({ index, entry }, outcome) => {
+        const { mutant } = entry;
+        executed++;
+        log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
+        const { coveredBy } = report[index]!;
+        results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
+        report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
+      },
+    });
     // Over the time budget: the jobs never started.
-    for (const { index, entry } of jobs.slice(next)) {
+    for (const { index, entry } of neverStarted) {
       notRun.budget++;
       skip(index, entry.mutant, report[index]!.coveredBy);
     }

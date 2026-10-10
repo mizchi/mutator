@@ -339,6 +339,18 @@ The same PR first re-collected 41 of 103 test files. Two causes: inserting a `.m
 
 The 33 are genuinely reachable here: the catalog is read by 18 functions across the analyzers, and 9 test files import it directly. Wall time hardly moves because the dry run is bounded by its slowest file (`test/cli.test.ts`, 63 s uninstrumented), which imports the catalog; the files dropped were not on the critical path. Edits that do not touch such a central table re-collect far fewer files (see `packages/cli/test/incremental.test.ts`, "narrowed re-collection").
 
+### Sharding long mutant runs
+
+What remained after narrowing was mostly three static mutants (string literals inside the catalog declaration): a static mutant runs every test file that loaded its module — here ~100 files, ~245 s each on a single-worker session — and they ended up as the last jobs. Runs estimated over 10 s are now split by test file, and idle sessions take the remaining shards of started jobs (every job's first shard is started first, so early kills still come first; a Killed / Timeout shard settles the job and drops its other shards). Each shard keeps the job's timeout: a proportional share was too tight, because test durations leave out module loading.
+
+| `--mutants-per-line 1`, same base snapshot | wall | Timeout |
+|---|---:|---:|
+| without sharding | 393 s | 3 |
+| sharded, run 1 | 299 s | 4 |
+| sharded, run 2 | 302 s | 1 |
+
+Only `corsa-source-facts.ts:1298` (`false -> true`) times out in every run; the others flip between Timeout and Survived from run to run with or without sharding (this project's tests are heavy and CPU-bound).
+
 Soundness on real edits: `node scripts/incremental-check.ts <root> <file> <from> <to>...` compares an incremental run from a base snapshot with a cold run of the edited project. On ufo (1,109 mutants, cold ≈ 33 s):
 
 | edit | re-collected | executed (cold) | wall (cold) | mismatches |

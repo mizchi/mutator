@@ -315,3 +315,16 @@ Fixes found by this trial:
 - stall timeout (no test progress within 3x the slowest test + 10 s) instead of only the sum of all selected tests
 - force-terminating a worker thread stuck in a loop occasionally crashed the process (SIGSEGV); sessions use forked workers by default (~18% slower on ufo's cold run)
 - with `--since`, the score covers only mutants inside the diff
+
+### PR-mode options on uneffect (same base snapshot, `--since HEAD~1`, 181 mutants in the diff)
+
+| options | diff mutants run | wall | score (changed code) |
+|---|---:|---:|---:|
+| none (before weak mutation) | 112 | 1024 s | — |
+| weak mutation (default) | 112 | 1056 s | 22.0% |
+| + `--mutants-per-line 1` | 23 (139 sampled out) | 403 s | 12.6% |
+| + `--time-budget 300` | 23 | 394 s | 13.5% |
+
+- Weak mutation did not remove any of this diff's 112 runs (their covering tests do infect them), but across the whole project it decided ~1,100 covered mutants Survived without running — that pays off in full runs, not in this PR. It also makes the dry run heavier (base snapshot 154 s → 208 s).
+- One mutant per line is what makes PR mode practical here: 17 min → under 7 min. The remaining time is the partial dry run (41 of 103 test files re-collected: the change touched top-level code imported widely) plus survivors running all their covering tests.
+- The time budget counts from the start of the run (dry run included), and in-flight mutants finish, so a 300 s budget ended at 394 s.

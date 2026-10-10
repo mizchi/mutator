@@ -205,8 +205,9 @@ describe('coverage counters', () => {
     rt.testId = 't2';
     exp.f(3);
     rt.testId = null;
-    expect(Object.keys(rt.cov.perTest.t1)).toEqual([mutants[0]!.key]);
-    expect(Object.keys(rt.cov.perTest.t2)).toEqual([mutants[0]!.key]);
+    const all = mutants.map((m) => m.key).sort();
+    expect(Object.keys(rt.cov.perTest.t1).sort()).toEqual(all);
+    expect(Object.keys(rt.cov.perTest.t2).sort()).toEqual(all);
   });
 
   test('hit limit aborts infinite loops', () => {

@@ -27,7 +27,7 @@ import {
   selectPerLine,
   toResult,
 } from '@mizchi/mutator-core';
-import { createTypeChecker } from '@mizchi/mutator-typecheck';
+import { checkInWorker, createTypeChecker } from '@mizchi/mutator-typecheck';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
 import { type Runner, createRunnerSession, detectRunner } from './runner.ts';
 import { changedFiles, gitDiff } from './git.ts';
@@ -199,6 +199,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const sessions = [session];
   const unguard = guardWorkerExits(log);
   const restorePath = exposeProjectBin(root);
+  let early: EarlyTypecheck | undefined;
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const { mutants, sources, graphSources } = collectSources(root, files, instrumentOptions);
@@ -214,6 +215,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
+    // Mutants inside the diff need a type check whatever the dry run finds: start it now,
+    // off this thread, so it overlaps the dry run.
+    const touched = options.since ? diffTouched(root, options.since, mutants, options.scope ?? 'node') : undefined;
+    // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
+    const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
+    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.selected.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
     const dryStarted = performance.now();
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
@@ -243,9 +250,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
-    const inScope = options.since ? diffScope(root, options.since, mutants, merged, options.scope ?? 'node') : undefined;
-    // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
-    const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
+    const inScope = touched ? diffScope(touched, merged) : undefined;
     const notRun = { sampled: 0, budget: 0 };
     const report: ReportEntry[] = [];
     const results: MutantResult[] = [];
@@ -260,6 +265,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     for (const entry of entries) {
       const { mutant } = entry;
       const coveredBy = [...(merged.coverage.get(mutant.key) ?? [])];
+      // Outside --since or sampled out: left Pending, whether it would run or be decided without running.
+      if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !inScope.has(mutant.key)) || (sampled && !sampled.has(mutant.key)))) {
+        if (!inScope || inScope.has(mutant.key)) notRun.sampled++;
+        skip(report.length, mutant, coveredBy);
+        continue;
+      }
       switch (entry.kind) {
         case 'ignored':
           results.push(toResult(mutant, 'Ignored', [], []));
@@ -281,18 +292,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy });
           break;
         case 'run':
-          if ((inScope && !inScope.has(mutant.key)) || (sampled && !sampled.has(mutant.key))) {
-            if (!inScope || inScope.has(mutant.key)) notRun.sampled++;
-            skip(report.length, mutant, coveredBy);
-          } else {
-            jobs.push({ index: report.length, entry });
-            report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
-          }
+          jobs.push({ index: report.length, entry });
+          report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
           break;
       }
     }
 
-    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log);
+    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
     for (const i of notInfected) {
       const entry = report[i]!;
       if (uncompilable.has(entry.mutant.key)) report[i] = { ...entry, status: 'CompileError' };
@@ -367,6 +373,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const scored = inScope ? report.filter((e) => inScope.has(e.mutant.key)) : report;
     return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun };
   } finally {
+    early?.cancel();
     await Promise.all(sessions.map((s) => s.close()));
     unguard();
     restorePath();
@@ -380,9 +387,41 @@ function defaultConcurrency(): number {
 const TS_FILE = /\.(c|m)?tsx?$/;
 
 /** Mutant key -> first new type error, for mutants of TypeScript files that do not compile. */
-async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void): Promise<Map<string, string>> {
-  const candidates = mutants.filter((m) => TS_FILE.test(m.file));
-  if (setting === false || candidates.length === 0) return new Map();
+interface EarlyTypecheck {
+  keys: ReadonlySet<string>;
+  result: Promise<{ version: string; errors: Map<string, string>; durationMs: number } | undefined>;
+  cancel: () => void;
+}
+
+/** Type-check `mutants` on a worker thread; a failure there leaves them to `typecheckJobs`. */
+function startTypecheck(root: string, mutants: readonly Mutant[]): EarlyTypecheck | undefined {
+  if (mutants.length === 0) return undefined;
+  const started = performance.now();
+  const abort = new AbortController();
+  const result = checkInWorker({ root, signal: abort.signal }, mutants).then(
+    (checked) => checked && { ...checked, durationMs: performance.now() - started },
+    () => undefined,
+  );
+  return { keys: new Set(mutants.map((m) => m.key)), result, cancel: () => abort.abort() };
+}
+
+async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void, early?: EarlyTypecheck): Promise<Map<string, string>> {
+  const all = mutants.filter((m) => TS_FILE.test(m.file));
+  if (setting === false || all.length === 0) {
+    early?.cancel();
+    return new Map();
+  }
+  const pre = await early?.result;
+  const errors = new Map<string, string>();
+  if (pre) {
+    for (const m of all) {
+      const error = pre.errors.get(m.key);
+      if (error !== undefined) errors.set(m.key, error);
+    }
+    log(`typecheck (TypeScript ${pre.version}): ${early!.keys.size} mutants in ${(pre.durationMs / 1000).toFixed(1)}s, alongside the dry run`);
+  }
+  const candidates = pre ? all.filter((m) => !early!.keys.has(m.key)) : all;
+  if (candidates.length === 0) return errors;
   const checker = await createTypeChecker({ root });
   if (!checker) {
     if (setting === true) throw new Error('typecheck: no typescript package or tsconfig.json found in the project');
@@ -392,7 +431,7 @@ async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: r
     const started = performance.now();
     const result = checker.check(candidates);
     log(`typecheck (TypeScript ${checker.version}): ${candidates.length} mutants in ${((performance.now() - started) / 1000).toFixed(1)}s`);
-    return result;
+    return new Map([...errors, ...result]);
   } finally {
     checker.close();
   }
@@ -460,8 +499,8 @@ function importResolver(files: readonly string[]) {
   };
 }
 
-/** Mutants touched by the diff, plus mutants covered by tests in changed test files. */
-function diffScope(root: string, since: string, mutants: readonly Mutant[], dry: { coverage: ReadonlyMap<string, readonly string[]> }, mode: SelectMode): Set<string> {
+/** Mutants touched by the diff, and the changed files (relative). */
+function diffTouched(root: string, since: string, mutants: readonly Mutant[], mode: SelectMode): { selected: Set<string>; changedFiles: string[] } {
   const changed = new Map<string, readonly Range[]>();
   for (const fd of parseUnifiedDiff(gitDiff(root, since))) {
     if (!fd.newPath) continue;
@@ -473,10 +512,14 @@ function diffScope(root: string, since: string, mutants: readonly Mutant[], dry:
     const file = join(root, rel);
     if (!changed.has(file) && existsSync(file)) changed.set(file, [{ start: 0, end: readFileSync(file, 'utf8').length }]);
   }
-  const selected = new Set(selectMutants(mutants, changed, mode).map((m) => m.key));
-  const changedTestFiles = [...changed.keys()].map((f) => f.slice(root.length + 1));
+  return { selected: new Set(selectMutants(mutants, changed, mode).map((m) => m.key)), changedFiles: [...changed.keys()].map((f) => f.slice(root.length + 1)) };
+}
+
+/** Mutants touched by the diff, plus mutants covered by tests in changed test files. */
+function diffScope(touched: { selected: ReadonlySet<string>; changedFiles: readonly string[] }, dry: { coverage: ReadonlyMap<string, readonly string[]> }): Set<string> {
+  const selected = new Set(touched.selected);
   for (const [key, tests] of dry.coverage) {
-    if (tests.some((t) => changedTestFiles.some((f) => t.startsWith(`${f}#`)))) selected.add(key);
+    if (tests.some((t) => touched.changedFiles.some((f) => t.startsWith(`${f}#`)))) selected.add(key);
   }
   return selected;
 }

@@ -367,3 +367,18 @@ Its first run found a bug that predated this work: CompileError results were sto
 ### Tried and dropped: narrowing static mutants to the readers of a declaration
 
 A static mutant runs every test file that loaded its module. For one inside side-effect-free top-level code, running only the tests that cover the functions reading the declared names (the same name following as the partial dry run) was tried. It changed no verdict on ufo (1,094 mutants), but on uneffect it removed only 1.5% of the static mutants' test time: 70% of them sit in functions that build the semantic catalog, and every one of the 41 test files loading the catalog also runs a function reading it. In PR mode the three slowest survivors stayed at 33 / 33 test files, since the partial dry run had already dropped the test files that cannot observe the catalog. The verdict-level approximation was not worth that, so it was not kept.
+
+### Type checking alongside the dry run
+
+With `--since`, the type check used to wait for the dry run, and it checked 1,291 mutants of which only 58 were in the diff: the rest were covered mutants outside the diff that weak mutation decides (Survived) without running, each still needing a type check to tell Survived from CompileError. Those now stay Pending like the other out-of-diff mutants, and the diff's mutants are type-checked on a worker thread while the dry run goes on.
+
+| `--mutants-per-line 1`, same base snapshot | dry run | type check | wall |
+|---|---:|---:|---:|
+| sharded mutant runs (previous) | 67–78 s | 29.5 s (1,291 mutants, after the dry run) | 279–302 s |
+| type check alongside, out-of-diff weak verdicts left Pending | 65.7 s | 1.4 s (58 mutants, during the dry run) | 259 s |
+
+The verdicts of the 23 executed mutants match apart from the Timeout / Survived flips this project always shows.
+
+### Tried and dropped: splitting slow test files of the dry run
+
+The dry run is bound by `test/cli.test.ts` (43 tests, 50 s in plain Vitest), while the 33 re-collected files take only about 5 cores on average. One Vitest run loads a test file once, so its tests were split by id across extra sessions. A shard of 4 of its tests still took 59 s: those tests drive the TypeScript compiler in-process, and each shard pays the warm-up again (that cost does not show in per-test timings). The dry run stayed at 70 s with 125 s more CPU, so it was not kept.

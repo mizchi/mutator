@@ -118,6 +118,31 @@ describe('--since keeps invalidation for out-of-diff mutants', { timeout: 60_000
   });
 });
 
+describe('--since leaves out-of-diff mutants undecided', { timeout: 60_000 }, () => {
+  test('even those weak mutation would decide without running', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `since-weak-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    try {
+      git('init', '-q', '-b', 'main');
+      git('add', '-A');
+      git('commit', '-q', '-m', 'init');
+      const first = await runMutation({ root, concurrency: 1 });
+      expect(first.entries.some((e) => e.source === 'static' && e.status === 'Survived' && e.mutant.scope.id === 'isPositive')).toBe(true);
+
+      const file = join(root, 'src/a.ts');
+      writeFileSync(file, readFileSync(file, 'utf8').replace('return n * 2;', 'return n + n;'));
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD' });
+      const decided = since.entries.filter((e) => e.mutant.scope.id === 'isPositive' && e.source !== 'reuse' && e.source !== 'skipped');
+      expect(decided).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('test dependencies', { timeout: 60_000 }, () => {
   test('editing a non-mutated helper a test imports re-runs the affected mutants', async () => {
     mkdirSync(tmpRoot, { recursive: true });

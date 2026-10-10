@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
-import { createTypeChecker } from '../src/index.ts';
+import { checkInWorker, createTypeChecker } from '../src/index.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/basic', import.meta.url));
 const tmp = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -49,5 +49,27 @@ describe('createTypeChecker', () => {
     roots.push(root);
     mkdirSync(root, { recursive: true });
     expect(await createTypeChecker({ root })).toBeUndefined();
+  });
+});
+
+describe('checkInWorker', () => {
+  test('checks off the main thread with the project typescript', async () => {
+    const root = projectWith('typescript7');
+    const file = join(root, 'src/a.ts');
+    const source = readFileSync(file, 'utf8');
+    const start = source.indexOf('s.length');
+    const checked = await checkInWorker({ root }, [
+      { key: 'bad', file, range: { start, end: start + 8 }, replacement: '"x"' },
+      { key: 'fine', file, range: { start, end: start + 8 }, replacement: '0' },
+    ]);
+    expect(checked?.version).toMatch(/^7\./);
+    expect([...checked!.errors.keys()]).toEqual(['bad']);
+  });
+
+  test('is undefined without typescript or tsconfig', async () => {
+    const root = join(tmp, `tc-none-worker-${process.pid}`);
+    roots.push(root);
+    mkdirSync(root, { recursive: true });
+    expect(await checkInWorker({ root }, [])).toBeUndefined();
   });
 });

@@ -243,5 +243,22 @@ describe('type checking', { timeout: 120_000 }, () => {
     expect(untyped.entries.some((e) => e.status === 'CompileError')).toBe(false);
     expect(untyped.executed).toBeGreaterThan(report.executed);
   });
+
+  test('with --since, the mutants in the diff are type-checked alongside the dry run', async () => {
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'nodenext', moduleResolution: 'nodenext', allowImportingTsExtensions: true }, include: ['src'] }),
+      'src/a.ts': 'export function size(o?: { n: number }): number | undefined {\n  return o?.n;\n}\nexport function twice(n: number): number {\n  return n * 2;\n}\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { size, twice } from '../src/a.ts';\ntest('a', () => { expect(size({ n: 1 })).toBe(1); expect(size()).toBe(undefined); expect(twice(2)).toBe(4); });\n",
+    });
+    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root });
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    edit(root, 'src/a.ts', 'return o?.n;', 'return o?.n ?? undefined;');
+    const logs: string[] = [];
+    const report = await runMutation({ root, concurrency: 1, since: 'HEAD', log: (m) => logs.push(m) });
+    expect(logs.some((m) => m.includes('alongside the dry run'))).toBe(true);
+    expect(report.entries.find((e) => e.mutant.original === '?.' && e.mutant.replacement === '.')).toMatchObject({ status: 'CompileError' });
+  });
 });
 

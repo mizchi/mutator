@@ -128,6 +128,7 @@ ScopeHash = hash(normalized AST of the enclosing function; excluding comments, w
 - [x] Independent review (9 incremental-vs-cold mismatches): all turned into E2E tests and fixed
 
 - [x] Type checking of mutants (`@mizchi/mutator-typecheck`): TS ≤ 6 via the compiler API, TS ≥ 7 via the native API; identical CompileError sets on ufo / pathe / cookie-es, native 3.5–7× faster
+- [x] With `--since`, the diff's mutants are type-checked on a worker thread (`checkInWorker`) during the dry run; mutants outside the diff (or sampled out) stay Pending even when weak mutation could decide them, so they are not type-checked either
 - [x] Config file (`mutator.config.{ts,mts,mjs,js,json}` + JSON Schema) and score thresholds (`thresholds.break` → exit 2)
 
 - [x] Plugins: `defineMutator` / `defineIgnorer` / `definePlugin` (core), `plugins` / `excludedMutators` in config; custom mutators share placement, identity, arid and disable handling; untrusted output is re-parsed

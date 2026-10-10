@@ -75,6 +75,11 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(ran.length).toBeGreaterThan(0);
     expect(ran.every((o) => o.includes('b + a') || o === 'b + a')).toBe(true);
     expect(report.entries.some((e) => e.source === 'skipped')).toBe(true);
+    // The score covers the changed code only: the untested `unused` function (NoCoverage) is outside the diff.
+    expect(report.scope).toBe('diff');
+    const inDiff = report.entries.filter((e) => e.source === 'run');
+    const detected = inDiff.filter((e) => e.status === 'Killed' || e.status === 'Timeout').length;
+    expect(report.score).toBeCloseTo(detected / inDiff.length);
   });
 
   test('a test-only change re-runs the mutants it covers', async () => {

@@ -95,6 +95,8 @@ export interface Report {
   dryRunFiles: string[];
   /** detected / (detected + undetected), ignoring Ignored and Pending */
   score: number;
+  /** `diff`: with --since the score covers only mutants inside the diff. */
+  scope: 'all' | 'diff';
   durationMs: number;
 }
 
@@ -298,7 +300,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       hits: Object.fromEntries(merged.hits),
     };
     writeSnapshot(snapshotPath, snapshot, root);
-    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(report), durationMs: performance.now() - started };
+    const scored = inScope ? report.filter((e) => inScope.has(e.mutant.key)) : report;
+    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started };
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
     unguard();

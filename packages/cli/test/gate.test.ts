@@ -27,6 +27,7 @@ function report(score: number, statuses: ReportEntry['status'][] = []): Report {
     })),
     executed: statuses.length,
     dryRunFiles: [],
+    scope: 'all',
     score,
     durationMs: 1,
   };

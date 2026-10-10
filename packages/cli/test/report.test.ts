@@ -14,7 +14,7 @@ const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
 describe('formatSummary', () => {
   test('lists at most 20 undetected mutants, survivors first, and counts the rest', () => {
     const entries = [...Array.from({ length: 30 }, (_, i) => entry(i, 'NoCoverage')), ...Array.from({ length: 5 }, (_, i) => entry(100 + i, 'Survived'))];
-    const report: Report = { entries, executed: 35, dryRunFiles: [], score: 0, durationMs: 1 };
+    const report: Report = { entries, executed: 35, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1 };
     const lines = formatSummary(report, '/p').split('\n');
     const listed = lines.filter((l) => l.startsWith('  src/'));
     expect(listed).toHaveLength(20);

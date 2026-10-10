@@ -45,6 +45,7 @@ const report: Report = {
   ],
   executed: 2,
   dryRunFiles: [],
+  scope: 'all',
   score: 0.5,
   durationMs: 10,
 };

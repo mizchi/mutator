@@ -291,3 +291,27 @@ Everything the harness writes goes under `.tmp/bench2/` (gitignored):
 | `results/<name>.json` | the raw measurements |
 
 A full run of the five projects takes about 1–1.5 h, most of it the load-average waits.
+
+## Large project trial: mizchi/uneffect (2026-10-10)
+
+227 source files (4.3 MB of TypeScript), 141,179 mutants; the "fast" test tier (103 files, 1813 tests, 177 s plain `vitest run`). Vitest 5.0.3 in a local copy, M3 Pro.
+
+| run | before fixes | after fixes |
+|---|---:|---:|
+| instrument all sources | 4.5 s, 364 MB | — |
+| one heavy test file (plain: 72 s) | 155 s | 65 s |
+| full dry run (coverage) | 376 s, 6.3 GB, baseline failures | 178 s (= plain), 5.2 GB |
+| snapshot | 333 MB | 22.9 MB |
+| unchanged re-run | 77–85 s, re-collected 20 files | 8.1 s, 0 files, 1.5 GB |
+| PR mode: `--since HEAD~1` from a `HEAD~1` snapshot (4 files changed, 181 mutants in the diff) | 1024 s | 1043 s |
+
+PR-mode breakdown (after fixes): 41/103 test files re-collected; 69 of 181 diff mutants rejected by the type checker (TypeScript 7 native API, 2.7 s); 112 run: Killed 31, Timeout 3, Survived 78. Time is dominated by survivors, which must run all covering tests (median 23 tests in 6 files; the project's tests are heavy), so the tool's own overhead is no longer the bottleneck.
+
+Fixes found by this trial:
+- instrumented code with no active mutant ran ~2.2x slower (tests timed out in the baseline): the active key is now read once per module and compared inline; coverage is recorded only in dry runs with typed arrays (`scripts/overhead-bench.ts`: mutant runs 170x → ~1.0x, dry run 160x → 2.8x)
+- the project's `node_modules/.bin` was not on PATH when the CLI was started directly
+- snapshot rows refer to tables of test ids / files / scopes; the text summary lists at most 20 undetected mutants
+- scopes holding only ignored mutants looked changed on every run
+- stall timeout (no test progress within 3x the slowest test + 10 s) instead of only the sum of all selected tests
+- force-terminating a worker thread stuck in a loop occasionally crashed the process (SIGSEGV); sessions use forked workers by default (~18% slower on ufo's cold run)
+- with `--since`, the score covers only mutants inside the diff

@@ -16,7 +16,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
     ORDER.filter((s) => counts.has(s))
       .map((s) => `${s} ${counts.get(s)}`)
       .join(' · '),
-    `score: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
+    `score${report.scope === 'diff' ? ' (changed code)' : ''}: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
   // Survivors first (tests ran and missed them), then mutants no test reaches.
   const undetected = [...report.entries.filter((e) => e.status === 'Survived'), ...report.entries.filter((e) => e.status === 'NoCoverage')];

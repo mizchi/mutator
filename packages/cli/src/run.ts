@@ -210,7 +210,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
+    const dryStarted = performance.now();
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
+    if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
     const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
@@ -290,14 +292,16 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     for (const i of notInfected) {
       const entry = report[i]!;
       if (uncompilable.has(entry.mutant.key)) report[i] = { ...entry, status: 'CompileError' };
-      results.push(toResult(entry.mutant, report[i]!.status, [], report[i]!.status === 'CompileError' ? [] : entry.coveredBy));
+      // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
+      results.push(toResult(entry.mutant, report[i]!.status, [], entry.coveredBy));
     }
     for (let i = jobs.length - 1; i >= 0; i--) {
       const { index, entry } = jobs[i]!;
       const error = uncompilable.get(entry.mutant.key);
       if (error === undefined) continue;
-      results.push(toResult(entry.mutant, 'CompileError', [], []));
-      report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy: merged.coverage.get(entry.mutant.key) ?? [] };
+      const coveredBy = [...(merged.coverage.get(entry.mutant.key) ?? [])];
+      results.push(toResult(entry.mutant, 'CompileError', [], coveredBy));
+      report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy };
       jobs.splice(i, 1);
     }
     log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);

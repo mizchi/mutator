@@ -326,5 +326,28 @@ Fixes found by this trial:
 | + `--time-budget 300` | 23 | 394 s | 13.5% |
 
 - Weak mutation did not remove any of this diff's 112 runs (their covering tests do infect them), but across the whole project it decided ~1,100 covered mutants Survived without running — that pays off in full runs, not in this PR. It also makes the dry run heavier (base snapshot 154 s → 208 s).
-- One mutant per line is what makes PR mode practical here: 17 min → under 7 min. The remaining time is the partial dry run (41 of 103 test files re-collected: the change touched top-level code imported widely) plus survivors running all their covering tests.
+- One mutant per line is what makes PR mode practical here: 17 min → under 7 min. The remaining time is the partial dry run plus survivors running all their covering tests.
+
+### Narrowing the partial dry run
+
+The same PR first re-collected 41 of 103 test files. Two causes: inserting a `.map(...)` callback renumbered every later anonymous / same-named callback scope (`<anonN>`, `map#N`), and the edited top-level `builtinSemanticCatalog` declaration (built with calls) was treated as side-effecting, so every importer was re-collected. Callbacks are now named after their call and told apart by content, and a declaration only re-collects the tests covering the functions that read it (followed through imports and re-exports).
+
+| | test files re-collected | `--mutants-per-line 1` wall |
+|---|---:|---:|
+| before | 41 / 103 | 402 s |
+| after | 33 / 103 | 393 s |
+
+The 33 are genuinely reachable here: the catalog is read by 18 functions across the analyzers, and 9 test files import it directly. Wall time hardly moves because the dry run is bounded by its slowest file (`test/cli.test.ts`, 63 s uninstrumented), which imports the catalog; the files dropped were not on the critical path. Edits that do not touch such a central table re-collect far fewer files (see `packages/cli/test/incremental.test.ts`, "narrowed re-collection").
+
+Soundness on real edits: `node scripts/incremental-check.ts <root> <file> <from> <to>...` compares an incremental run from a base snapshot with a cold run of the edited project. On ufo (1,109 mutants, cold ≈ 33 s):
+
+| edit | re-collected | executed (cold) | wall (cold) | mismatches |
+|---|---:|---:|---:|---:|
+| top-level `ENC_SPACE_RE` `/gi` → `/g` | 5 / 13 | 167 (864) | 10.2 s (31.9 s) | 0 |
+| top-level `ENC_CARET_RE` `/%5e/gi` → `/%5E/g` | 6 / 13 | 367 (864) | 16.4 s (32.2 s) | 0 |
+| `withoutBase` condition | 1 / 13 | 44 (867) | 6.0 s (33.3 s) | 0 |
+| `isEmptyURL` | 1 / 13 | 79 (867) | 7.3 s (34.2 s) | 0 |
+| `isRelative` | 1 / 13 | 20 (865) | 5.7 s (34.6 s) | 0 |
+
+Its first run found a bug that predated this work: CompileError results were stored without their coverage, so after an unrelated edit they came back as NoCoverage (472 mismatches over the same edits).
 - The time budget counts from the start of the run (dry run included), and in-flight mutants finish, so a 300 s budget ended at 394 s.

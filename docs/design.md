@@ -74,7 +74,11 @@ ScopeHash = hash(normalized AST of the enclosing function; excluding comments, w
 - `depsHash`: Merkle composition of the ScopeHashes reachable via the runtime call graph (or the import graph if unavailable). Catches dependency changes that stryker / PIT ignore
 - If `env` (lockfile / tsconfig / vitest config / node / tool / mutator set version) changes, invalidate everything
 - Results are stored as raw data before filtering. Partial results are saved on interruption too
-- **Coverage measurement (dry run) is itself diff-driven**: re-measure only tests that may touch changed scopes + new/changed tests
+- **Coverage measurement (dry run) is itself diff-driven**: re-measure only tests that may touch changed scopes + new/changed tests. The snapshot keeps every scope's hash (top-level statements also keep the names they declare and whether they are side-effect free), and the planner compares scopes:
+  - edited function → test files that covered or loaded it
+  - removed function → test files that covered it; new function → nothing (only edited callers, handled themselves, reach it). Callbacks are named after their call (`describe("math")>it("adds")`, `map`), and same-named siblings are told apart by a content hash, so inserting one does not rename the others
+  - edited side-effect-free top-level declaration → test files covering the functions that read its names, followed through imports and re-exports; those functions' cached survivors are re-run (`PlanInput.affected`). Calls in an initializer (`const TABLE = rows.map(...)`) count as defining the binding: what the callee does besides returning the value is not tracked
+  - fallback to every importing test file: side-effecting top-level code, functions without mutants, names imported by test files or unmutated helpers
 
 ### 3. Diff scope (an improved cargo-mutants --in-diff)
 
@@ -116,7 +120,7 @@ ScopeHash = hash(normalized AST of the enclosing function; excluding comments, w
 - [x] Early exit via reporter observation + cancel rather than vitest `bail` (bail misses kills)
 - [x] FnValue mutator (TS return types), Regex (own implementation roughly equivalent to weapon-regex level 1), CallExpression (`call();` → `;`, throw excluded), `for (;;)` → `for (;false;)`
 - [x] Arid node suppression (logging callees, Google's compound rule. `--no-arid` / `--arid-callee`)
-- [x] Test fingerprint includes the module graph (contents of helpers / fixtures; mutated source files contribute a residual hash)
+- [x] Test fingerprint includes the module graph (contents of helpers / fixtures; mutated sources are followed per scope instead)
 - [x] ~~Multiple mutants per run~~ tried and dropped: the speedup came from Vitest worker parallelism within a run, not from amortizing fixed costs. With `-j 1` it went 186s→116s, but with the default `-j 6` it got worse, 57s→85s (early exit is less effective and the tail grows)
 - [x] Reports: mutation-testing-elements JSON (schema v2) / HTML (`--reporter json|html`)
 - [x] Publishing prep: dist via tsc, publishConfig, `pkf run pack-smoke`

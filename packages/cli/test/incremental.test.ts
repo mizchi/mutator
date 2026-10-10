@@ -231,6 +231,14 @@ describe('type checking', { timeout: 120_000 }, () => {
     expect(status('[]', '["Stryker was here!"]')).toMatchObject({ status: 'CompileError' });
     expect(report.entries.filter((e) => e.status === 'CompileError').every((e) => e.killedBy.length === 0)).toBe(true);
 
+    // Not re-collected after an unrelated edit: the type checker still sees them as covered.
+    write(root, 'src/b.ts', 'export function inc(n: number): number {\n  return n + 1;\n}\n');
+    write(root, 'test/b.test.ts', "import { expect, test } from 'vitest';\nimport { inc } from '../src/b.ts';\ntest('b', () => { expect(inc(1)).toBe(2); });\n");
+    await runMutation({ root, concurrency: 1 });
+    edit(root, 'src/b.ts', 'n + 1', '1 + n');
+    const again = await expectSameAsCold(root);
+    expect(again.dryRunFiles).toEqual(['test/b.test.ts']);
+
     const untyped = await runMutation({ root, concurrency: 1, typecheck: false, snapshotPath: join(root, '.mutator/untyped.json') });
     expect(untyped.entries.some((e) => e.status === 'CompileError')).toBe(false);
     expect(untyped.executed).toBeGreaterThan(report.executed);

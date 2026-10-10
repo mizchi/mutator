@@ -75,7 +75,8 @@ export function planDryRun(input: {
   const before = new Map<string, string>();
   for (const r of previous.results) before.set(scopeKey(root, r.file, r.scopeId), r.scopeHash);
   const after = new Map<string, string>();
-  for (const m of input.mutants) if (!m.ignored) after.set(scopeKey(root, m.file, m.scope.id), m.scope.hash);
+  // Every scope counts, including those whose mutants are all ignored: their results are in the snapshot too.
+  for (const m of input.mutants) after.set(scopeKey(root, m.file, m.scope.id), m.scope.hash);
 
   const changedScopes = new Set([...before].filter(([k, h]) => after.get(k) !== h).map(([k]) => k));
   // No per-test coverage to go by for new code, top-level code, or functions whose

@@ -19,3 +19,4 @@ export { type CallGraph, type CallGraphSource, buildCallGraph, relatedScopes } f
 export { DEFAULT_ARID_CALLEES } from './arid.ts';
 export { defineIgnorer, defineMutator, definePlugin } from './plugin.ts';
 export { BUILTIN_MUTATOR_NAMES } from './types.ts';
+export { MUTATOR_PRODUCTIVITY, estimatedCost, orderByCost, selectPerLine } from './sample.ts';

@@ -10,6 +10,9 @@ const config = inject('mutator');
 // sources under test (static mutants) already see the active key.
 const ns = {
   active: config.active,
+  // Coverage is only needed by the dry run; mutant runs skip the counters entirely.
+  collect: config.active === null,
+  modules: [] as [readonly string[], ArrayLike<number>][],
   cov: { static: {} as Record<string, number>, perTest: {} as Record<string, Record<string, number>> },
   testId: null as string | null,
   hits: 0,
@@ -54,6 +57,10 @@ afterAll(({}, suite) => {
   const meta = suite.meta as Record<string, unknown>;
   meta.mutatorStatic = ns.cov.static;
   meta.mutatorTotalHits = ns.hits;
+  // Hits per mutant summed over the modules this file loaded (sizes hit limits).
+  const counts: Record<string, number> = {};
+  for (const [keys, n] of ns.modules) for (let i = 0; i < keys.length; i++) if (n[i]) counts[keys[i]!] = (counts[keys[i]!] ?? 0) + n[i]!;
+  meta.mutatorCounts = counts;
   const shared = ns.cov.perTest[CONCURRENT];
   if (shared) meta.mutatorConcurrent = shared;
 });

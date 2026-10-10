@@ -60,6 +60,8 @@ interface FileCoverage {
   testPath: string;
   static: Record<string, number>;
   perTest: Record<string, Record<string, number>>;
+  /** Hits per mutant summed over the file's modules. */
+  counts?: Record<string, number>;
 }
 
 interface RunOutcome {
@@ -291,11 +293,11 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
     const cov = coverageByFile.get(suite.name);
     const fileStatic = new Set<string>();
     dry.staticByFile.set(rel, fileStatic);
-    for (const [key, n] of Object.entries(cov?.static ?? {})) {
+    for (const key of Object.keys(cov?.static ?? {})) {
       dry.staticKeys.add(key);
       fileStatic.add(key);
-      dry.hits.set(key, (dry.hits.get(key) ?? 0) + n);
     }
+    for (const [key, n] of Object.entries(cov?.counts ?? {})) dry.hits.set(key, (dry.hits.get(key) ?? 0) + n);
     if (suite.status === 'failed' && !suite.assertionResults.some((a) => a.status === 'failed')) dry.failed.push(rel);
     const fingerprint = hash(readFileSync(suite.name, 'utf8'));
     for (const { id, assertion, coverageKey } of identify(suite, root)) {
@@ -304,11 +306,10 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
       if (assertion.status === 'failed') dry.failed.push(id);
       const test: TestInfo = { id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: assertion.duration ?? 0 };
       dry.tests.push(test);
-      for (const [key, count] of Object.entries(cov?.perTest[coverageKey] ?? {})) {
+      for (const key of Object.keys(cov?.perTest[coverageKey] ?? {})) {
         const covering = dry.coverage.get(key) ?? [];
         covering.push(id);
         dry.coverage.set(key, covering);
-        dry.hits.set(key, (dry.hits.get(key) ?? 0) + count);
       }
     }
   }

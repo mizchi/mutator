@@ -6,7 +6,7 @@ import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
-import { RUNTIME_ACT, RUNTIME_COV, runtimeHeader } from './runtime.ts';
+import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, runtimeHeader } from './runtime.ts';
 import { ScopeTracker, normalize } from './scope.ts';
 import type { CallSite, ImportBinding, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
@@ -129,8 +129,10 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   const s = new MagicString(source);
   const ordered = [...placements.values()].sort((a, b) => a.frame.node.start - b.frame.node.start || b.frame.node.end - a.frame.node.end);
-  for (const p of ordered) emitPlacement(s, source, p, placements);
-  const { at, text } = headerInsertion(program);
+  const placedKeys = ordered.flatMap((p) => p.mutants.map((m) => m.key));
+  const indexOf = new Map(placedKeys.map((key, i) => [key, i]));
+  for (const p of ordered) emitPlacement(s, source, p, placements, indexOf);
+  const { at, text } = headerInsertion(program, runtimeHeader(placedKeys));
   s.prependRight(at, text);
   const code = s.toString();
   if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
@@ -167,11 +169,11 @@ function redundantCallStatements(candidates: readonly Candidate[]): Set<Candidat
   return out;
 }
 
-function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>): void {
+function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>, indexOf: ReadonlyMap<string, number>): void {
   const node = frame.node;
   const mutated = (m: Mutant) => source.slice(node.start, m.range.start) + m.replacement + source.slice(m.range.end, node.end);
-  const act = (m: Mutant) => `${RUNTIME_ACT}(${JSON.stringify(m.key)})`;
-  const cov = `${RUNTIME_COV}(${mutants.map((m) => JSON.stringify(m.key)).join(', ')})`;
+  const act = (m: Mutant) => `${RUNTIME_ACTIVE} === ${JSON.stringify(m.key)} && ${RUNTIME_HIT}()`;
+  const cov = `${RUNTIME_COLLECT} && ${RUNTIME_COV}(${mutants.map((m) => indexOf.get(m.key)).join(', ')})`;
   let prefix: string;
   let suffix: string;
   switch (kind) {
@@ -209,7 +211,7 @@ function needsAsiGuard(frame: Frame, placements: ReadonlyMap<Node, Placement>): 
   return false;
 }
 
-function headerInsertion(program: Node): { at: number; text: string } {
+function headerInsertion(program: Node, runtimeHeader: string): { at: number; text: string } {
   const directives = (program.body as Node[]).filter((st) => typeof st.directive === 'string');
   const last = directives.at(-1);
   if (last) return { at: last.end, text: `\n${runtimeHeader}` };

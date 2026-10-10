@@ -4,6 +4,9 @@
 const limit = Number(process.env.MUTATOR_HIT_LIMIT);
 globalThis.__mutator__ = {
   active: process.env.MUTATOR_ACTIVE || null,
+  // Coverage is only needed by the dry run; mutant runs skip the counters entirely.
+  collect: !process.env.MUTATOR_ACTIVE,
+  modules: [],
   cov: { static: {}, perTest: {} },
   testId: null,
   hits: 0,

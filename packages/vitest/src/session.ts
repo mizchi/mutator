@@ -209,14 +209,14 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const seen = new Map<string, number>();
 
   for (const module of result.testModules) {
-    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number> };
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorCounts?: Record<string, number> };
     const moduleStatic = new Set<string>();
     staticByFile.set(relative(root, module.moduleId), moduleStatic);
-    for (const [key, n] of Object.entries(moduleMeta.mutatorStatic ?? {})) {
+    for (const key of Object.keys(moduleMeta.mutatorStatic ?? {})) {
       staticKeys.add(key);
       moduleStatic.add(key);
-      hits.set(key, (hits.get(key) ?? 0) + n);
     }
+    for (const [key, n] of Object.entries(moduleMeta.mutatorCounts ?? {})) hits.set(key, (hits.get(key) ?? 0) + n);
     if (module.errors().length > 0) failed.push(relative(root, module.moduleId));
     const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
     for (const test of module.children.allTests()) {
@@ -232,11 +232,10 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
       const testHits = test.options.concurrent
         ? (moduleMeta.mutatorConcurrent ?? {})
         : ((test.meta() as { mutatorHits?: Record<string, number> }).mutatorHits ?? {});
-      for (const [key, count] of Object.entries(testHits)) {
+      for (const key of Object.keys(testHits)) {
         const covering = coverage.get(key) ?? [];
         covering.push(id);
         coverage.set(key, covering);
-        hits.set(key, (hits.get(key) ?? 0) + count);
       }
     }
   }

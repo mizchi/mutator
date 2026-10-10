@@ -25,5 +25,7 @@ afterAll(() => {
   if (!dir) return;
   const testPath = expect.getState().testPath;
   const name = createHash('sha256').update(testPath).digest('hex').slice(0, 32);
-  writeFileSync(join(dir, `${name}.json`), JSON.stringify({ testPath, static: ns.cov.static, perTest: ns.cov.perTest }));
+  const counts = {};
+  for (const [keys, n] of ns.modules ?? []) for (let i = 0; i < keys.length; i++) if (n[i]) counts[keys[i]] = (counts[keys[i]] ?? 0) + n[i];
+  writeFileSync(join(dir, `${name}.json`), JSON.stringify({ testPath, static: ns.cov.static, perTest: ns.cov.perTest, counts }));
 });

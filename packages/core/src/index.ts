@@ -2,7 +2,7 @@ export type * from './types.ts';
 export type * from './runner.ts';
 export { applyMutant, instrument } from './instrument.ts';
 export { hash } from './hash.ts';
-export { RUNTIME_GLOBAL, type RuntimeState, createRuntimeState } from './runtime.ts';
+export { RUNTIME_GLOBAL, type RuntimeState, collectedCounts, createRuntimeState } from './runtime.ts';
 export {
   type DiffHunk,
   type FileDiff,

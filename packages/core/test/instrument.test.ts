@@ -186,6 +186,29 @@ describe('coverage counters', () => {
     expect(rt.cov.perTest.t1[mutants[0]!.key]).toBe(1);
   });
 
+  test('mutant runs (collect: false) record nothing', () => {
+    const { code } = instrument('a.js', 'exports.f = (a) => a + 1; exports.top = 2 * 3;');
+    (globalThis as any)[RUNTIME] = { active: null, collect: false, cov: { static: {}, perTest: {} }, testId: null, hits: 0, hitLimit: 1e6 };
+    const exp: Record<string, unknown> = {};
+    new Function('exports', code)(exp);
+    (exp.f as (n: number) => number)(1);
+    expect((globalThis as any)[RUNTIME].cov.static).toEqual({});
+  });
+
+  test('a test reaching a mutant again is recorded once; another test records it again', () => {
+    const { code, mutants } = instrument('a.js', 'exports.f = (a) => a + 1;');
+    const exp = evaluate(code, null) as { f: (n: number) => number };
+    const rt = (globalThis as any)[RUNTIME];
+    rt.testId = 't1';
+    exp.f(1);
+    exp.f(2);
+    rt.testId = 't2';
+    exp.f(3);
+    rt.testId = null;
+    expect(Object.keys(rt.cov.perTest.t1)).toEqual([mutants[0]!.key]);
+    expect(Object.keys(rt.cov.perTest.t2)).toEqual([mutants[0]!.key]);
+  });
+
   test('hit limit aborts infinite loops', () => {
     const { code, mutants } = instrument('a.js', 'let i = 0; while (i < 3) { i++; }');
     const m = mutants.find((m) => m.replacement === 'i--')!;

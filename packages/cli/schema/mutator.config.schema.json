@@ -137,6 +137,10 @@
         "auto"
       ]
     },
+    "weakMutation": {
+      "description": "Decide covered mutants that no test reaches with a different value as Survived without running them (default true).",
+      "type": "boolean"
+    },
     "plugins": {
       "description": "Plugin modules (relative paths or package names) providing custom mutators.",
       "type": "array",

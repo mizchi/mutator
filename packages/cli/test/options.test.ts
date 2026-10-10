@@ -160,3 +160,11 @@ describe('runner config files', () => {
     expect(options.run).toMatchObject({ configFile: `${root}/vitest.unit.ts`, jestConfigFile: `${root}/jest.unit.mjs` });
   });
 });
+
+describe('weak mutation option', () => {
+  test('config weakMutation: false, and --no-weak-mutation', async () => {
+    expect((await resolve(project({ weakMutation: false }))).run).toMatchObject({ weakMutation: false });
+    expect((await resolve(project(), '--no-weak-mutation')).run).toMatchObject({ weakMutation: false });
+    expect((await resolve(project())).run.weakMutation).toBeUndefined();
+  });
+});

@@ -127,6 +127,10 @@ Plugins may export `ignorers` next to `mutators`. Disable comments take preceden
 
 A mutation replaces the visited node (or a `range` inside it) with text. Placement (mutation switching, parentheses, ASI), identity, disable comments and arid suppression are handled by the engine exactly as for built-in mutators; output that no longer parses is rejected with the mutator's name. Plugins can be relative paths or package names (published plugins must ship JavaScript: Node does not strip types under `node_modules`). Editing a plugin invalidates cached results. CLI: `--plugin <module>`, `--exclude-mutator <name>`.
 
+## Weak mutation
+
+For mutants whose original and mutated expressions are side-effect free (comparisons and arithmetic over identifiers, literals and `.length`, and conditions turned `true` / `false`), the dry run also records which tests reach the mutant with a *different value* (infection). A test that never infects a mutant cannot kill it, so those tests are not run; a covered mutant that no test infects is reported Survived without running at all — typically a boundary (`>=` → `>`) the tests never exercise. Disable with `--no-weak-mutation` / `weakMutation: false`.
+
 ## Type checking
 
 Mutants of TypeScript files are type-checked with the project's own `typescript` before any test runs; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:

@@ -37,6 +37,8 @@ export interface MutatorConfig {
   thresholds?: Partial<Thresholds>;
   failOnSurvived?: boolean;
   typecheck?: boolean | 'auto';
+  /** Weak mutation: skip covered mutants no test infects (default true). */
+  weakMutation?: boolean;
   /** Plugin modules: paths relative to the root, or package names. */
   plugins?: string[];
   /** Mutators to skip (built-in or custom names). */
@@ -106,6 +108,7 @@ const properties = {
   },
   failOnSurvived: { description: 'Exit 2 when a mutant survives.', type: 'boolean' },
   typecheck: { description: 'Type-check mutants before running them.', enum: [true, false, 'auto'] },
+  weakMutation: { description: 'Decide covered mutants that no test reaches with a different value as Survived without running them (default true).', type: 'boolean' },
   plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
   mutantsPerLine: { description: 'Run at most this many mutants per source line, most productive mutators first (default: unlimited).', type: 'integer', minimum: 1 },

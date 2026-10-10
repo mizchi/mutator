@@ -21,9 +21,9 @@ function dryRun(src: string, testIds: string[], body: (exports: any, setTest: (i
 
 describe('weak mutation (infection) recording', () => {
   test('comparison and arithmetic swaps with pure operands are weak-checkable', () => {
-    const { mutants } = instrument('a.js', 'exports.f = (a, b) => a < b; exports.g = (n, s) => n * 2 + s.length; exports.h = (x, o) => x() > 1 && o.n > 0;');
+    const { mutants } = instrument('a.js', 'exports.f = (a, b) => a < b; exports.g = (n, s) => (n - 2) * s.length; exports.h = (x, o) => x() > 1 && o.n > 0;');
     const weak = mutants.filter((m) => m.weak).map((m) => `${m.original} -> ${m.replacement}`).sort();
-    expect(weak).toEqual(['a < b -> a <= b', 'a < b -> a >= b', 'a < b -> false', 'a < b -> true', 'n * 2 -> n / 2'].sort());
+    expect(weak).toEqual(['a < b -> a <= b', 'a < b -> a >= b', 'a < b -> false', 'a < b -> true', 'n - 2 -> n + 2'].sort());
     // Calls and property reads (getters, proxies) may have side effects: never re-evaluated.
     expect(mutants.filter((m) => m.original === 'x() > 1' || m.original === 'o.n > 0').every((m) => !m.weak)).toBe(true);
   });
@@ -56,5 +56,16 @@ describe('weak mutation (infection) recording', () => {
     const exports: any = {};
     new Function('exports', code)(exports);
     expect(exports.r()).toEqual([6, 1]);
+  });
+});
+
+describe('weak mutation never changes dry-run behaviour', () => {
+  test('a BigInt product whose mutated division would throw (division by zero)', () => {
+    const { code, mutants } = instrument('a.js', 'exports.f = (a, b) => a * b;');
+    expect(mutants.filter((m) => m.original === 'a * b' && m.replacement === 'a / b').every((m) => !m.weak)).toBe(true);
+    (globalThis as any)[RUNTIME] = { active: null, collect: true, cov: { static: {}, perTest: {} }, testId: 't', hits: 0, hitLimit: 1e6 };
+    const exports: any = {};
+    new Function('exports', code)(exports);
+    expect(exports.f(3n, 0n)).toBe(0n);
   });
 });

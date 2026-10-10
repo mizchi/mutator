@@ -129,7 +129,7 @@ A mutation replaces the visited node (or a `range` inside it) with text. Placeme
 
 ## Weak mutation
 
-For mutants whose original and mutated expressions are side-effect free (comparisons and arithmetic over identifiers, literals and `.length`, and conditions turned `true` / `false`), the dry run also records which tests reach the mutant with a *different value* (infection). A test that never infects a mutant cannot kill it, so those tests are not run; a covered mutant that no test infects is reported Survived without running at all — typically a boundary (`>=` → `>`) the tests never exercise. Disable with `--no-weak-mutation` / `weakMutation: false`.
+For mutants whose original and mutated expressions are side-effect free (comparisons and arithmetic over identifiers, literals and `.length`, and conditions turned `true` / `false`), the dry run also records which tests reach the mutant with a *different value* (infection). A test that never infects a mutant cannot kill it, so those tests are not run; a covered mutant that no test infects is reported Survived without running at all — typically a boundary (`>=` → `>`) the tests never exercise. Probes re-evaluate only side-effect-free forms, with one known caveat: comparing or adding *objects* calls their `valueOf` / `toString` once more in dry runs. Disable with `--no-weak-mutation` / `weakMutation: false`.
 
 ## Type checking
 

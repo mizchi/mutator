@@ -244,6 +244,9 @@ function weakChecks(frame: Frame, source: string, mutants: readonly Mutant[], mu
   const args: string[] = [];
   for (const m of mutants) {
     if (!WEAK_MUTATORS.has(m.mutator) || m.range.start !== node.start || m.range.end !== node.end) continue;
+    // `a * b` -> `a / b` can throw where the original does not (BigInt division by zero);
+    // every other swap keeps the operand types, so it throws only when the original does.
+    if (m.mutator === 'ArithmeticOperator' && inner.type === 'BinaryExpression' && inner.operator === '*') continue;
     m.weak = true;
     args.push(`${indexOf.get(m.key)}, ${wrap(mutated(m))}`);
   }

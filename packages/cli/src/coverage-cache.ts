@@ -1,7 +1,10 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { type ImportBinding, type Mutant, type MutantResult, type RunSnapshot, type Scope, type TestInfo, hash, mergeCoverage, scanImports } from '@mizchi/mutator-core';
+import { type Mutant, type MutantResult, type RunSnapshot, type Scope, type TestInfo, hash, mergeCoverage } from '@mizchi/mutator-core';
+import { type SourceInfo, followNames, importGraph, isTopLevel, loadersOf } from './consumers.ts';
+
+export type { SourceInfo } from './consumers.ts';
 import type { DryRunResult, TestLocation } from '@mizchi/mutator-vitest';
 
 /** Snapshot persisted by the CLI: the core run snapshot plus adapter-level coverage data. */
@@ -24,13 +27,6 @@ export interface ScopeEntry {
   hash: string;
   declares?: string[];
   pure?: boolean;
-}
-
-/** What the dry-run planner needs to know about each mutated source. */
-export interface SourceInfo {
-  scopes: readonly Scope[];
-  imports: readonly ImportBinding[];
-  reexports: readonly ImportBinding[];
 }
 
 export function scopeTable(root: string, sources: ReadonlyMap<string, SourceInfo>): Record<string, Record<string, ScopeEntry>> {
@@ -71,9 +67,6 @@ export type DryRunPlan =
       /** scopes (`${absolute file}#${scopeId}`) whose code is unchanged but may behave differently */
       impacted: string[];
     };
-
-const isTopLevel = (scopeId: string) => scopeId.startsWith('<top');
-const SCRIPT = /\.[cm]?[jt]sx?$/;
 
 /**
  * Which test files to re-collect, comparing the previous snapshot's scopes with the current sources.
@@ -127,26 +120,15 @@ export function planDryRun(input: {
     return true;
   };
   /** Every test file importing `file` (directly or not) re-collects, and its results are stale. */
-  const invalidated = new Set<string>();
   const invalidate = (file: string) => {
-    if (invalidated.has(file)) return;
-    invalidated.add(file);
-    const hit = Object.entries(previous.deps).filter(([, deps]) => deps.includes(file)).map(([t]) => t);
-    if (file in testFiles) hit.push(file);
-    for (const t of hit) files.add(t), stale.add(t);
+    for (const t of loadersOf(file, previous.deps, testFiles)) files.add(t), stale.add(t);
   };
 
   const current = new Map([...sources].map(([file, info]) => [rel(file), new Map(info.scopes.map((s) => [s.id, s]))]));
-  const pending: [file: string, name: string][] = [];
-  const used = new Map<string, Set<string>>();
-  const use = (file: string, name: string) => {
-    const names = used.get(file) ?? new Set();
-    used.set(file, names);
-    if (!names.has(name)) names.add(name), pending.push([file, name]);
-  };
+  const seeds: [file: string, name: string][] = [];
   const topLevel = (file: string, entry: ScopeEntry) => {
     if (!entry.pure) invalidate(file);
-    else for (const name of entry.declares ?? []) use(file, name);
+    else for (const name of entry.declares ?? []) seeds.push([file, name]);
   };
 
   for (const file of new Set([...Object.keys(previous.scopes), ...current.keys()])) {
@@ -167,61 +149,17 @@ export function planDryRun(input: {
       }
     }
   }
-  if (pending.length === 0) return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [] };
+  if (seeds.length === 0) return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [] };
 
-  // Who imports what from whom: mutated sources (followed by name), and any other local
-  // module or test file (invalidated when it imports a used name).
-  const importers = new Map<string, { from: string; binding: ImportBinding; reexport: boolean; mutated: boolean }[]>();
-  const addImports = (from: string, imports: readonly ImportBinding[], reexport: boolean, mutated: boolean) => {
-    for (const binding of imports) {
-      const target = resolve(join(root, from), binding.source);
-      if (!target) continue;
-      const t = rel(target);
-      importers.set(t, [...(importers.get(t) ?? []), { from, binding, reexport, mutated }]);
-    }
-  };
-  for (const [file, info] of sources) {
-    addImports(rel(file), info.imports, false, true);
-    addImports(rel(file), info.reexports, true, true);
-  }
-  const others = new Set([...Object.keys(testFiles), ...Object.values(previous.deps).flat()].filter((f) => !current.has(f) && SCRIPT.test(f)));
-  for (const file of others) {
-    const path = join(root, file);
-    if (!existsSync(path)) continue;
-    try {
-      const { imports, reexports } = scanImports(path, readFileSync(path, 'utf8'));
-      addImports(file, imports, false, false);
-      addImports(file, reexports, true, false);
-    } catch {
-      // Unparsable: whatever it imports is not followed by name, but it is still re-collected through deps.
-    }
-  }
-
-  while (pending.length > 0) {
-    const [file, name] = pending.pop()!;
-    for (const scope of current.get(file)?.values() ?? []) {
-      if (!scope.refs?.includes(name)) continue;
-      if (isTopLevel(scope.id)) {
-        topLevel(file, { hash: scope.hash, declares: scope.declares ?? [], pure: scope.pure ?? false });
-        continue;
-      }
-      // The nearest enclosing function with coverage; a nested function runs only once its parent has.
-      const segments = scope.id.split('>');
-      let found = false;
-      for (let n = segments.length; n > 0 && !found; n--) {
-        const id = segments.slice(0, n).join('>');
-        if (recollect(file, id)) impacted.add(`${join(root, file)}#${id}`), (found = true);
-      }
-      if (found || !previous.scopes[file]?.[scope.id]) continue; // new functions are reached through edited callers
-      if (/^[\w$]+$/.test(scope.id)) use(file, scope.id);
-      else invalidate(file);
-    }
-    for (const { from, binding, reexport, mutated } of importers.get(file) ?? []) {
-      if (binding.imported !== '*' && binding.imported !== name) continue;
-      if (!mutated) invalidate(from);
-      else use(from, reexport && binding.local === '*' ? name : binding.local);
-    }
-  }
+  const invalidated = followNames({
+    scopes: current,
+    importers: importGraph({ root, sources, others: [...Object.keys(testFiles), ...Object.values(previous.deps).flat()], resolve }),
+    seeds,
+    reach: (file, id) => recollect(file, id) && (impacted.add(`${join(root, file)}#${id}`), true),
+    // New functions are reached through edited callers.
+    skip: (file, id) => !previous.scopes![file]?.[id],
+  });
+  for (const file of invalidated) invalidate(file);
   return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [...impacted].sort() };
 }
 

@@ -363,3 +363,7 @@ Soundness on real edits: `node scripts/incremental-check.ts <root> <file> <from>
 
 Its first run found a bug that predated this work: CompileError results were stored without their coverage, so after an unrelated edit they came back as NoCoverage (472 mismatches over the same edits).
 - The time budget counts from the start of the run (dry run included), and in-flight mutants finish, so a 300 s budget ended at 394 s.
+
+### Tried and dropped: narrowing static mutants to the readers of a declaration
+
+A static mutant runs every test file that loaded its module. For one inside side-effect-free top-level code, running only the tests that cover the functions reading the declared names (the same name following as the partial dry run) was tried. It changed no verdict on ufo (1,094 mutants), but on uneffect it removed only 1.5% of the static mutants' test time: 70% of them sit in functions that build the semantic catalog, and every one of the 41 test files loading the catalog also runs a function reading it. In PR mode the three slowest survivors stayed at 33 / 33 test files, since the partial dry run had already dropped the test files that cannot observe the catalog. The verdict-level approximation was not worth that, so it was not kept.

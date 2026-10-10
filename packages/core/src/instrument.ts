@@ -512,7 +512,9 @@ function isReference(frame: Frame): boolean {
   return true;
 }
 
-const IMPURE = new Set(['CallExpression', 'NewExpression', 'AssignmentExpression', 'UpdateExpression', 'AwaitExpression', 'YieldExpression', 'TaggedTemplateExpression', 'ImportExpression', 'StaticBlock']);
+// Calls in a declaration's initializer count as defining the binding: what they do
+// besides returning its value (e.g. registering into another module) is not tracked.
+const IMPURE = new Set(['AssignmentExpression', 'UpdateExpression', 'YieldExpression', 'StaticBlock']);
 
 /**
  * Bindings a top-level statement declares (exported names for `export { ... }`),

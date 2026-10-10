@@ -192,9 +192,14 @@ export class ScopeTracker {
       id = `<top:${this.scopeHash(node).slice(0, 6)}>`;
     }
     if (id === undefined) return false;
-    const seen = (this.used.get(id) ?? 0) + 1;
-    this.used.set(id, seen);
-    if (seen > 1) id = `${id}#${seen}`;
+    if (this.used.has(id)) {
+      // Same-named siblings (e.g. several `map` callbacks) are told apart by content, not
+      // position, so inserting one does not rename the others.
+      const base = `${id}#${this.scopeHash(node).slice(0, 6)}`;
+      id = base;
+      for (let n = 2; this.used.has(id); n++) id = `${base}#${n}`;
+    }
+    this.used.set(id, 1);
     this.stack.push({ id, node, depth });
     return true;
   }

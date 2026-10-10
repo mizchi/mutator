@@ -37,7 +37,7 @@ import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
-export const TOOL_VERSION = '0.0.4';
+export const TOOL_VERSION = '0.0.5';
 
 export interface RunOptions {
   root: string;

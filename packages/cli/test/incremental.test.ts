@@ -77,6 +77,15 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
       expect(report.dryRunFiles).toEqual(['test/a.test.ts', 'test/c.test.ts', 'test/d.test.ts']);
     });
 
+    test('a table built with calls and callbacks re-collects only tests of its readers', async () => {
+      const table = "export const TABLE = [\n  ...[1, 2].map((n) => n * 10),\n  ...[5].map((n) => n + 1),\n];\nexport function lookup(i: number): number {\n  return TABLE[i] ?? -1;\n}\nexport function twice(n: number): number {\n  return n * 2;\n}\n";
+      const root = project({ ...files, 'src/t.ts': table, 'test/t.test.ts': "import { expect, test } from 'vitest';\nimport { lookup } from '../src/t.ts';\nimport { other } from '../src/a.ts';\ntest('lookup', () => { expect(lookup(0)).toBe(10); expect(lookup(9)).toBe(-1); expect(other(1)).toBe(2); });\n", 'test/u.test.ts': "import { expect, test } from 'vitest';\nimport { twice } from '../src/t.ts';\ntest('unrelated', () => { expect(twice(3)).toBe(6); });\n" });
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'src/t.ts', '  ...[5]', '  ...[7].map((n) => n - 1),\n  ...[5]');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/t.test.ts']);
+    });
+
     test('a side-effecting top-level change re-collects every importer', async () => {
       const root = project({ ...files, 'src/a.ts': `${files['src/a.ts']}export const seen: number[] = [];\nseen.push(1);\n` });
       await runMutation({ root, concurrency: 1 });

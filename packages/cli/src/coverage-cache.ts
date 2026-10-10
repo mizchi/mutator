@@ -79,7 +79,8 @@ const SCRIPT = /\.[cm]?[jt]sx?$/;
  * Which test files to re-collect, comparing the previous snapshot's scopes with the current sources.
  *
  * - An edited function: the test files whose tests covered it (or loaded it).
- * - A new or removed function: nothing; only edited callers (handled themselves) reach it.
+ * - A removed function: the test files that covered it (an edited same-named callback gets a new id).
+ * - A new function: nothing; only edited callers (handled themselves) reach it.
  * - An edited top-level declaration without side effects: the test files covering the
  *   functions that read the names it declares, followed through imports and re-exports.
  * - Anything without coverage to go by (side-effecting top-level code, functions without
@@ -158,8 +159,11 @@ export function planDryRun(input: {
       if (isTopLevel(id)) {
         if (b) topLevel(file, b);
         if (a) topLevel(file, { hash: a.hash, declares: a.declares ?? [], pure: a.pure ?? false });
-      } else if (b && a && !recollect(file, id)) {
-        invalidate(file);
+      } else if (b && a) {
+        if (!recollect(file, id)) invalidate(file);
+      } else if (b) {
+        // Removed, or renamed by an edit (same-named callbacks are told apart by content).
+        recollect(file, id);
       }
     }
   }

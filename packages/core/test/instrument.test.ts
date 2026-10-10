@@ -370,6 +370,14 @@ describe('anonymous function scope names', () => {
   });
 });
 
+test('inserting a same-named callback keeps the ids of the others', () => {
+  const ids = (src: string) => instrument('m.js', src).mutants.map((m) => m.scope.id);
+  const before = ids('a.map((x) => x + 1);\nb.map((y) => y * 2);\nc.map((w) => w - 3);');
+  const after = ids('a.map((x) => x + 1);\nd.map((z) => z - 1);\nb.map((y) => y * 2);\nc.map((w) => w - 3);');
+  expect(before.every((id) => after.includes(id))).toBe(true);
+  expect(new Set(after.filter((id) => !before.includes(id))).size).toBe(1);
+});
+
 describe('scope dependency info', () => {
   const scopes = (src: string) => Object.fromEntries(instrument('m.ts', src).scopes.map((s) => [s.id, s]));
 
@@ -379,11 +387,13 @@ describe('scope dependency info', () => {
   });
 
   test('top-level statements report their bindings and purity (function declarations are function scopes)', () => {
-    const s = Object.values(scopes('export const A = 1 + 2, { b, c: [d] } = obj;\nconst E = make();\nfunction F() { return run(); }\nexport default { k: 1 };\nfoo(1);'));
+    const s = Object.values(scopes('export const A = 1 + 2, { b, c: [d] } = obj;\nconst E = make();\nconst G = (n = 1);\nfunction F() { return run(); }\nexport default { k: 1 };\nfoo(1);'));
     const top = s.filter((x) => x.id.startsWith('<top')).map((x) => ({ declares: x.declares, pure: x.pure }));
     expect(top).toEqual([
       { declares: ['A', 'b', 'd'], pure: true },
-      { declares: ['E'], pure: false },
+      // Calls in an initializer only define the binding: their own side effects are not tracked.
+      { declares: ['E'], pure: true },
+      { declares: ['G'], pure: false },
       { declares: ['default'], pure: true },
       { declares: [], pure: false },
     ]);

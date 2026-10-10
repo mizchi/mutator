@@ -33,6 +33,8 @@ const full = {
   thresholds: { high: 90, low: 70, break: 50 },
   failOnSurvived: true,
   typecheck: 'auto',
+  mutantsPerLine: 1,
+  timeBudget: 600,
 };
 
 describe('validateConfig', () => {

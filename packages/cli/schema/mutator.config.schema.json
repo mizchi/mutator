@@ -150,6 +150,16 @@
       "items": {
         "type": "string"
       }
+    },
+    "mutantsPerLine": {
+      "description": "Run at most this many mutants per source line, most productive mutators first (default: unlimited).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeBudget": {
+      "description": "Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).",
+      "type": "number",
+      "minimum": 0
     }
   }
 }

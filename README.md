@@ -16,7 +16,7 @@ node packages/cli/src/cli.ts --root <project>               # second run reuses 
 node packages/cli/src/cli.ts --root <project> --since main  # PR mode
 ```
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -64,6 +64,8 @@ export default defineConfig({
   thresholds: { high: 80, low: 60, break: 50 },
   failOnSurvived: false,
   typecheck: 'auto',                      // boolean | 'auto'
+  mutantsPerLine: 1,                      // default: unlimited
+  timeBudget: 600,                        // seconds; default: unlimited
 });
 ```
 
@@ -169,6 +171,19 @@ Cache the snapshot per base branch so a PR only runs mutants its diff can affect
 ```
 
 Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, survived mutants are also printed as `::warning` annotations on the diff.
+
+### Large projects
+
+On a large codebase even the diff can hold more mutants than a PR check can afford (most of the time goes to survivors, which run every covering test). Two options bound the run:
+
+```sh
+npx mutator --since origin/main --mutants-per-line 1 --time-budget 600
+```
+
+- `--mutants-per-line <n>` runs at most `n` mutants per source line, as in Google's [Practical Mutation Testing at Scale](https://arxiv.org/abs/2102.11378): within a line the most productive mutators win (equality / conditional / arithmetic / logical operators before literals and structural mutators, custom mutators last), ties broken by a hash of the mutant key. The selection is deterministic and independent of the cache, so cached verdicts stay usable across runs.
+- `--time-budget <seconds>` stops starting new mutant runs once the budget (measured from the start of the run) is spent; runs already in flight finish. Under a budget, mutants run cheapest first (summed duration of their selected tests), so the budget settles as many mutants as possible.
+
+Mutants left out by either option are reported as `Pending` (excluded from the score, never cached as a verdict) and the text summary says how many, e.g. `not run: 63 sampled out (--mutants-per-line), 12 over the time budget (--time-budget)`. A later run without the options executes them.
 
 ## Packages
 

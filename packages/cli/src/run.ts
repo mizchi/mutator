@@ -15,13 +15,16 @@ import {
   DEFAULT_ARID_CALLEES,
   buildCallGraph,
   changedLines,
+  estimatedCost,
   hash,
   instrument,
   lineRanges,
+  orderByCost,
   parseUnifiedDiff,
   plan,
   relatedScopes,
   selectMutants,
+  selectPerLine,
   toResult,
 } from '@mizchi/mutator-core';
 import { createTypeChecker } from '@mizchi/mutator-typecheck';
@@ -80,13 +83,20 @@ export interface RunOptions {
   fullDryRun?: boolean;
   /** Parallel runner sessions running mutants (default: half the CPUs). */
   concurrency?: number;
+  /** Run at most this many mutants per source line (see `selectPerLine`); the rest are Pending. */
+  mutantsPerLine?: number;
+  /** Seconds from the start of the run after which no new mutant run starts; the rest are Pending. */
+  timeBudget?: number;
   log?: (message: string) => void;
 }
 
 export interface ReportEntry {
   mutant: Mutant;
   status: MutantStatus;
-  /** run: executed now, reuse: taken from the snapshot, skipped: outside --since and no cached result */
+  /**
+   * run: executed now, reuse: taken from the snapshot, skipped: needed a run but was not
+   * run (outside --since, sampled out by mutantsPerLine, or over the time budget).
+   */
   source: 'run' | 'reuse' | 'static' | 'skipped';
   killedBy: string[];
   /** Tests that executed the mutant in the (merged) coverage run. */
@@ -103,6 +113,8 @@ export interface Report {
   /** `diff`: with --since the score covers only mutants inside the diff. */
   scope: 'all' | 'diff';
   durationMs: number;
+  /** Mutants that needed a run but were left Pending: sampled out (mutantsPerLine) or over the time budget. */
+  notRun: { sampled: number; budget: number };
 }
 
 export class BaselineError extends Error {}
@@ -225,9 +237,17 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     });
 
     const inScope = options.since ? diffScope(root, options.since, mutants, merged, options.scope ?? 'node') : undefined;
+    // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
+    const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
+    const notRun = { sampled: 0, budget: 0 };
     const report: ReportEntry[] = [];
     const results: MutantResult[] = [];
-  
+    // Not run now; keep the coverage so the next run can still select tests for it.
+    const skip = (index: number, mutant: Mutant, coveredBy: string[]) => {
+      results.push(toResult(mutant, 'Pending', [], coveredBy));
+      report[index] = { mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy };
+    };
+
     const jobs: { index: number; entry: Extract<PlanEntry, { kind: 'run' }> }[] = [];
     const notInfected: number[] = [];
     for (const entry of entries) {
@@ -254,10 +274,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy });
           break;
         case 'run':
-          if (inScope && !inScope.has(mutant.key)) {
-            // Keep the coverage so the next run can still select tests for it.
-            results.push(toResult(mutant, 'Pending', [], coveredBy));
-            report.push({ mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy });
+          if ((inScope && !inScope.has(mutant.key)) || (sampled && !sampled.has(mutant.key))) {
+            if (!inScope || inScope.has(mutant.key)) notRun.sampled++;
+            skip(report.length, mutant, coveredBy);
           } else {
             jobs.push({ index: report.length, entry });
             report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
@@ -288,11 +307,14 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (concurrency > 1) sessions.push(...workers);
     for (const s of workers) s.useTestIndex(merged.index);
     const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
+    // Under a budget, cheapest first: the budget then settles as many mutants as possible.
+    if (options.timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
+    const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : Infinity;
     let executed = 0;
     let next = 0;
     await Promise.all(
       workers.map(async (worker) => {
-        while (next < jobs.length) {
+        while (next < jobs.length && performance.now() < deadline) {
           const { index, entry } = jobs[next++]!;
           const { mutant } = entry;
           const outcome = await worker.runMutant(mutant.key, entry.tests, {
@@ -309,6 +331,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         }
       }),
     );
+    // Over the time budget: the jobs never started.
+    for (const { index, entry } of jobs.slice(next)) {
+      notRun.budget++;
+      skip(index, entry.mutant, report[index]!.coveredBy);
+    }
+    if (notRun.budget > 0) log(`time budget of ${options.timeBudget}s exhausted: ${notRun.budget} mutants not run`);
 
     const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: TOOL_VERSION, envHash, results, tests: merged.tests }, mutants);
     const snapshot: CliSnapshot = {
@@ -321,7 +349,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     };
     writeSnapshot(snapshotPath, snapshot, root);
     const scored = inScope ? report.filter((e) => inScope.has(e.mutant.key)) : report;
-    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started };
+    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun };
   } finally {
     await Promise.all(sessions.map((s) => s.close()));
     unguard();

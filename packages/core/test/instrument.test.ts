@@ -351,3 +351,45 @@ describe('nested functions and scope hashes', () => {
     );
   });
 });
+
+describe('anonymous function scope names', () => {
+  const ids = (src: string) => [...new Set(instrument('m.js', src).mutants.map((m) => m.scope.id))].filter((id) => !id.startsWith('<top'));
+
+  test('callbacks are named after the call and its first string argument', () => {
+    const src = 'describe("math", () => { it("adds", () => { expect(1 + 1).toBe(2); }); });\nconst xs = [1, 2].map((x) => x * 2);';
+    expect(ids(src).sort()).toEqual(['describe("math")', 'describe("math")>it("adds")', 'map'].sort());
+  });
+
+  test('inserting an unrelated callback does not rename the others', () => {
+    const before = 'register("a", () => 1 + 1);\nregister("b", () => 2 + 2);\nitems.forEach((i) => i - 1);';
+    const after = 'register("a", () => 1 + 1);\nother(() => 9 * 9);\nregister("b", () => 2 + 2);\nitems.forEach((i) => i - 1);';
+    const keysOf = (src: string) => new Map(instrument('m.js', src).mutants.map((m) => [`${m.scope.id} ${m.original} -> ${m.replacement}`, m.key]));
+    const a = keysOf(before);
+    const b = keysOf(after);
+    for (const [label, key] of a) expect(b.get(label), label).toBe(key);
+  });
+});
+
+describe('scope dependency info', () => {
+  const scopes = (src: string) => Object.fromEntries(instrument('m.ts', src).scopes.map((s) => [s.id, s]));
+
+  test('refs lists identifiers the scope mentions, not property names or nested functions', () => {
+    const s = scopes('const LIMIT = 3;\nexport function f(x) { const g = () => OTHER; return x.length > LIMIT ? obj.max : { key: x }; }');
+    expect(s['f']!.refs).toEqual(['LIMIT', 'g', 'obj', 'x']);
+  });
+
+  test('top-level statements report their bindings and purity (function declarations are function scopes)', () => {
+    const s = Object.values(scopes('export const A = 1 + 2, { b, c: [d] } = obj;\nconst E = make();\nfunction F() { return run(); }\nexport default { k: 1 };\nfoo(1);'));
+    const top = s.filter((x) => x.id.startsWith('<top')).map((x) => ({ declares: x.declares, pure: x.pure }));
+    expect(top).toEqual([
+      { declares: ['A', 'b', 'd'], pure: true },
+      { declares: ['E'], pure: false },
+      { declares: ['default'], pure: true },
+      { declares: [], pure: false },
+    ]);
+  });
+
+  test('re-export sources are reported', () => {
+    expect(instrument('m.ts', "export * from './a.ts';\nexport { x } from './b.ts';\nexport const y = 1;").reexports).toEqual(['./a.ts', './b.ts']);
+  });
+});

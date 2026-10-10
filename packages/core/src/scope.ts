@@ -90,9 +90,31 @@ export function functionName(frame: Frame, source: string): string | undefined {
     }
     case 'AssignmentExpression':
       return source.slice(parent.left.start, parent.left.end).replace(/\s+/g, '');
+    case 'CallExpression':
+    case 'NewExpression':
+      return frame.key === 'arguments' ? callbackName(parent) : undefined;
     default:
       return undefined;
   }
+}
+
+/**
+ * A callback is named after the call it is passed to and that call's first string
+ * argument (`describe("math")`, `map`), so inserting unrelated code does not rename it.
+ */
+function callbackName(call: Node): string | undefined {
+  const callee = call.callee.type === 'ChainExpression' ? call.callee.expression : call.callee;
+  const name =
+    callee.type === 'Identifier' ? callee.name : callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier' ? callee.property.name : undefined;
+  if (!name) return undefined;
+  const first = call.arguments[0];
+  const label =
+    first?.type === 'Literal' && typeof first.value === 'string'
+      ? first.value
+      : first?.type === 'TemplateLiteral' && first.expressions.length === 0
+        ? first.quasis[0]?.value.cooked
+        : undefined;
+  return label === undefined ? name : `${name}(${JSON.stringify(label)})`;
 }
 
 /**

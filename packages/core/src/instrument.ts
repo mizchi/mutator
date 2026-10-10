@@ -48,6 +48,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const path: string[] = [];
   const found: { candidate: Candidate; scope: Scope; astPath: string }[] = [];
   const calls: CallSite[] = [];
+  const refs = new Map<Node, Set<string>>();
   const scopes = new Map<Node, Scope>();
 
   walk(
@@ -56,10 +57,14 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       path.push(frame.index === undefined ? frame.key : `${frame.key}.${frame.index}`);
       if (tracker.enter(frame, path.length)) {
         const info = tracker.current!;
-        scopes.set(info.node, { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) });
+        const scope: Scope = { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) };
+        if (info.id.startsWith('<top')) Object.assign(scope, topLevelInfo(info.node));
+        scopes.set(info.node, scope);
+        refs.set(info.node, new Set());
       }
       const info = tracker.current;
       if (!info) return;
+      if (isReference(frame)) refs.get(info.node)!.add(frame.node.name);
       if (frame.node.type === 'CallExpression' || frame.node.type === 'NewExpression') {
         const callee = calleeName(frame.node.callee);
         if (callee) calls.push({ scope: info.id, callee });
@@ -83,6 +88,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   // On an identical edit, a low-priority mutator yields to the established one regardless of visit order.
   const primaryEdits = new Set(found.filter((f) => !LOW_PRIORITY.has(f.candidate.mutator)).map((f) => editOf(f.candidate)));
 
+  for (const [node, names] of refs) scopes.get(node)!.refs = [...names].sort();
   const mutants: Mutant[] = [];
   const placements = new Map<Node, Placement>();
   const seenEdits = new Set<string>();
@@ -124,7 +130,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
+    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportSources(program) };
   }
 
   const s = new MagicString(source);
@@ -136,7 +142,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   s.prependRight(at, text);
   const code = s.toString();
   if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
-  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program) };
+  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportSources(program) };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
@@ -468,6 +474,58 @@ function calleeName(callee: Node): string | undefined {
     return object && `${object}.${n.property.name}`;
   }
   return undefined;
+}
+
+function reexportSources(program: Node): string[] {
+  return (program.body as Node[]).filter((st) => (st.type === 'ExportAllDeclaration' || st.type === 'ExportNamedDeclaration') && st.source).map((st) => st.source.value);
+}
+
+/** Identifier references (not property names, object keys or labels). */
+function isReference(frame: Frame): boolean {
+  const { node, parent, key } = frame;
+  if (node.type !== 'Identifier' && node.type !== 'JSXIdentifier') return false;
+  const p = parent?.node;
+  if (!p) return false;
+  if ((p.type === 'MemberExpression' || p.type === 'JSXMemberExpression') && key === 'property' && !p.computed) return false;
+  if ((p.type === 'Property' || p.type === 'MethodDefinition' || p.type === 'PropertyDefinition') && key === 'key' && !p.computed) return false;
+  if (p.type === 'LabeledStatement' || p.type === 'BreakStatement' || p.type === 'ContinueStatement') return false;
+  if (isFunction(p) && key === 'id') return false;
+  return true;
+}
+
+const IMPURE = new Set(['CallExpression', 'NewExpression', 'AssignmentExpression', 'UpdateExpression', 'AwaitExpression', 'YieldExpression', 'TaggedTemplateExpression', 'ImportExpression', 'StaticBlock']);
+
+/** Bindings a top-level statement declares, and whether evaluating it has no side effects. */
+function topLevelInfo(statement: Node): { declares: string[]; pure: boolean } {
+  const decl = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
+  const declares: string[] = [];
+  if (statement.type === 'ExportDefaultDeclaration') declares.push('default');
+  if (!decl) return { declares, pure: false };
+  if (decl.type === 'VariableDeclaration') for (const d of decl.declarations) bindingNames(d.id, declares);
+  else if ((decl.type === 'ClassDeclaration' || decl.type === 'FunctionDeclaration') && decl.id) declares.push(decl.id.name);
+  else if (statement.type !== 'ExportDefaultDeclaration') return { declares, pure: false };
+  let pure = true;
+  const scan = (value: unknown): void => {
+    if (!pure || typeof value !== 'object' || value === null) return;
+    if (Array.isArray(value)) return value.forEach(scan);
+    const node = value as Node;
+    if (typeof node.type === 'string') {
+      if (IMPURE.has(node.type)) pure = false;
+      if (isFunction(node) || node.type === 'MethodDefinition') return; // bodies run later, not at load
+    }
+    for (const k in node) if (k !== 'parent') scan(node[k]);
+  };
+  scan(decl);
+  return { declares, pure };
+}
+
+function bindingNames(pattern: Node, out: string[]): void {
+  if (!pattern) return;
+  if (pattern.type === 'Identifier') out.push(pattern.name);
+  else if (pattern.type === 'ObjectPattern') for (const p of pattern.properties) bindingNames(p.type === 'RestElement' ? p.argument : p.value, out);
+  else if (pattern.type === 'ArrayPattern') for (const e of pattern.elements) bindingNames(e, out);
+  else if (pattern.type === 'AssignmentPattern') bindingNames(pattern.left, out);
+  else if (pattern.type === 'RestElement') bindingNames(pattern.argument, out);
 }
 
 function importBindings(program: Node): ImportBinding[] {

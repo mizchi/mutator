@@ -52,6 +52,12 @@ export interface Scope {
   hash: string;
   range: Range;
   location: Location;
+  /** Identifier names the scope's own code mentions (nested functions excluded). */
+  refs?: string[];
+  /** Top-level statements: the bindings they declare. */
+  declares?: string[];
+  /** Top-level statements: a declaration whose evaluation has no side effects. */
+  pure?: boolean;
 }
 
 export interface Mutant {
@@ -96,6 +102,8 @@ export interface InstrumentResult {
   calls: CallSite[];
   /** Value imports of the file. */
   imports: ImportBinding[];
+  /** Module specifiers re-exported with `export ... from`. */
+  reexports: string[];
 }
 
 export interface CallSite {

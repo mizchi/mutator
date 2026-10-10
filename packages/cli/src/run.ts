@@ -10,7 +10,7 @@ import {
   type PlanEntry,
   type Range,
   type RunSnapshot,
-  type Scope,
+  type TestInfo,
   type SelectMode,
   DEFAULT_ARID_CALLEES,
   buildCallGraph,
@@ -31,13 +31,13 @@ import { createTypeChecker } from '@mizchi/mutator-typecheck';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
 import { type Runner, createRunnerSession, detectRunner } from './runner.ts';
 import { changedFiles, gitDiff } from './git.ts';
-import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, residualHashes, testFileHashes } from './coverage-cache.ts';
+import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, planDryRun, scopeTable, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
-export const TOOL_VERSION = '0.0.3';
+export const TOOL_VERSION = '0.0.4';
 
 export interface RunOptions {
   root: string;
@@ -197,8 +197,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const restorePath = exposeProjectBin(root);
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const { mutants, scopes, graphSources } = collectSources(root, files, instrumentOptions);
-    const residual = residualHashes(root, scopes, mutants);
+    const { mutants, sources, graphSources } = collectSources(root, files, instrumentOptions);
+    const mutated = new Set(files.map((f) => relative(root, f)));
     const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
     // Mutation settings change which mutants are placed (and thus covered): part of the environment.
     const settings = JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
@@ -206,15 +206,15 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
-    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {}, residual);
-    const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, mutants });
+    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {}, mutated);
+    const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
     const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
-    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), residual);
+    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
     for (const test of merged.tests) {
       const file = test.id.slice(0, test.id.indexOf('#'));
       if (dryFiles.has(file)) test.fingerprint = hash(`${finalTestFiles[file]}\0${test.id}`);
@@ -233,6 +233,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       toolVersion: TOOL_VERSION,
       envHash,
       ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
+      ...(dryPlan.all ? {} : { affected: { tests: testsOf(merged.tests, new Set(dryPlan.stale)), scopes: new Set(dryPlan.impacted) } }),
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
@@ -346,6 +347,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
       staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
       hits: Object.fromEntries(merged.hits),
+      scopes: scopeTable(root, sources),
     };
     writeSnapshot(snapshotPath, snapshot, root);
     const scored = inScope ? report.filter((e) => inScope.has(e.mutant.key)) : report;
@@ -399,6 +401,8 @@ function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]):
   return { callees: [...(arid?.callees ?? DEFAULT_ARID_CALLEES), ...extra] };
 }
 
+const testsOf = (tests: readonly TestInfo[], files: ReadonlySet<string>) => new Set(tests.map((t) => t.id).filter((id) => files.has(id.slice(0, id.indexOf('#')))));
+
 /** Static mutant key -> tests of the test files whose module loading executed it. */
 function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   const testsByFile = new Map<string, string[]>();
@@ -417,15 +421,15 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators' | 'weak'>;
 
 function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
-  const scopes = new Map<string, Scope[]>();
+  const sources = new Map<string, SourceInfo>();
   const graphSources: CallGraphSource[] = [];
   const mutants = files.flatMap((file) => {
     const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
-    scopes.set(file, result.scopes);
+    sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports });
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;
   });
-  return { mutants, scopes, graphSources };
+  return { mutants, sources, graphSources };
 }
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];

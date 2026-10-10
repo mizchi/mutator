@@ -102,8 +102,8 @@ export interface InstrumentResult {
   calls: CallSite[];
   /** Value imports of the file. */
   imports: ImportBinding[];
-  /** Module specifiers re-exported with `export ... from`. */
-  reexports: string[];
+  /** `export ... from` bindings: `local` is the exported name (`*` for `export *`). */
+  reexports: ImportBinding[];
 }
 
 export interface CallSite {
@@ -220,6 +220,12 @@ export interface PlanInput {
    * between functions through test code.
    */
   related?: (mutant: string, changed: string) => boolean;
+  /**
+   * Changes the planner cannot see in scope hashes: tests to treat as changed, and
+   * scopes (`${file}#${scopeId}`) whose code is unchanged but whose behavior may
+   * differ (e.g. a top-level constant they read was edited).
+   */
+  affected?: { tests?: ReadonlySet<string>; scopes?: ReadonlySet<string> };
 }
 
 export type PlanEntry =

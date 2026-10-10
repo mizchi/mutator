@@ -56,12 +56,12 @@ function changedTests(previous: RunSnapshot, tests: readonly TestInfo[]): Set<st
 }
 
 /** Test -> changed scopes (hash changed or disappeared) it previously covered. */
-function changedScopesByTest(previous: RunSnapshot, mutants: readonly Mutant[]): Map<string, Set<string>> {
+function changedScopesByTest(previous: RunSnapshot, mutants: readonly Mutant[], impacted: ReadonlySet<string> | undefined): Map<string, Set<string>> {
   const current = new Map(mutants.map((m) => [scopeKey(m.file, m.scope.id), m.scope.hash]));
   const out = new Map<string, Set<string>>();
   for (const r of previous.results) {
     const sk = scopeKey(r.file, r.scopeId);
-    if (current.get(sk) === r.scopeHash) continue;
+    if (current.get(sk) === r.scopeHash && !impacted?.has(sk)) continue;
     for (const t of r.coveredBy) out.set(t, (out.get(t) ?? new Set()).add(sk));
   }
   return out;
@@ -76,7 +76,8 @@ export function plan(input: PlanInput): PlanEntry[] {
   const testById = new Map(tests.map((t) => [t.id, t]));
   const prevByKey = new Map(previous?.results.map((r) => [r.key, r]));
   const changed = previous ? changedTests(previous, tests) : new Set<string>();
-  const touched = previous ? changedScopesByTest(previous, mutants) : new Map<string, Set<string>>();
+  for (const t of input.affected?.tests ?? []) changed.add(t);
+  const touched = previous ? changedScopesByTest(previous, mutants, input.affected?.scopes) : new Map<string, Set<string>>();
   const anyAffected = changed.size > 0 || touched.size > 0;
   // A test that ran changed code affects a mutant; with `related`, only when the
   // mutant's scope and the changed scope are connected (experimental call graph).
@@ -181,7 +182,7 @@ export function testsToRecollect(input: {
   const current = new Set(input.tests.map((t) => t.id));
   const wanted = new Set([
     ...changedTests(previous, input.tests),
-    ...changedScopesByTest(previous, input.mutants).keys(),
+    ...changedScopesByTest(previous, input.mutants, undefined).keys(),
   ]);
   const known = new Set(previous.results.map((r) => scopeKey(r.file, r.scopeId)));
   const unknown = new Set(

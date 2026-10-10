@@ -1,6 +1,6 @@
 import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
-import { applyMutant, instrument } from '../src/instrument.ts';
+import { applyMutant, instrument, scanImports } from '../src/instrument.ts';
 import type { Mutant } from '../src/types.ts';
 
 const RUNTIME = '__mutator__';
@@ -389,7 +389,20 @@ describe('scope dependency info', () => {
     ]);
   });
 
-  test('re-export sources are reported', () => {
-    expect(instrument('m.ts', "export * from './a.ts';\nexport { x } from './b.ts';\nexport const y = 1;").reexports).toEqual(['./a.ts', './b.ts']);
+  test('imports, re-exports and types are not scopes; export lists declare exported names', () => {
+    const src = "import { a } from './a.ts';\nimport './side.ts';\ninterface I { x: 1 }\nexport { a as b };\nexport * from './c.ts';";
+    expect(Object.values(scopes(src)).map((x) => ({ declares: x.declares, pure: x.pure }))).toEqual([{ declares: ['b'], pure: true }]);
+  });
+
+  test('re-exports are reported as bindings', () => {
+    const src = "export * from './a.ts';\nexport * as ns from './n.ts';\nexport { x, y as z } from './b.ts';\nexport type { T } from './t.ts';\nexport const w = 1;";
+    const expected = [
+      { local: '*', imported: '*', source: './a.ts' },
+      { local: 'ns', imported: '*', source: './n.ts' },
+      { local: 'x', imported: 'x', source: './b.ts' },
+      { local: 'z', imported: 'y', source: './b.ts' },
+    ];
+    expect(instrument('m.ts', src).reexports).toEqual(expected);
+    expect(scanImports('m.ts', `import d, { q } from './q.ts';\n${src}`)).toEqual({ imports: [{ local: 'd', imported: 'default', source: './q.ts' }, { local: 'q', imported: 'q', source: './q.ts' }], reexports: expected });
   });
 });

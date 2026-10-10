@@ -28,8 +28,11 @@ describe('planDryRun', () => {
       staticByFile: {},
       deps: { 'test/a.test.ts': ['src/a.ts'] },
       hits: {},
+      scopes: { 'src/a.ts': { onlyIgnored: { hash: 'h' } } },
     };
-    const plan = planDryRun({ root, previous, valid: true, testFiles: { 'test/a.test.ts': 'x' }, mutants: [mutant('i1', 'onlyIgnored', 'arid: logging')] });
-    expect(plan).toEqual({ all: false, files: [] });
+    const m = mutant('i1', 'onlyIgnored', 'arid: logging');
+    const sources = new Map([[m.file, { scopes: [m.scope], imports: [], reexports: [] }]]);
+    const plan = planDryRun({ root, previous, valid: true, testFiles: { 'test/a.test.ts': 'x' }, sources, resolve: () => undefined });
+    expect(plan).toEqual({ all: false, files: [], stale: [], impacted: [] });
   });
 });

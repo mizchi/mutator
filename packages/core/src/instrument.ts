@@ -130,7 +130,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportSources(program) };
+    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportBindings(program) };
   }
 
   const s = new MagicString(source);
@@ -142,7 +142,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   s.prependRight(at, text);
   const code = s.toString();
   if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
-  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportSources(program) };
+  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportBindings(program) };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
@@ -476,8 +476,27 @@ function calleeName(callee: Node): string | undefined {
   return undefined;
 }
 
-function reexportSources(program: Node): string[] {
-  return (program.body as Node[]).filter((st) => (st.type === 'ExportAllDeclaration' || st.type === 'ExportNamedDeclaration') && st.source).map((st) => st.source.value);
+/** `export ... from` statements, as bindings: `local` is the exported name (`*` for `export *`). */
+function reexportBindings(program: Node): ImportBinding[] {
+  const out: ImportBinding[] = [];
+  for (const st of program.body as Node[]) {
+    if (st.exportKind === 'type' || !st.source) continue;
+    if (st.type === 'ExportAllDeclaration') out.push({ local: st.exported ? moduleExportName(st.exported) : '*', imported: '*', source: st.source.value });
+    else if (st.type === 'ExportNamedDeclaration') {
+      for (const spec of st.specifiers as Node[]) {
+        if (spec.exportKind !== 'type') out.push({ local: moduleExportName(spec.exported), imported: moduleExportName(spec.local), source: st.source.value });
+      }
+    }
+  }
+  return out;
+}
+
+const moduleExportName = (node: Node): string => node.name ?? node.value;
+
+/** Value imports and re-exports of a module, without instrumenting it. */
+export function scanImports(file: string, source: string): { imports: ImportBinding[]; reexports: ImportBinding[] } {
+  const { program } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
+  return { imports: importBindings(program), reexports: reexportBindings(program) };
 }
 
 /** Identifier references (not property names, object keys or labels). */
@@ -495,12 +514,18 @@ function isReference(frame: Frame): boolean {
 
 const IMPURE = new Set(['CallExpression', 'NewExpression', 'AssignmentExpression', 'UpdateExpression', 'AwaitExpression', 'YieldExpression', 'TaggedTemplateExpression', 'ImportExpression', 'StaticBlock']);
 
-/** Bindings a top-level statement declares, and whether evaluating it has no side effects. */
+/**
+ * Bindings a top-level statement declares (exported names for `export { ... }`),
+ * and whether evaluating it has no side effects. Imports, re-exports and types are
+ * skipped by the walker and never become scopes.
+ */
 function topLevelInfo(statement: Node): { declares: string[]; pure: boolean } {
-  const decl = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
   const declares: string[] = [];
+  if (statement.type === 'ExportNamedDeclaration' && !statement.declaration) {
+    return { declares: (statement.specifiers as Node[]).filter((s) => s.exportKind !== 'type').map((s) => moduleExportName(s.exported)), pure: true };
+  }
+  const decl = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
   if (statement.type === 'ExportDefaultDeclaration') declares.push('default');
-  if (!decl) return { declares, pure: false };
   if (decl.type === 'VariableDeclaration') for (const d of decl.declarations) bindingNames(d.id, declares);
   else if ((decl.type === 'ClassDeclaration' || decl.type === 'FunctionDeclaration') && decl.id) declares.push(decl.id.name);
   else if (statement.type !== 'ExportDefaultDeclaration') return { declares, pure: false };

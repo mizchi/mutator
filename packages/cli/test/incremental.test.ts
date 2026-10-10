@@ -39,6 +39,53 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
+  describe('narrowed re-collection', () => {
+    const files = {
+      'src/a.ts': 'export const LIMIT = 10;\nexport function clamp(n: number): number {\n  return n > LIMIT ? -1 : n;\n}\nexport function other(n: number): number {\n  return n * 2;\n}\n',
+      'src/b.ts': "import { LIMIT } from './a.ts';\nexport function limited(n: number): boolean {\n  return n < LIMIT;\n}\n",
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { clamp } from '../src/a.ts';\ntest('clamp', () => { expect(clamp(1)).toBe(1); expect(clamp(100)).toBe(-1); });\n",
+      'test/b.test.ts': "import { expect, test } from 'vitest';\nimport { other } from '../src/a.ts';\ntest('other', () => { expect(other(2)).toBe(4); });\n",
+      'test/c.test.ts': "import { expect, test } from 'vitest';\nimport { limited } from '../src/b.ts';\ntest('limited', () => { expect(limited(1)).toBe(true); expect(limited(50)).toBe(false); });\n",
+    };
+
+    test('a pure top-level change re-collects only tests of the functions using it', async () => {
+      const root = project(files);
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'src/a.ts', 'LIMIT = 10', 'LIMIT = 3');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/a.test.ts', 'test/c.test.ts']);
+    });
+
+    test('a new function called by an edited one re-collects only the tests of the caller', async () => {
+      const root = project(files);
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'src/a.ts', 'return n * 2;', 'return twice(n);\n}\nfunction twice(n: number): number {\n  return n + n;');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/b.test.ts']);
+    });
+
+    test('names followed through a barrel re-export, and tests importing the name directly', async () => {
+      const root = project({
+        ...files,
+        'src/index.ts': "export * from './a.ts';\n",
+        'src/b.ts': "import { LIMIT } from './index.ts';\nexport function limited(n: number): boolean {\n  return n < LIMIT;\n}\n",
+        'test/d.test.ts': "import { expect, test } from 'vitest';\nimport { LIMIT, other } from '../src/a.ts';\ntest('direct', () => { expect(other(LIMIT)).toBe(LIMIT * 2); });\n",
+      });
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'src/a.ts', 'LIMIT = 10', 'LIMIT = 3');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/a.test.ts', 'test/c.test.ts', 'test/d.test.ts']);
+    });
+
+    test('a side-effecting top-level change re-collects every importer', async () => {
+      const root = project({ ...files, 'src/a.ts': `${files['src/a.ts']}export const seen: number[] = [];\nseen.push(1);\n` });
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'src/a.ts', 'seen.push(1);', 'seen.push(2);');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts']);
+    });
+  });
+
   test('editing a top-level constant without mutants', async () => {
     const root = project({
       'src/a.ts': 'const LIMIT = 10;\nexport function clamp(n: number): number {\n  return n > LIMIT ? -1 : n;\n}\n',

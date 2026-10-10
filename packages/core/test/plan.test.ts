@@ -323,6 +323,21 @@ describe('plan reuse: Survived', () => {
     expect(runTests(e)).toEqual(['t2']);
   });
 
+  it('runs when a covering test is marked affected', () => {
+    const previous = snapshot([result(a, 'Survived', ['t1'])], tests);
+    const e = only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['t1'] }), affected: { tests: new Set(['t1']) } })));
+    expect(e.kind).toBe('run');
+  });
+
+  it('runs when a test that covered an impacted scope covers it', () => {
+    const user = mutant('u', { scope: 'user' });
+    const previous = snapshot([result(a, 'Survived', ['t1']), result(user, 'Survived', ['t1'])], tests);
+    const entries = plan(input({ mutants: [a, user], tests, previous, coverage: cov({ a: ['t1'], u: ['t1'] }), affected: { scopes: new Set(['a.ts#user']) } }));
+    expect(entries.map((e) => e.kind)).toEqual(['run', 'run']);
+    const untouched = plan(input({ mutants: [a, user], tests, previous, coverage: cov({ a: ['t1'], u: ['t1'] }), affected: { scopes: new Set(['a.ts#other']) } }));
+    expect(untouched.map((e) => e.kind)).toEqual(['reuse', 'reuse']);
+  });
+
   it('runs when a new test now covers it', () => {
     const previous = snapshot([result(a, 'Survived', ['t1'])], tests);
     const e = only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['t1', 't2'] }) })));

@@ -265,6 +265,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(runner, { ...sessionOptions, maxWorkers: 1 })));
     if (concurrency > 1) sessions.push(...workers);
     for (const s of workers) s.useTestIndex(merged.index);
+    const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
     let executed = 0;
     let next = 0;
     await Promise.all(
@@ -274,6 +275,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           const { mutant } = entry;
           const outcome = await worker.runMutant(mutant.key, entry.tests, {
             timeoutMs: entry.timeoutMs,
+            stallMs: stallBudget(entry.tests, testDurations),
             isStatic: entry.isStatic,
             hitLimit: Math.max(10_000, (merged.hits.get(mutant.key) ?? 0) * 100),
           });
@@ -327,6 +329,17 @@ async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: r
   } finally {
     checker.close();
   }
+}
+
+/**
+ * A run must make progress (a test starting or finishing) at least this often: the
+ * slowest selected test, 3x, plus room for loading the test file's modules. A
+ * mutant stuck in a loop is cut here instead of after the sum of all its tests.
+ */
+function stallBudget(tests: readonly string[], durations: ReadonlyMap<string, number>): number {
+  let slowest = 0;
+  for (const t of tests) slowest = Math.max(slowest, durations.get(t) ?? 0);
+  return Math.round(slowest * 3) + 10_000;
 }
 
 /** Plugins' logging patterns extend the arid callees (the defaults, or the configured ones). */

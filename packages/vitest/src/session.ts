@@ -37,18 +37,26 @@ export interface SessionOptions extends PluginOptions {
 class FailureWatch {
   failed: TestCase[] = [];
   private onFailure: (() => void) | undefined;
+  private onProgress: (() => void) | undefined;
 
-  arm(onFailure: (() => void) | undefined): void {
+  arm(onFailure: (() => void) | undefined, onProgress?: () => void): void {
     this.failed = [];
     this.onFailure = onFailure;
+    this.onProgress = onProgress;
   }
 
   disarm(): TestCase[] {
     this.onFailure = undefined;
+    this.onProgress = undefined;
     return this.failed;
   }
 
+  onTestCaseReady(): void {
+    this.onProgress?.();
+  }
+
   onTestCaseResult(test: TestCase): void {
+    this.onProgress?.();
     if (!this.onFailure || test.result().state !== 'failed') return;
     this.failed.push(test);
     const notify = this.onFailure;
@@ -109,7 +117,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       for (const [id, location] of index) locate(id, location);
     },
 
-    async runMutant(key, testIds, { timeoutMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
+    async runMutant(key, testIds, { timeoutMs, stallMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
       const byModule = new Map<string, string[]>();
       for (const id of testIds) {
         const location = locations.get(id);
@@ -124,14 +132,24 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       );
       const started = performance.now();
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let stall: ReturnType<typeof setTimeout> | undefined;
+      let expire: (value: 'timeout') => void = () => {};
       const timeout = new Promise<'timeout'>((resolve) => {
+        expire = resolve;
         timer = setTimeout(() => resolve('timeout'), timeoutMs);
       });
+      const progress = () => {
+        if (stallMs === undefined) return;
+        clearTimeout(stall);
+        stall = setTimeout(() => expire('timeout'), stallMs);
+      };
+      progress();
       const current = vitest;
       const currentWatch = watch;
-      currentWatch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {});
+      currentWatch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {}, progress);
       const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
       clearTimeout(timer);
+      clearTimeout(stall);
       const observed = currentWatch.disarm();
       const durationMs = performance.now() - started;
       if (outcome === 'timeout') {
@@ -163,7 +181,7 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
       // bail is not used: vitest 5 may report a bailed run without its failed test.
       bail: 0,
       isolate: true,
-      pool: options.pool ?? 'threads',
+      pool: options.pool ?? 'forks',
       includeTaskLocation: true,
       coverage: { enabled: false },
       onConsoleLog: () => false,

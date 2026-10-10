@@ -27,7 +27,14 @@ export interface DryRunResult {
 }
 
 export interface RunMutantOptions {
+  /** Budget for the whole run. */
   timeoutMs: number;
+  /**
+   * Budget between two progress signals (a test starting or finishing). A mutant
+   * stuck in a loop stops making progress long before the total budget runs out.
+   * Runners that cannot observe progress ignore it.
+   */
+  stallMs?: number;
   isStatic?: boolean;
   hitLimit?: number;
 }

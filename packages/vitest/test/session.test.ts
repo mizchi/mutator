@@ -231,5 +231,20 @@ describe('process hygiene', () => {
       await session.close();
     }
   });
+
+  test('a run that stops making progress times out on the stall budget, not the total', { timeout: 60_000 }, async () => {
+    const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
+    const session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
+    try {
+      await session.dryRun();
+      const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
+      const started = performance.now();
+      const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 120_000, stallMs: 1500, hitLimit: Number.MAX_SAFE_INTEGER });
+      expect(result.status).toBe('Timeout');
+      expect(performance.now() - started).toBeLessThan(15_000);
+    } finally {
+      await session.close();
+    }
+  });
 });
 

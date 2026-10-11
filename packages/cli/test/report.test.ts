@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
-import { formatSummary } from '../src/report.ts';
+import { formatAnnotations, formatSummary } from '../src/report.ts';
 import type { Report, ReportEntry } from '../src/run.ts';
 
 const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
@@ -28,5 +28,31 @@ describe('formatSummary', () => {
     expect(formatSummary(report, '/p')).toContain('not run: 2 sampled out (--mutants-per-line), 1 over the time budget (--time-budget)');
     expect(formatSummary({ ...report, notRun: { sampled: 0, budget: 1 } }, '/p')).toContain('not run: 1 over the time budget (--time-budget)');
     expect(formatSummary({ ...report, notRun: { sampled: 0, budget: 0 } }, '/p')).not.toContain('not run');
+  });
+
+  test('with --since, counts and lists only the changed code, and rechecks apart', () => {
+    const entries: ReportEntry[] = [
+      { ...entry(0, 'Survived'), focus: 'diff' },
+      { ...entry(1, 'Killed'), focus: 'diff' },
+      { ...entry(2, 'Survived'), source: 'reuse' },
+      { ...entry(3, 'NoCoverage'), source: 'reuse' },
+      { ...entry(4, 'Survived'), focus: 'recheck' },
+      { ...entry(5, 'Killed'), focus: 'recheck' },
+    ];
+    const report: Report = { entries, executed: 3, dryRunFiles: [], scope: 'diff', score: 0.5, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    const text = formatSummary(report, '/p');
+    expect(text).toContain('mutants: 2 in the diff, 2 rechecked (6 in total; executed 3, reused 2)');
+    expect(text).toContain('Killed 1 · Survived 1\n');
+    const listed = text.split('\n').filter((l) => l.startsWith('  src/'));
+    expect(listed).toEqual([expect.stringMatching(/^  src\/a\.ts:1:1 +Survived/), expect.stringMatching(/^  src\/a\.ts:5:1 +Survived/)]);
+    expect(text).toMatch(/undetected:\n  src\/a\.ts:1:1.*\n\nkilled before, undetected now \(their killing test is gone\):\n  src\/a\.ts:5:1/);
+  });
+});
+
+describe('formatAnnotations', () => {
+  test('with --since, annotates only survivors in the diff or rechecked', () => {
+    const entries: ReportEntry[] = [{ ...entry(0, 'Survived'), focus: 'diff' }, { ...entry(1, 'Survived'), source: 'reuse' }, { ...entry(2, 'Survived'), focus: 'recheck' }];
+    const report: Report = { entries, executed: 2, dryRunFiles: [], scope: 'diff', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    expect(formatAnnotations(report, '/p').split('\n').map((l) => /line=(\d+)/.exec(l)?.[1])).toEqual(['1', '3']);
   });
 });

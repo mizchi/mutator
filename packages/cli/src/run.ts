@@ -105,6 +105,11 @@ export interface ReportEntry {
   killedBy: string[];
   /** Tests that executed the mutant in the (merged) coverage run. */
   coveredBy: string[];
+  /**
+   * With --since: `diff` for a mutant inside the diff, `recheck` for one outside it that was
+   * killed before but whose killing tests are all gone. Other entries are context, not reported.
+   */
+  focus?: 'diff' | 'recheck';
 }
 
 export interface Report {
@@ -114,7 +119,7 @@ export interface Report {
   dryRunFiles: string[];
   /** detected / (detected + undetected), ignoring Ignored and Pending */
   score: number;
-  /** `diff`: with --since the score covers only mutants inside the diff. */
+  /** `diff`: with --since the score covers only mutants inside the diff (`focus: 'diff'`). */
   scope: 'all' | 'diff';
   durationMs: number;
   /** Mutants that needed a run but were left Pending: sampled out (mutantsPerLine) or over the time budget. */
@@ -220,7 +225,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const touched = options.since ? diffTouched(root, options.since, mutants, options.scope ?? 'node') : undefined;
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
-    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.selected.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
+    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
     const dryStarted = performance.now();
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
@@ -250,7 +255,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
-    const inScope = touched ? diffScope(touched, merged) : undefined;
+    const inScope = touched ? sinceFocus(touched, valid ? previous.results : [], merged.tests) : undefined;
     const notRun = { sampled: 0, budget: 0 };
     const report: ReportEntry[] = [];
     const results: MutantResult[] = [];
@@ -266,8 +271,11 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       const { mutant } = entry;
       const coveredBy = [...(merged.coverage.get(mutant.key) ?? [])];
       // Outside --since or sampled out: left Pending, whether it would run or be decided without running.
-      if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !inScope.has(mutant.key)) || (sampled && !sampled.has(mutant.key)))) {
-        if (!inScope || inScope.has(mutant.key)) notRun.sampled++;
+      // A recheck is not sampled: it is the only run that notices its killing tests are gone.
+      const focus = inScope?.get(mutant.key);
+      const sampledOut = sampled !== undefined && !sampled.has(mutant.key) && focus !== 'recheck';
+      if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !focus) || sampledOut)) {
+        if (!inScope || focus) notRun.sampled++;
         skip(report.length, mutant, coveredBy);
         continue;
       }
@@ -370,7 +378,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       scopes: scopeTable(root, sources),
     };
     writeSnapshot(snapshotPath, snapshot, root);
-    const scored = inScope ? report.filter((e) => inScope.has(e.mutant.key)) : report;
+    if (inScope) {
+      for (const e of report) {
+        const focus = inScope.get(e.mutant.key);
+        if (focus) e.focus = focus;
+      }
+    }
+    const scored = inScope ? report.filter((e) => e.focus === 'diff') : report;
     return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun };
   } finally {
     early?.cancel();
@@ -499,8 +513,8 @@ function importResolver(files: readonly string[]) {
   };
 }
 
-/** Mutants touched by the diff, and the changed files (relative). */
-function diffTouched(root: string, since: string, mutants: readonly Mutant[], mode: SelectMode): { selected: Set<string>; changedFiles: string[] } {
+/** Keys of the mutants touched by the diff. */
+function diffTouched(root: string, since: string, mutants: readonly Mutant[], mode: SelectMode): Set<string> {
   const changed = new Map<string, readonly Range[]>();
   for (const fd of parseUnifiedDiff(gitDiff(root, since))) {
     if (!fd.newPath) continue;
@@ -512,16 +526,22 @@ function diffTouched(root: string, since: string, mutants: readonly Mutant[], mo
     const file = join(root, rel);
     if (!changed.has(file) && existsSync(file)) changed.set(file, [{ start: 0, end: readFileSync(file, 'utf8').length }]);
   }
-  return { selected: new Set(selectMutants(mutants, changed, mode).map((m) => m.key)), changedFiles: [...changed.keys()].map((f) => f.slice(root.length + 1)) };
+  return new Set(selectMutants(mutants, changed, mode).map((m) => m.key));
 }
 
-/** Mutants touched by the diff, plus mutants covered by tests in changed test files. */
-function diffScope(touched: { selected: ReadonlySet<string>; changedFiles: readonly string[] }, dry: { coverage: ReadonlyMap<string, readonly string[]> }): Set<string> {
-  const selected = new Set(touched.selected);
-  for (const [key, tests] of dry.coverage) {
-    if (tests.some((t) => touched.changedFiles.some((f) => t.startsWith(`${f}#`)))) selected.add(key);
+/**
+ * The mutants a --since run reports: those in the diff, and those outside it that were killed
+ * before by tests that are all gone now (removed or renamed), so a deleted test cannot hide.
+ * Code a changed test merely covers is left out: its survivors predate the change.
+ */
+function sinceFocus(touched: ReadonlySet<string>, previous: readonly MutantResult[], tests: readonly { id: string }[]): Map<string, 'diff' | 'recheck'> {
+  const focus = new Map<string, 'diff' | 'recheck'>([...touched].map((k) => [k, 'diff']));
+  const present = new Set(tests.map((t) => t.id));
+  for (const r of previous) {
+    if (focus.has(r.key) || r.status !== 'Killed' || r.killedBy.length === 0) continue;
+    if (r.killedBy.every((t) => !present.has(t))) focus.set(r.key, 'recheck');
   }
-  return selected;
+  return focus;
 }
 
 /** Keep cached results of mutants that still exist but were not part of this run. */

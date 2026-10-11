@@ -61,6 +61,14 @@ describe('qualityGate', () => {
   test('fails on survived mutants when asked', () => {
     expect(qualityGate(report(0.5, ['Survived', 'Killed']), { thresholds, failOnSurvived: true })).toEqual(['1 mutant(s) survived (--fail-on-survived)']);
   });
+
+  test('with --since, only survivors in the diff or rechecked count', () => {
+    const r = report(0.5, ['Survived', 'Survived', 'Survived', 'Killed']);
+    r.scope = 'diff';
+    r.entries[0]!.focus = 'diff';
+    r.entries[1]!.focus = 'recheck';
+    expect(qualityGate(r, { thresholds, failOnSurvived: true })).toEqual(['2 mutant(s) survived (--fail-on-survived)']);
+  });
 });
 
 describe('thresholds in reports', () => {

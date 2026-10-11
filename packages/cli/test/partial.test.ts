@@ -143,6 +143,53 @@ describe('--since leaves out-of-diff mutants undecided', { timeout: 60_000 }, ()
   });
 });
 
+describe('--since runs the diff only', { timeout: 60_000 }, () => {
+  const setup = async (name: string) => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `${name}-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    git('init', '-q', '-b', 'main');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+    const first = await runMutation({ root, concurrency: 1, weakMutation: false });
+    return { root, first };
+  };
+  const edit = (root: string, rel: string, from: string, to: string) => {
+    const file = join(root, rel);
+    writeFileSync(file, readFileSync(file, 'utf8').replace(from, to));
+  };
+
+  test('a test added to a changed test file does not pull in the code it covers', async () => {
+    const { root } = await setup('since-added');
+    try {
+      edit(root, 'test/a.test.ts', "test('combo'", "test('more', () => {\n  expect(double(3)).toBe(6);\n});\n\ntest('combo'");
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
+      expect(since.executed).toBe(0);
+      expect(since.entries.filter((e) => e.focus)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('mutants outside the diff are rechecked when every test that killed them is gone', async () => {
+    const { root, first } = await setup('since-removed');
+    try {
+      const removed = 'test/a.test.ts#isPositive';
+      const orphaned = first.entries.filter((e) => e.status === 'Killed' && e.killedBy.length > 0 && e.killedBy.every((t) => t === removed)).map((e) => e.mutant.key);
+      expect(orphaned.length).toBeGreaterThan(0);
+      edit(root, 'test/a.test.ts', "test('isPositive', () => {\n  expect(isPositive(1)).toBe(true);\n  expect(isPositive(NEGATIVE)).toBe(false);\n});\n", '');
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
+      const rechecked = since.entries.filter((e) => e.focus === 'recheck').map((e) => e.mutant.key);
+      expect(rechecked.sort()).toEqual(orphaned.sort());
+      expect(since.entries.filter((e) => e.source === 'run').every((e) => e.focus === 'recheck')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('test dependencies', { timeout: 60_000 }, () => {
   test('editing a non-mutated helper a test imports re-runs the affected mutants', async () => {
     mkdirSync(tmpRoot, { recursive: true });

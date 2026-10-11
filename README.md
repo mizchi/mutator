@@ -6,7 +6,7 @@ Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vi
 - **In-memory** – sources are instrumented by a Vite `transform` hook inside Vitest; no sandbox copy of the project.
 - **Per-test coverage** – each mutant only runs the tests that execute it.
 - **Result reuse** – mutant identity is position independent (`file + scope path + AST path + mutator + replacement`), and every result is cached with the hash of its enclosing function. Unchanged code with unchanged covering tests is never re-run.
-- **`--since <ref>`** – only mutants touched by `git diff <ref>` (and mutants covered by changed test files) are executed or decided; the others needing work stay `Pending`, including those weak mutation would decide without running. The mutants in the diff are type-checked on a worker thread while the dry run goes on.
+- **`--since <ref>`** – only mutants touched by `git diff <ref>` are executed or decided, and only they are counted, listed, annotated and checked by `--fail-on-survived`. The others needing work stay `Pending`, including those weak mutation would decide without running. A changed test file does not pull in the code it covers, since its survivors predate the change. The exception is a mutant outside the diff that was killed before but whose killing tests are all gone (removed or renamed): it is rechecked and listed apart as "killed before, undetected now". A test edited so that it no longer kills is not noticed; a full run catches it. The mutants in the diff are type-checked on a worker thread while the dry run goes on.
 
 ## Usage
 

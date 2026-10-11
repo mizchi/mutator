@@ -382,3 +382,33 @@ The verdicts of the 23 executed mutants match apart from the Timeout / Survived 
 ### Tried and dropped: splitting slow test files of the dry run
 
 The dry run is bound by `test/cli.test.ts` (43 tests, 50 s in plain Vitest), while the 33 re-collected files take only about 5 cores on average. One Vitest run loads a test file once, so its tests were split by id across extra sessions. A shard of 4 of its tests still took 59 s: those tests drive the TypeScript compiler in-process, and each shard pays the warm-up again (that cost does not show in per-test timings). The dry run stayed at 70 s with 125 s more CPU, so it was not kept.
+
+### Are the survivors worth acting on? (10 past commits, 2026-10-11)
+
+PR mode (`--since HEAD~1 --mutants-per-line 1`) was run on the ten commits from `eeac0ef9` to `c26dca3d`, in order, each starting from the previous run's snapshot. Every commit adds code together with a test. Each survivor on a line the commit changed was applied by hand and judged: does a reasonable test kill it (that test was written and run both ways), is it equivalent, or is it low value?
+
+| verdict | mutants |
+|---|---|
+| killed by the commit's own test, which lies outside `UNEFFECT_CI_TIER=fast` (a setup mistake of this trial) | 18 |
+| real test gap | **5** |
+| low value (reason / owner strings, a 40-character label boundary) | 5 |
+| equivalent (a `.sort` nothing reads in order, a field nothing reads, a no-op `.trim()`) | 4 |
+| wrong verdict from the tool | 0 |
+
+The five gaps were all worth a test:
+- a `let`/`var` RegExp that can be reassigned to a `/g` literal is admitted when the `const` filter is removed, which is an unsound proof;
+- a default export that does not start the file is never linked;
+- a const relaying one declared later is never tested;
+- the TypeScript-path guard for `localeCompare` is never tested (looking into it found a real bug: a boxed `String` receiver is admitted);
+- a parse-error guard is untested (older code, but the commit touched its line).
+
+NoCoverage on changed lines was checked with probes, and it is exact per sub-expression: apart from the tier artefact, every one marks a branch no test reaches.
+
+The problem was the output. Every changed test file pulled in all the code it covers, so the ten runs executed 450–520 mutants each (16–21 min) for about 30 mutants on changed lines. Of about 1020 survivors listed, 31 (3%) were on changed lines; the rest predated the commit, and the same 87 came back in six runs. `--since` now runs and reports the diff only. A mutant outside the diff is rechecked only when every test that killed it is gone. Re-run on two of those commits:
+
+| commit | before | now | survivors listed (before → now) |
+|---|---|---|---|
+| `eeac0ef9` | 1104 s, 493 mutants run | 105 s, 4 run | 162 → 1 |
+| `dd3a23f6` | 1283 s, 479 mutants run | 115 s, 15 run | 165 → 4 |
+
+The survivors on changed lines are the same in both runs.

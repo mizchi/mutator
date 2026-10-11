@@ -10,7 +10,7 @@ import { BaselineError, runMutation } from './run.ts';
 
 const USAGE = `usage: mutator [options]
 
-  --since <ref>        only run mutants inside \`git diff <ref>\` (+ those covered by changed tests)
+  --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
   --include <glob>     sources to mutate, repeatable (default: src/**/*.{ts,tsx,js,...})
   --exclude <glob>     sources to skip, repeatable

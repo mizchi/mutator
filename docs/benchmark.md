@@ -412,3 +412,35 @@ The problem was the output. Every changed test file pulled in all the code it co
 | `dd3a23f6` | 1283 s, 479 mutants run | 115 s, 15 run | 165 → 4 |
 
 The survivors on changed lines are the same in both runs.
+
+### Survivor usefulness on the five small projects (2026-10-12)
+
+The same method was applied to the bench projects: `--since HEAD~1` (all mutants in the diff, no sampling) on 21 past commits that change `src` together with a test, four per project (five for cookie-es). Each cold run took 0.5–4 s. One cookie-es commit (`e69cc32`) was replaced because its own tests fail on vitest 5. Older pathe commits got their own `pnpm install` (they need `zeptomatch`). Every survivor and NoCoverage mutant on a changed line was applied by hand. A REAL_GAP verdict needed a test that passes on the original and fails on the mutant.
+
+| project | commits | undetected on changed lines | real gap | equivalent | low value | wrong verdict |
+|---|---|---|---|---|---|---|
+| ufo | 4 | 6 | 6 | 0 | 0 | 0 |
+| scule | 4 | 7 (2 NoCoverage) | 7 | 0 | 0 | 0 |
+| defu | 4 | 17 | 16 | 1 | 0 | 0 |
+| cookie-es | 5 | 4 | 1 | 3 | 0 | 0 |
+| pathe | 4 | 18 | 10 | 6 | 2 | 0 |
+| **total** | 21 | 52 | **40 (77%)** | 10 | 2 | 0 |
+
+Many mutants share one missing test, which leaves about 21 distinct gaps. Nine of the 21 commits had at least one. Some examples:
+- **defu `4111333` ("only merge plain objects"):** both of the commit's new tests are `it.skip`, so nothing exercises the change. Even un-skipped, they assert with `toEqual`, which cannot tell a class instance from a plain object.
+- **ufo:**
+  - `filterQuery` is never called on a URL without `?`; removing its early return turns `mailto:x@y` into `//`.
+  - `withBase` is never tested with the base followed by `?`.
+- **scule:** "move normalize behind a flag" tests only `{ normalize: true }`, never the new default.
+- **pathe:**
+  - `a8b4840` is a perf rewrite of the drive-letter regex. Nothing checks the `a`/`z` boundaries or that `ab/c` stays as it is.
+  - The fix in `1492827` is never tested with `./x`, `/` or `b//`.
+- **cookie-es:** an off-by-one in `parse` with `filter` is masked unless a skipped value ends in `=` (base64 padding); with a filter rejecting `""` the loop never ends.
+
+The equivalent mutants are mostly no-op rewrites:
+- `?.` on a value that is never nullish;
+- disabled fast paths in a perf commit;
+- placeholder strings that are overwritten before they are read;
+- a redundant `=== Object.prototype` check.
+
+Compared with uneffect (5 real gaps out of 14), the small libraries' survivors are far more often worth a test, because their changes are plain input/output functions with few redundant guards or report strings.

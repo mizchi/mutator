@@ -41,6 +41,7 @@ const report: Report = {
     entry('add.ts', 'k2', 'Survived', { coveredBy: ['add.test.ts#add > zero'] }),
     entry('add.ts', 'k3', 'Ignored', { source: 'static' }, { ignored: 'disabled by comment' }),
     entry('add.ts', 'k4', 'Pending', { source: 'skipped' }),
+    entry('add.ts', 'k6', 'Survived', { source: 'static', reason: 'notInfected', coveredBy: ['add.test.ts#add > zero'] }),
     entry('util.js', 'k5', 'NoCoverage', { source: 'static' }, { location: { start: { line: 1, column: 17 }, end: { line: 1, column: 18 } } }),
   ],
   executed: 2,
@@ -89,6 +90,7 @@ describe('formatMutationTestingJson', () => {
     expect(survived?.status).toBe('Survived');
     expect(ignored).toMatchObject({ status: 'Ignored', statusReason: 'disabled by comment' });
     expect(pending?.status).toBe('Pending');
+    expect(json.files['add.ts']!.mutants[4]).toMatchObject({ status: 'Survived', statusReason: 'not infected: no covering test reaches it with a value it changes' });
     expect(json.files['util.js']!.mutants[0]).toMatchObject({ status: 'NoCoverage', location: { start: { line: 1, column: 18 } } });
   });
 

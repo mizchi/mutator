@@ -166,6 +166,8 @@ export interface MutantResult {
   /** Tests that executed this mutant during the coverage run. */
   coveredBy: string[];
   durationMs?: number;
+  /** Survived without a run: no covering test reaches it with a value it changes (weak mutation). */
+  reason?: 'notInfected';
 }
 
 export interface TestInfo {

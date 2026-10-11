@@ -16,6 +16,7 @@ const results: MutantResult[] = Array.from({ length: 2000 }, (_, i) => ({
   killedBy: i % 3 === 0 ? [tests[i % 200]!.id] : [],
   coveredBy: i % 3 === 2 ? [] : tests.slice(i % 150, (i % 150) + 40).map((t) => t.id),
   ...(i % 2 ? { durationMs: i } : {}),
+  ...(i % 3 === 1 && i % 4 < 2 ? { reason: 'notInfected' as const } : {}),
 }));
 const snapshot: RunSnapshot & { extra: { nested: string[] } } = { toolVersion: 'v', envHash: 'e', tests, results, extra: { nested: ['kept as is'] } };
 

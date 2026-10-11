@@ -28,6 +28,14 @@ Mutants in logging-only code (calls matching `console.*`, `logger.*`, `log.*`, `
 node packages/cli/src/cli.ts --root <project> --reporter text --reporter html --reporter json
 ```
 
+The text summary lists undetected mutants in three groups. Each group says where the tests stopped short, which calls for a different fix:
+
+- **not detected:** tests run the mutant, but none fails. Strengthen an assertion, or accept it as an equivalent mutant.
+- **not infected:** tests run it, but never with a value it changes. Add an input.
+- **not reached:** no test runs it. Add a test case.
+
+See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本語](docs/coverage-and-mutation.ja.md)) for how this relates to code coverage.
+
 `--reporter` is repeatable: `text` (default, summary on stdout), `json` and `html`. `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.
 
 ### Thresholds and exit codes
@@ -174,7 +182,7 @@ Cache the snapshot per base branch so a PR only runs mutants its diff can affect
 - run: npx mutator --since origin/${{ github.base_ref }} --fail-on-survived
 ```
 
-Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, survived mutants are also printed as `::warning` annotations on the diff.
+Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, undetected mutants are also printed as `::warning` annotations on the diff, titled by gap (unreached ones only with `--since`).
 
 ### Large projects
 

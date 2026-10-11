@@ -12,14 +12,24 @@ const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
 });
 
 describe('formatSummary', () => {
-  test('lists at most 20 undetected mutants, survivors first, and counts the rest', () => {
+  test('lists at most 20 mutants per kind of gap, and counts the rest', () => {
     const entries = [...Array.from({ length: 30 }, (_, i) => entry(i, 'NoCoverage')), ...Array.from({ length: 5 }, (_, i) => entry(100 + i, 'Survived'))];
     const report: Report = { entries, executed: 35, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
     const lines = formatSummary(report, '/p').split('\n');
     const listed = lines.filter((l) => l.startsWith('  src/'));
-    expect(listed).toHaveLength(20);
+    expect(listed).toHaveLength(25);
     expect(listed.slice(0, 5).every((l) => l.includes('Survived'))).toBe(true);
-    expect(lines.at(-1)).toMatch(/15 more undetected .*--reporter json/);
+    expect(lines.at(-1)).toMatch(/10 more .*--reporter json/);
+  });
+
+  test('splits undetected mutants by where the test stopped short: detection, infection, reach', () => {
+    const entries = [entry(0, 'NoCoverage'), { ...entry(1, 'Survived'), reason: 'notInfected' as const }, entry(2, 'Survived'), entry(3, 'Killed')];
+    const report: Report = { entries, executed: 2, dryRunFiles: [], scope: 'all', score: 0.25, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    const text = formatSummary(report, '/p');
+    expect(text).toContain('Killed 1 · Survived 2 (1 not infected) · NoCoverage 1');
+    expect(text).toMatch(
+      /\nnot detected - tests run it, but none fails:\n  src\/a\.ts:3:1 .*\n\nnot infected - tests run it, but never with a value it changes:\n  src\/a\.ts:2:1 .*\n\nnot reached - no test runs it:\n  src\/a\.ts:1:1 /,
+    );
   });
 
   test('says how many mutants were not run because of sampling or the time budget', () => {
@@ -45,7 +55,7 @@ describe('formatSummary', () => {
     expect(text).toContain('Killed 1 · Survived 1\n');
     const listed = text.split('\n').filter((l) => l.startsWith('  src/'));
     expect(listed).toEqual([expect.stringMatching(/^  src\/a\.ts:1:1 +Survived/), expect.stringMatching(/^  src\/a\.ts:5:1 +Survived/)]);
-    expect(text).toMatch(/undetected:\n  src\/a\.ts:1:1.*\n\nkilled before, undetected now \(their killing test is gone\):\n  src\/a\.ts:5:1/);
+    expect(text).toMatch(/not detected - tests run it, but none fails:\n  src\/a\.ts:1:1.*\n\nkilled before, undetected now \(their killing test is gone\):\n  src\/a\.ts:5:1/);
   });
 });
 
@@ -54,5 +64,14 @@ describe('formatAnnotations', () => {
     const entries: ReportEntry[] = [{ ...entry(0, 'Survived'), focus: 'diff' }, { ...entry(1, 'Survived'), source: 'reuse' }, { ...entry(2, 'Survived'), focus: 'recheck' }];
     const report: Report = { entries, executed: 2, dryRunFiles: [], scope: 'diff', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
     expect(formatAnnotations(report, '/p').split('\n').map((l) => /line=(\d+)/.exec(l)?.[1])).toEqual(['1', '3']);
+  });
+
+  test('titles each annotation with the kind of gap; unreached code only with --since', () => {
+    const entries: ReportEntry[] = [entry(0, 'Survived'), { ...entry(1, 'Survived'), reason: 'notInfected' }, entry(2, 'NoCoverage')];
+    const report: Report = { entries, executed: 2, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    const titles = (r: Report) => formatAnnotations(r, '/p').split('\n').map((l) => /title=([^:]+)::/.exec(l)?.[1]);
+    expect(titles(report)).toEqual(['Mutant not detected', 'Mutant not infected']);
+    const diff: Report = { ...report, scope: 'diff', entries: entries.map((e) => ({ ...e, focus: 'diff' as const })) };
+    expect(titles(diff)).toEqual(['Mutant not detected', 'Mutant not infected', 'Mutant not reached']);
   });
 });

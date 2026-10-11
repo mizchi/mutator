@@ -210,3 +210,25 @@ describe('test dependencies', { timeout: 60_000 }, () => {
     }
   });
 });
+
+describe('weak mutation verdicts', { timeout: 60_000 }, () => {
+  test('a survivor decided without running is marked not infected, and stays so when reused', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `reason-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    try {
+      const first = await runMutation({ root, concurrency: 1 });
+      const decided = first.entries.filter((e) => e.source === 'static' && e.status === 'Survived');
+      expect(decided.length).toBeGreaterThan(0);
+      expect(decided.every((e) => e.reason === 'notInfected')).toBe(true);
+      expect(first.entries.filter((e) => e.source === 'run').every((e) => e.reason === undefined)).toBe(true);
+
+      const second = await runMutation({ root, concurrency: 1 });
+      const keys = new Set(decided.map((e) => e.mutant.key));
+      const reused = second.entries.filter((e) => keys.has(e.mutant.key));
+      expect(reused.every((e) => e.source === 'reuse' && e.reason === 'notInfected')).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

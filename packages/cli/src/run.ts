@@ -110,6 +110,8 @@ export interface ReportEntry {
    * killed before but whose killing tests are all gone. Other entries are context, not reported.
    */
   focus?: 'diff' | 'recheck';
+  /** A Survived mutant decided without running: no covering test reaches it with a value it changes. */
+  reason?: 'notInfected';
 }
 
 export interface Report {
@@ -288,7 +290,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
           // Covered, but no covering test reaches it with a different value: it cannot be
           // killed. Decided after type checking (an uncompilable mutant is a CompileError).
           notInfected.push(report.length);
-          report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy });
+          report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy, reason: 'notInfected' });
           break;
         case 'noCoverage':
           results.push(toResult(mutant, 'NoCoverage', [], []));
@@ -297,7 +299,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         case 'reuse':
           // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
           results.push({ ...entry.result, coveredBy });
-          report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy });
+          report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}) });
           break;
         case 'run':
           jobs.push({ index: report.length, entry });
@@ -309,9 +311,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
     for (const i of notInfected) {
       const entry = report[i]!;
-      if (uncompilable.has(entry.mutant.key)) report[i] = { ...entry, status: 'CompileError' };
+      if (uncompilable.has(entry.mutant.key)) {
+        const { reason: _reason, ...rest } = entry;
+        report[i] = { ...rest, status: 'CompileError' };
+      }
       // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
-      results.push(toResult(entry.mutant, report[i]!.status, [], entry.coveredBy));
+      const result = toResult(entry.mutant, report[i]!.status, [], entry.coveredBy);
+      results.push(report[i]!.reason ? { ...result, reason: 'notInfected' } : result);
     }
     for (let i = jobs.length - 1; i >= 0; i--) {
       const { index, entry } = jobs[i]!;

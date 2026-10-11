@@ -7,7 +7,7 @@ import type { MutantResult, MutantStatus, RunSnapshot } from '@mizchi/mutator-co
 // 333 MB snapshot as plain objects). File paths are relative to the project root
 // so a snapshot can be restored in another checkout (e.g. a CI cache).
 
-type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number];
+type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number | null, notInfected?: 1];
 
 interface Compact {
   format: 2;
@@ -26,7 +26,7 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
     const absolute = (file: string) => (isAbsolute(file) ? file : join(root, file));
     if (data.format === 2 && data.rows && data.ids && data.strings) {
       const { format: _format, rows, ids, strings, ...rest } = data;
-      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs]): MutantResult => ({
+      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs, notInfected]): MutantResult => ({
         key,
         file: absolute(strings[file]!),
         scopeId: strings[scope]!,
@@ -34,7 +34,8 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
         status,
         killedBy: killedBy.map((i) => ids[i]!),
         coveredBy: coveredBy.map((i) => ids[i]!),
-        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(durationMs !== undefined && durationMs !== null ? { durationMs } : {}),
+        ...(notInfected ? { reason: 'notInfected' as const } : {}),
       }));
       return { ...rest, results } as RunSnapshot;
     }
@@ -53,7 +54,8 @@ export function writeSnapshot(path: string, snapshot: RunSnapshot, root: string)
   const str = (s: string) => strings.get(s) ?? (strings.set(s, strings.size), strings.size - 1);
   const rows = results.map((r): Row => {
     const row: Row = [r.key, str(relative(root, r.file)), str(r.scopeId), r.scopeHash, r.status, r.killedBy.map(id), r.coveredBy.map(id)];
-    if (r.durationMs !== undefined) row.push(Math.round(r.durationMs * 10) / 10);
+    if (r.durationMs !== undefined || r.reason) row.push(r.durationMs !== undefined ? Math.round(r.durationMs * 10) / 10 : null);
+    if (r.reason) row.push(1);
     return row;
   });
   const compact: Compact = { format: 2, ids: [...ids.keys()], strings: [...strings.keys()], rows };

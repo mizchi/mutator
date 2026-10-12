@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      # npm provenance (and trusted publishing, once configured on npmjs.com)
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: Tag matches the package versions
+        run: |
+          for p in packages/*/package.json; do
+            v=$(node -p "require('./$p').version")
+            if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "$p is $v, tag is $GITHUB_REF_NAME"; exit 1; fi
+          done
+      - run: pnpm exec tsc -p .
+      - run: pnpm exec vitest run
+      - run: ./scripts/pack-smoke.sh
+      # pnpm rewrites workspace:* to the published versions; npm publish would not.
+      - run: pnpm -r publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release from the changelog
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v h="## $version" '$0 ~ "^"h { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

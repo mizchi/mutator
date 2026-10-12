@@ -8,34 +8,30 @@ import {
   type MutantResult,
   type MutantStatus,
   type PlanEntry,
-  type Range,
   type RunSnapshot,
+  type Session,
   type TestInfo,
   type SelectMode,
   DEFAULT_ARID_CALLEES,
   buildCallGraph,
-  changedLines,
   estimatedCost,
   hash,
   instrument,
-  lineRanges,
   orderByCost,
-  parseUnifiedDiff,
   plan,
   relatedScopes,
-  selectMutants,
   selectPerLine,
   testFileOf,
   toResult,
 } from '@mizchi/mutator-core';
-import { checkInWorker, createTypeChecker } from '@mizchi/mutator-typecheck';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
-import { type Runner, createRunnerSession, detectRunner } from './runner.ts';
-import { changedFiles, gitDiff } from './git.ts';
+import { type Runner, type RunnerSessionOptions, createRunnerSession, detectRunner } from './runner.ts';
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, planDryRun, scopeTable, testFileHashes } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
+import { diffTouched, sinceFocus } from './since.ts';
+import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
@@ -175,34 +171,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const root = resolve(options.root);
   const log = options.log ?? (() => {});
   const snapshotPath = options.snapshotPath ?? join(root, '.mutator', 'snapshot.json');
-  const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
-    cwd: root,
-    exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
-  }).map((f) => join(root, f));
-  const targets = new Set(files);
-
-  const plugins = await loadPlugins(root, options.plugins ?? []);
-  const arid = combineArid(options.arid, plugins.aridCallees);
-  const instrumentOptions: InstrumentFlags = {
-    ...(options.weakMutation === false ? { weak: false } : {}),
-    ...(arid !== undefined ? { arid } : {}),
-    ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
-    ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
-    ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
-  };
-  // An explicit runner config picks the runner; otherwise detect it from the project.
-  const runner =
-    options.runner && options.runner !== 'auto' ? options.runner : options.jestConfigFile ? 'jest' : options.configFile ? 'vitest' : detectRunner(root);
-  const configFile = runner === 'jest' ? options.jestConfigFile : options.configFile;
-  log(`runner: ${runner}`);
-  const sessionOptions = {
-    root,
-    targets,
-    ...instrumentOptions,
-    pluginModules: plugins.modules,
-    hasPluginObjects: plugins.hasObjects,
-    ...(configFile ? { configFile } : {}),
-  };
+  const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
   const session = await createRunnerSession(runner, sessionOptions);
   const sessions = [session];
   const unguard = guardWorkerExits(log);
@@ -218,8 +187,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === SNAPSHOT_VERSION && previous.envHash === envHash && previous.index !== undefined;
+    // The previous snapshot when it can be reused; every consumer below goes through this.
+    const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
-    const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {}, mutated);
+    const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
@@ -233,7 +204,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
-    const merged = mergeDryRun({ root, previous: valid ? previous : undefined, dry, dryFiles, testFiles, mutants });
+    const merged = mergeDryRun({ root, previous: reusable, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
     const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
     for (const test of merged.tests) {
@@ -250,7 +221,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       staticTests: staticTestsOf(merged),
       // Infection is known only for the tests this dry run executed.
       ...(dry.infected ? { infection: { infected: dry.infected, observed: new Set(dry.tests.map((t) => t.id)) } } : {}),
-      previous: valid ? previous : undefined,
+      previous: reusable,
       toolVersion: SNAPSHOT_VERSION,
       envHash,
       ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
@@ -258,132 +229,15 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
-    const inScope = touched ? sinceFocus(touched, valid ? previous.results : [], merged.tests) : undefined;
-    const notRun = { sampled: 0, budget: 0 };
-    const report: ReportEntry[] = [];
-    const results: MutantResult[] = [];
-    // Not run now; keep the coverage so the next run can still select tests for it.
-    const skip = (index: number, mutant: Mutant, coveredBy: string[]) => {
-      results.push(toResult(mutant, 'Pending', [], coveredBy));
-      report[index] = { mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy };
-    };
-
-    const jobs: { index: number; entry: Extract<PlanEntry, { kind: 'run' }> }[] = [];
-    const notInfected: number[] = [];
-    for (const entry of entries) {
-      const { mutant } = entry;
-      const coveredBy = [...(merged.coverage.get(mutant.key) ?? [])];
-      // Outside --since or sampled out: left Pending, whether it would run or be decided without running.
-      // A recheck is not sampled: it is the only run that notices its killing tests are gone.
-      const focus = inScope?.get(mutant.key);
-      const sampledOut = sampled !== undefined && !sampled.has(mutant.key) && focus !== 'recheck';
-      if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !focus) || sampledOut)) {
-        if (!inScope || focus) notRun.sampled++;
-        skip(report.length, mutant, coveredBy);
-        continue;
-      }
-      switch (entry.kind) {
-        case 'ignored':
-          results.push(toResult(mutant, 'Ignored', [], []));
-          report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy });
-          break;
-        case 'notInfected':
-          // Covered, but no covering test reaches it with a different value: it cannot be
-          // killed. Decided after type checking (an uncompilable mutant is a CompileError).
-          notInfected.push(report.length);
-          report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy, reason: 'notInfected' });
-          break;
-        case 'noCoverage':
-          results.push(toResult(mutant, 'NoCoverage', [], []));
-          report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [], coveredBy });
-          break;
-        case 'reuse':
-          // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
-          results.push({ ...entry.result, coveredBy });
-          report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}) });
-          break;
-        case 'run':
-          jobs.push({ index: report.length, entry });
-          report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
-          break;
-      }
-    }
-
+    const inScope = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
+    const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
+    const { report, results, notRun } = tally;
     const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
-    for (const i of notInfected) {
-      const entry = report[i]!;
-      if (uncompilable.has(entry.mutant.key)) {
-        const { reason: _reason, ...rest } = entry;
-        report[i] = { ...rest, status: 'CompileError' };
-      }
-      // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
-      const result = toResult(entry.mutant, report[i]!.status, [], entry.coveredBy);
-      results.push(report[i]!.reason ? { ...result, reason: 'notInfected' } : result);
-    }
-    for (let i = jobs.length - 1; i >= 0; i--) {
-      const { index, entry } = jobs[i]!;
-      const error = uncompilable.get(entry.mutant.key);
-      if (error === undefined) continue;
-      const coveredBy = [...(merged.coverage.get(entry.mutant.key) ?? [])];
-      results.push(toResult(entry.mutant, 'CompileError', [], coveredBy));
-      report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy };
-      jobs.splice(i, 1);
-    }
+    applyTypecheck(tally, jobs, notInfected, uncompilable, merged.coverage);
     log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
-    const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
-    // Under a budget, cheapest first: the budget then settles as many mutants as possible.
-    if (options.timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
-    // Long runs (typically static mutants, which run every test file that loaded them) are
-    // split by test file so idle sessions can take part of them.
-    const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
-    const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
-    const concurrency = Math.max(1, Math.min(options.concurrency ?? defaultConcurrency(), shardCount));
-    // In parallel mode every mutant session gets a single worker so sessions do not
-    // oversubscribe the CPU; a lone session keeps the runner's default workers.
-    const workers = concurrency === 1 ? [session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(runner, { ...sessionOptions, maxWorkers: 1 })));
-    if (concurrency > 1) sessions.push(...workers);
-    for (const s of workers) s.useTestIndex(merged.index);
-    const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : Infinity;
-    let executed = 0;
-    const neverStarted = await runSharded({
-      workers: workers.length,
-      jobs: sharded,
-      shouldStop: () => performance.now() >= deadline,
-      // A shard keeps its job's timeout: test durations leave out module loading, so a
-      // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
-      run: (worker, { entry }, tests) =>
-        workers[worker]!.runMutant(entry.mutant.key, [...tests], {
-          timeoutMs: entry.timeoutMs,
-          stallMs: stallBudget(tests, testDurations),
-          isStatic: entry.isStatic,
-          hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
-        }),
-      onDone: ({ index, entry }, outcome) => {
-        const { mutant } = entry;
-        executed++;
-        log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-        const { coveredBy } = report[index]!;
-        results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
-        report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
-      },
-    });
-    // Over the time budget: the jobs never started.
-    for (const { index, entry } of neverStarted) {
-      notRun.budget++;
-      skip(index, entry.mutant, report[index]!.coveredBy);
-    }
-    if (notRun.budget > 0) log(`time budget of ${options.timeBudget}s exhausted: ${notRun.budget} mutants not run`);
+    const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency });
 
-    const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: SNAPSHOT_VERSION, envHash, results, tests: merged.tests }, mutants);
-    const snapshot: CliSnapshot = {
-      ...core,
-      testFiles: finalTestFiles,
-      deps: Object.fromEntries(merged.deps),
-      index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
-      staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
-      hits: Object.fromEntries(merged.hits),
-      scopes: scopeTable(root, sources),
-    };
+    const snapshot = buildSnapshot(root, reusable, { envHash, results, mutants, merged, testFiles: finalTestFiles, sources });
     writeSnapshot(snapshotPath, snapshot, root);
     if (inScope) {
       for (const e of report) {
@@ -401,61 +255,212 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   }
 }
 
+/** Target files, plugins, and the runner with the options its sessions are created with. */
+async function resolveSetup(root: string, options: RunOptions, log: (message: string) => void) {
+  const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
+    cwd: root,
+    exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
+  }).map((f) => join(root, f));
+  const plugins = await loadPlugins(root, options.plugins ?? []);
+  const arid = combineArid(options.arid, plugins.aridCallees);
+  const instrumentOptions: InstrumentFlags = {
+    ...(options.weakMutation === false ? { weak: false } : {}),
+    ...(arid !== undefined ? { arid } : {}),
+    ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
+    ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
+    ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
+  };
+  // An explicit runner config picks the runner; otherwise detect it from the project.
+  const runner =
+    options.runner && options.runner !== 'auto' ? options.runner : options.jestConfigFile ? 'jest' : options.configFile ? 'vitest' : detectRunner(root);
+  const configFile = runner === 'jest' ? options.jestConfigFile : options.configFile;
+  log(`runner: ${runner}`);
+  const sessionOptions: RunnerSessionOptions = {
+    root,
+    targets: new Set(files),
+    ...instrumentOptions,
+    pluginModules: plugins.modules,
+    hasPluginObjects: plugins.hasObjects,
+    ...(configFile ? { configFile } : {}),
+  };
+  return { files, plugins, arid, instrumentOptions, runner, sessionOptions };
+}
+
+/** Report entries in plan order, and the results the snapshot records. */
+interface Tally {
+  report: ReportEntry[];
+  results: MutantResult[];
+  notRun: { sampled: number; budget: number };
+}
+
+type Job = { index: number; entry: Extract<PlanEntry, { kind: 'run' }> };
+
+/** Not run now; keep the coverage so the next run can still select tests for it. */
+function skip(tally: Tally, index: number, mutant: Mutant, coveredBy: string[]): void {
+  tally.results.push(toResult(mutant, 'Pending', [], coveredBy));
+  tally.report[index] = { mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy };
+}
+
+/**
+ * Settle the plan entries decided without running. Mutants to run become jobs; notInfected
+ * ones (report indices) wait for the type check.
+ */
+function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryRun['coverage'], inScope: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, sampled: ReadonlySet<string> | undefined) {
+  const tally: Tally = { report: [], results: [], notRun: { sampled: 0, budget: 0 } };
+  const { report, results, notRun } = tally;
+  const jobs: Job[] = [];
+  const notInfected: number[] = [];
+  for (const entry of entries) {
+    const { mutant } = entry;
+    const coveredBy = [...(coverage.get(mutant.key) ?? [])];
+    // Outside --since or sampled out: left Pending, whether it would run or be decided without running.
+    // A recheck is not sampled: it is the only run that notices its killing tests are gone.
+    const focus = inScope?.get(mutant.key);
+    const sampledOut = sampled !== undefined && !sampled.has(mutant.key) && focus !== 'recheck';
+    if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !focus) || sampledOut)) {
+      if (!inScope || focus) notRun.sampled++;
+      skip(tally, report.length, mutant, coveredBy);
+      continue;
+    }
+    switch (entry.kind) {
+      case 'ignored':
+        results.push(toResult(mutant, 'Ignored', [], []));
+        report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy });
+        break;
+      case 'notInfected':
+        // Covered, but no covering test reaches it with a different value: it cannot be
+        // killed. Decided after type checking (an uncompilable mutant is a CompileError).
+        notInfected.push(report.length);
+        report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy, reason: 'notInfected' });
+        break;
+      case 'noCoverage':
+        results.push(toResult(mutant, 'NoCoverage', [], []));
+        report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [], coveredBy });
+        break;
+      case 'reuse':
+        // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
+        results.push({ ...entry.result, coveredBy });
+        report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}) });
+        break;
+      case 'run':
+        jobs.push({ index: report.length, entry });
+        report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
+        break;
+    }
+  }
+  return { tally, jobs, notInfected };
+}
+
+/** Uncompilable mutants become CompileError (and leave `jobs`); the other notInfected ones are settled Survived. */
+function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], uncompilable: ReadonlyMap<string, string>, coverage: MergedDryRun['coverage']): void {
+  const { report, results } = tally;
+  for (const i of notInfected) {
+    const entry = report[i]!;
+    if (uncompilable.has(entry.mutant.key)) {
+      const { reason: _reason, ...rest } = entry;
+      report[i] = { ...rest, status: 'CompileError' };
+    }
+    // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
+    const result = toResult(entry.mutant, report[i]!.status, [], entry.coveredBy);
+    results.push(report[i]!.reason ? { ...result, reason: 'notInfected' } : result);
+  }
+  for (let i = jobs.length - 1; i >= 0; i--) {
+    const { index, entry } = jobs[i]!;
+    const error = uncompilable.get(entry.mutant.key);
+    if (error === undefined) continue;
+    const coveredBy = [...(coverage.get(entry.mutant.key) ?? [])];
+    results.push(toResult(entry.mutant, 'CompileError', [], coveredBy));
+    report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy };
+    jobs.splice(i, 1);
+  }
+}
+
+interface ExecuteContext {
+  root: string;
+  log: (message: string) => void;
+  runner: Runner;
+  sessionOptions: RunnerSessionOptions;
+  /** The dry run's session; parallel sessions created here are added to `sessions` for closing. */
+  session: Session;
+  sessions: Session[];
+  merged: MergedDryRun;
+  /** Start of the run, for the time budget. */
+  started: number;
+  timeBudget: number | undefined;
+  concurrency: number | undefined;
+}
+
+/** Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many ran. */
+async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<number> {
+  const { root, log, merged, timeBudget } = ctx;
+  const { report, results, notRun } = tally;
+  const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
+  // Under a budget, cheapest first: the budget then settles as many mutants as possible.
+  if (timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
+  // Long runs (typically static mutants, which run every test file that loaded them) are
+  // split by test file so idle sessions can take part of them.
+  const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
+  const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
+  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), shardCount));
+  // In parallel mode every mutant session gets a single worker so sessions do not
+  // oversubscribe the CPU; a lone session keeps the runner's default workers.
+  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
+  if (concurrency > 1) ctx.sessions.push(...workers);
+  for (const s of workers) s.useTestIndex(merged.index);
+  const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
+  let executed = 0;
+  const neverStarted = await runSharded({
+    workers: workers.length,
+    jobs: sharded,
+    shouldStop: () => performance.now() >= deadline,
+    // A shard keeps its job's timeout: test durations leave out module loading, so a
+    // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
+    run: (worker, { entry }, tests) =>
+      workers[worker]!.runMutant(entry.mutant.key, [...tests], {
+        timeoutMs: entry.timeoutMs,
+        stallMs: stallBudget(tests, testDurations),
+        isStatic: entry.isStatic,
+        hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
+      }),
+    onDone: ({ index, entry }, outcome) => {
+      const { mutant } = entry;
+      executed++;
+      log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
+      const { coveredBy } = report[index]!;
+      results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
+      report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
+    },
+  });
+  // Over the time budget: the jobs never started.
+  for (const { index, entry } of neverStarted) {
+    notRun.budget++;
+    skip(tally, index, entry.mutant, report[index]!.coveredBy);
+  }
+  if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
+  return executed;
+}
+
+/** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */
+function buildSnapshot(
+  root: string,
+  reusable: CliSnapshot | undefined,
+  run: { envHash: string; results: MutantResult[]; mutants: readonly Mutant[]; merged: MergedDryRun; testFiles: Record<string, string>; sources: ReadonlyMap<string, SourceInfo> },
+): CliSnapshot {
+  const { merged } = run;
+  const core = mergeSnapshot(reusable, { toolVersion: SNAPSHOT_VERSION, envHash: run.envHash, results: run.results, tests: merged.tests }, run.mutants);
+  return {
+    ...core,
+    testFiles: run.testFiles,
+    deps: Object.fromEntries(merged.deps),
+    index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
+    staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
+    hits: Object.fromEntries(merged.hits),
+    scopes: scopeTable(root, run.sources),
+  };
+}
+
 function defaultConcurrency(): number {
   return Math.max(1, Math.floor(availableParallelism() / 2));
-}
-
-const TS_FILE = /\.(c|m)?tsx?$/;
-
-/** Type checking of the mutants in `keys`, started on a worker thread while the dry run goes on. */
-interface EarlyTypecheck {
-  keys: ReadonlySet<string>;
-  result: Promise<{ version: string; errors: Map<string, string>; durationMs: number } | undefined>;
-  cancel: () => void;
-}
-
-/** Type-check `mutants` on a worker thread; a failure there leaves them to `typecheckJobs`. */
-function startTypecheck(root: string, mutants: readonly Mutant[]): EarlyTypecheck | undefined {
-  if (mutants.length === 0) return undefined;
-  const started = performance.now();
-  const abort = new AbortController();
-  const result = checkInWorker({ root, signal: abort.signal }, mutants).then(
-    (checked) => checked && { ...checked, durationMs: performance.now() - started },
-    () => undefined,
-  );
-  return { keys: new Set(mutants.map((m) => m.key)), result, cancel: () => abort.abort() };
-}
-
-async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void, early?: EarlyTypecheck): Promise<Map<string, string>> {
-  const all = mutants.filter((m) => TS_FILE.test(m.file));
-  if (setting === false || all.length === 0) {
-    early?.cancel();
-    return new Map();
-  }
-  const pre = await early?.result;
-  const errors = new Map<string, string>();
-  if (pre) {
-    for (const m of all) {
-      const error = pre.errors.get(m.key);
-      if (error !== undefined) errors.set(m.key, error);
-    }
-    log(`typecheck (TypeScript ${pre.version}): ${early!.keys.size} mutants in ${(pre.durationMs / 1000).toFixed(1)}s, alongside the dry run`);
-  }
-  const candidates = pre ? all.filter((m) => !early!.keys.has(m.key)) : all;
-  if (candidates.length === 0) return errors;
-  const checker = await createTypeChecker({ root });
-  if (!checker) {
-    if (setting === true) throw new Error('typecheck: no typescript package or tsconfig.json found in the project');
-    return new Map();
-  }
-  try {
-    const started = performance.now();
-    const result = checker.check(candidates);
-    log(`typecheck (TypeScript ${checker.version}): ${candidates.length} mutants in ${((performance.now() - started) / 1000).toFixed(1)}s`);
-    return new Map([...errors, ...result]);
-  } finally {
-    checker.close();
-  }
 }
 
 /**
@@ -520,40 +525,12 @@ function importResolver(files: readonly string[]) {
   };
 }
 
-/** Keys of the mutants touched by the diff. */
-function diffTouched(root: string, since: string, mutants: readonly Mutant[], mode: SelectMode): Set<string> {
-  const changed = new Map<string, readonly Range[]>();
-  for (const fd of parseUnifiedDiff(gitDiff(root, since))) {
-    if (!fd.newPath) continue;
-    const file = join(root, fd.newPath);
-    if (!existsSync(file)) continue;
-    changed.set(file, lineRanges(readFileSync(file, 'utf8'), changedLines(fd)));
-  }
-  for (const rel of changedFiles(root, since, { untracked: true })) {
-    const file = join(root, rel);
-    if (!changed.has(file) && existsSync(file)) changed.set(file, [{ start: 0, end: readFileSync(file, 'utf8').length }]);
-  }
-  return new Set(selectMutants(mutants, changed, mode).map((m) => m.key));
-}
-
 /**
- * The mutants a --since run reports: those in the diff, and those outside it that were killed
- * before by tests that are all gone now (removed or renamed), so a deleted test cannot hide.
- * Code a changed test merely covers is left out: its survivors predate the change.
+ * Keep cached results of mutants that still exist but were not part of this run.
+ * `previous` must already be reusable (same tool version and environment as `current`).
  */
-function sinceFocus(touched: ReadonlySet<string>, previous: readonly MutantResult[], tests: readonly { id: string }[]): Map<string, 'diff' | 'recheck'> {
-  const focus = new Map<string, 'diff' | 'recheck'>([...touched].map((k) => [k, 'diff']));
-  const present = new Set(tests.map((t) => t.id));
-  for (const r of previous) {
-    if (focus.has(r.key) || r.status !== 'Killed' || r.killedBy.length === 0) continue;
-    if (r.killedBy.every((t) => !present.has(t))) focus.set(r.key, 'recheck');
-  }
-  return focus;
-}
-
-/** Keep cached results of mutants that still exist but were not part of this run. */
 function mergeSnapshot(previous: RunSnapshot | undefined, current: RunSnapshot, mutants: readonly Mutant[]): RunSnapshot {
-  if (!previous || previous.toolVersion !== current.toolVersion || previous.envHash !== current.envHash) return current;
+  if (!previous) return current;
   const written = new Set(current.results.map((r) => r.key));
   const alive = new Map(mutants.map((m) => [m.key, m.scope.hash]));
   const kept = previous.results.filter((r) => !written.has(r.key) && alive.get(r.key) === r.scopeHash);

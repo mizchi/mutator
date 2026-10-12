@@ -7,6 +7,7 @@ import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseCli, resolveValues } from './options.ts';
 import { formatAnnotations, formatSummary } from './report.ts';
 import { BaselineError, runMutation } from './run.ts';
+import { VERSION } from './version.ts';
 
 const USAGE = `usage: mutator [options]
 
@@ -37,6 +38,7 @@ const USAGE = `usage: mutator [options]
   --threshold-break <n>  exit 2 when the mutation score (%) is below n
   --fail-on-survived   exit 2 when a mutant survives
   -h, --help
+  -v, --version
 
 Boolean flags can be negated (--no-fail-on-survived) to override the config file.
 
@@ -52,13 +54,16 @@ try {
     console.log(USAGE);
     process.exit(0);
   }
+  if (values.version) {
+    console.log(VERSION);
+    process.exit(0);
+  }
   const options = await resolveValues(values, process.cwd());
   const { root, reporters } = options;
   if (options.configPath) console.error(`config: ${options.configPath}`);
   const report = await runMutation({
     root,
     ...options.run,
-    ...(options.typecheck !== undefined ? { typecheck: options.typecheck } : {}),
     log: (message) => console.error(message),
   });
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));

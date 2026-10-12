@@ -8,8 +8,6 @@ import { createNativeChecker } from './native.ts';
 import type { TypeChecker, TypecheckMutant } from './types.ts';
 
 export type { CheckerOptions, TypeChecker, TypecheckMutant } from './types.ts';
-export { createClassicChecker } from './classic.ts';
-export { createNativeChecker } from './native.ts';
 
 /**
  * A type checker backed by the project's own `typescript`: the compiler API for

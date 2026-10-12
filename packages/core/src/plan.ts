@@ -170,34 +170,6 @@ export function plan(input: PlanInput): PlanEntry[] {
   });
 }
 
-export function testsToRecollect(input: {
-  mutants: readonly Mutant[];
-  tests: readonly TestInfo[];
-  previous: RunSnapshot | undefined;
-  toolVersion: string;
-  envHash: string;
-}): { all: true } | { all: false; tests: string[]; unknownScopes: string[] } {
-  const previous = validPrevious(input.previous, input.toolVersion, input.envHash);
-  if (!previous) return { all: true };
-  const current = new Set(input.tests.map((t) => t.id));
-  const wanted = new Set([
-    ...changedTests(previous, input.tests),
-    ...changedScopesByTest(previous, input.mutants, undefined).keys(),
-  ]);
-  const known = new Set(previous.results.map((r) => scopeKey(r.file, r.scopeId)));
-  const unknown = new Set(
-    input.mutants
-      .filter((m) => m.ignored === undefined)
-      .map((m) => scopeKey(m.file, m.scope.id))
-      .filter((s) => !known.has(s)),
-  );
-  return {
-    all: false,
-    tests: [...wanted].filter((t) => current.has(t)).sort(),
-    unknownScopes: [...unknown].sort(),
-  };
-}
-
 /**
  * Full current coverage = previous coverage (for unchanged mutants, minus re-measured tests)
  * ∪ freshly recollected coverage. The caller is responsible for validating `previous`

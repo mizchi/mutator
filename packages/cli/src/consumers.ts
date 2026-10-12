@@ -3,7 +3,7 @@
 // mutant test selection (which tests can observe a mutated declaration).
 import { join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { type ImportBinding, type Scope, scanImports } from '@mizchi/mutator-core';
+import { type ImportBinding, type Scope, isTopLevelScope, scanImports } from '@mizchi/mutator-core';
 
 /** What the planners need to know about each mutated source. */
 export interface SourceInfo {
@@ -21,7 +21,6 @@ export interface Importer {
   mutated: boolean;
 }
 
-export const isTopLevel = (scopeId: string) => scopeId.startsWith('<top');
 const SCRIPT = /\.[cm]?[jt]sx?$/;
 
 /**
@@ -101,7 +100,7 @@ export function followNames(input: {
     const [file, name] = pending.pop()!;
     for (const scope of scopes.get(file)?.values() ?? []) {
       if (!scope.refs?.includes(name)) continue;
-      if (isTopLevel(scope.id)) {
+      if (isTopLevelScope(scope.id)) {
         if (!scope.pure) invalidated.add(file);
         else for (const declared of scope.declares ?? []) use(file, declared);
         continue;

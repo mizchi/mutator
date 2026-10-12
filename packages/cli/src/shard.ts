@@ -1,9 +1,7 @@
 // Splits long mutant runs into per-test-file shards so idle sessions can share them.
 // A mutant that loads with a widely imported module (a static mutant) must run every
 // test file that imported it; on one single-worker session that is the slowest job of a run.
-import type { MutantRunResult } from '@mizchi/mutator-core';
-
-const fileOf = (test: string) => test.slice(0, test.indexOf('#'));
+import { type MutantRunResult, testFileOf } from '@mizchi/mutator-core';
 
 /**
  * Tests grouped by test file (in order of first appearance, so likely killers stay first)
@@ -13,7 +11,7 @@ export function splitByFile(tests: readonly string[], durations: ReadonlyMap<str
   const cost = (ts: readonly string[]) => ts.reduce((sum, t) => sum + (durations.get(t) ?? 0), 0);
   if (cost(tests) <= targetMs) return [[...tests]];
   const byFile = new Map<string, string[]>();
-  for (const t of tests) byFile.set(fileOf(t), [...(byFile.get(fileOf(t)) ?? []), t]);
+  for (const t of tests) byFile.set(testFileOf(t), [...(byFile.get(testFileOf(t)) ?? []), t]);
   const shards: string[][] = [];
   let current: string[] = [];
   for (const group of byFile.values()) {

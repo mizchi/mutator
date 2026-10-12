@@ -25,6 +25,7 @@ import {
   relatedScopes,
   selectMutants,
   selectPerLine,
+  testFileOf,
   toResult,
 } from '@mizchi/mutator-core';
 import { checkInWorker, createTypeChecker } from '@mizchi/mutator-typecheck';
@@ -36,12 +37,12 @@ import { oneLine } from './report.ts';
 import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 
-// Bump whenever mutators or the snapshot format change: new mutants in unchanged
-// code have no cached coverage, so old snapshots must not be reused.
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
 
-export const TOOL_VERSION = '0.0.5';
+// Bump whenever mutators or the snapshot format change: new mutants in unchanged
+// code have no cached coverage, so old snapshots must not be reused.
+export const SNAPSHOT_VERSION = '0.0.5';
 
 export interface RunOptions {
   root: string;
@@ -216,7 +217,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const settings = JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
     const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
-    const valid = previous !== undefined && previous.toolVersion === TOOL_VERSION && previous.envHash === envHash && previous.index !== undefined;
+    const valid = previous !== undefined && previous.toolVersion === SNAPSHOT_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, valid ? previous.deps : {}, mutated);
     const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
@@ -236,7 +237,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
     const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
     for (const test of merged.tests) {
-      const file = test.id.slice(0, test.id.indexOf('#'));
+      const file = testFileOf(test.id);
       if (dryFiles.has(file)) test.fingerprint = hash(`${finalTestFiles[file]}\0${test.id}`);
     }
     session.useTestIndex(merged.index);
@@ -250,7 +251,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       // Infection is known only for the tests this dry run executed.
       ...(dry.infected ? { infection: { infected: dry.infected, observed: new Set(dry.tests.map((t) => t.id)) } } : {}),
       previous: valid ? previous : undefined,
-      toolVersion: TOOL_VERSION,
+      toolVersion: SNAPSHOT_VERSION,
       envHash,
       ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
       ...(dryPlan.all ? {} : { affected: { tests: testsOf(merged.tests, new Set(dryPlan.stale)), scopes: new Set(dryPlan.impacted) } }),
@@ -373,7 +374,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     }
     if (notRun.budget > 0) log(`time budget of ${options.timeBudget}s exhausted: ${notRun.budget} mutants not run`);
 
-    const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: TOOL_VERSION, envHash, results, tests: merged.tests }, mutants);
+    const core = mergeSnapshot(valid ? previous : undefined, { toolVersion: SNAPSHOT_VERSION, envHash, results, tests: merged.tests }, mutants);
     const snapshot: CliSnapshot = {
       ...core,
       testFiles: finalTestFiles,
@@ -406,7 +407,7 @@ function defaultConcurrency(): number {
 
 const TS_FILE = /\.(c|m)?tsx?$/;
 
-/** Mutant key -> first new type error, for mutants of TypeScript files that do not compile. */
+/** Type checking of the mutants in `keys`, started on a worker thread while the dry run goes on. */
 interface EarlyTypecheck {
   keys: ReadonlySet<string>;
   result: Promise<{ version: string; errors: Map<string, string>; durationMs: number } | undefined>;
@@ -474,13 +475,13 @@ function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]):
   return { callees: [...(arid?.callees ?? DEFAULT_ARID_CALLEES), ...extra] };
 }
 
-const testsOf = (tests: readonly TestInfo[], files: ReadonlySet<string>) => new Set(tests.map((t) => t.id).filter((id) => files.has(id.slice(0, id.indexOf('#')))));
+const testsOf = (tests: readonly TestInfo[], files: ReadonlySet<string>) => new Set(tests.map((t) => t.id).filter((id) => files.has(testFileOf(id))));
 
 /** Static mutant key -> tests of the test files whose module loading executed it. */
 function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   const testsByFile = new Map<string, string[]>();
   for (const t of merged.tests) {
-    const file = t.id.slice(0, t.id.indexOf('#'));
+    const file = testFileOf(t.id);
     testsByFile.set(file, [...(testsByFile.get(file) ?? []), t.id]);
   }
   const out = new Map<string, string[]>();
@@ -490,9 +491,9 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   return out;
 }
 
-/** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
 type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators' | 'weak'>;
 
+/** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
 function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
   const sources = new Map<string, SourceInfo>();
   const graphSources: CallGraphSource[] = [];

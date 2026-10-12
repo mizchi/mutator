@@ -1,7 +1,7 @@
 import { type Frame, type Node, isFunction } from './ast.ts';
 import type { Range } from './types.ts';
 
-export interface ScopeInfo {
+interface ScopeInfo {
   id: string;
   node: Node;
   /** Depth of the frame path where this scope starts (for relative AST paths). */
@@ -16,6 +16,9 @@ const SIGN = /[+-]/;
  * keep string / template contents verbatim. Whitespace that can change meaning
  * survives: line breaks (ASI) and spaces between words or between `+` / `-`.
  */
+/** Top-level code of a module gets scope ids starting with `<top`; functions are named by their path. */
+export const isTopLevelScope = (scopeId: string): boolean => scopeId.startsWith('<top');
+
 export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[], holes: readonly Range[] = []): string {
   const skip = comments.filter((c) => c.start >= range.start && c.end <= range.end);
   const keep = literals.filter((l) => l.start >= range.start && l.end <= range.end);
@@ -73,7 +76,7 @@ function keyName(key: Node, source: string): string {
 }
 
 /** Position independent name of a function-like node, or undefined when anonymous. */
-export function functionName(frame: Frame, source: string): string | undefined {
+function functionName(frame: Frame, source: string): string | undefined {
   const { node } = frame;
   if (node.id?.type === 'Identifier') return node.id.name;
   const parent = frame.parent?.node;
@@ -121,7 +124,7 @@ function callbackName(call: Node): string | undefined {
  * Name of the class or object literal owning a method / property function,
  * e.g. `K` for `class K { m() {} }` and `api` for `const api = { run() {} }`.
  */
-export function ownerName(frame: Frame, source: string): string | undefined {
+function ownerName(frame: Frame, source: string): string | undefined {
   const parent = frame.parent;
   if (!parent) return undefined;
   if (parent.node.type === 'MethodDefinition' || parent.node.type === 'PropertyDefinition') {
@@ -178,7 +181,7 @@ export class ScopeTracker {
     const { node } = frame;
     let id: string | undefined;
     if (isFunction(node)) {
-      const parentId = this.current && !this.current.id.startsWith('<top') ? this.current.id : '';
+      const parentId = this.current && !isTopLevelScope(this.current.id) ? this.current.id : '';
       let name = functionName(frame, this.source);
       const owner = ownerName(frame, this.source);
       if (name && owner) name = `${owner}.${name}`;

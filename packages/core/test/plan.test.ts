@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeCoverage, plan, testsToRecollect, toResult } from '../src/plan.ts';
+import { mergeCoverage, plan, toResult } from '../src/plan.ts';
 import type {
   Mutant,
   MutantResult,
@@ -413,58 +413,6 @@ describe('plan reuse: static mutants', () => {
     const previous = snapshot([result(a, 'Survived')], [test('t1', 10, 'old')]);
     const e = only(plan(input({ mutants: [a], tests: [test('t1')], previous, staticKeys: new Set(['a']) })));
     expect(e).toMatchObject({ kind: 'run', isStatic: true, tests: ['t1'] });
-  });
-});
-
-// ---- testsToRecollect -------------------------------------------------------
-
-describe('testsToRecollect', () => {
-  const a = mutant('a');
-  const b = mutant('b', { scope: 'g', hash: 'g1' });
-  const base = { toolVersion: 'v1', envHash: 'e1' };
-
-  it('recollects everything without previous', () => {
-    expect(testsToRecollect({ ...base, mutants: [a], tests: [test('t1')], previous: undefined })).toEqual({
-      all: true,
-    });
-  });
-
-  it('recollects everything when env changed', () => {
-    const previous = snapshot([], [test('t1')], { envHash: 'e0' });
-    expect(testsToRecollect({ ...base, mutants: [a], tests: [test('t1')], previous })).toEqual({ all: true });
-  });
-
-  it('returns nothing when nothing changed', () => {
-    const tests = [test('t1')];
-    const previous = snapshot([result(a, 'Survived', ['t1'])], tests);
-    expect(testsToRecollect({ ...base, mutants: [a], tests, previous })).toEqual({
-      all: false,
-      tests: [],
-      unknownScopes: [],
-    });
-  });
-
-  it('includes new and changed tests but not removed ones', () => {
-    const previous = snapshot([], [test('same'), test('changed', 10, 'old'), test('removed')]);
-    const tests = [test('same'), test('changed'), test('added')];
-    const r = testsToRecollect({ ...base, mutants: [], tests, previous });
-    expect(r).toEqual({ all: false, tests: ['added', 'changed'], unknownScopes: [] });
-  });
-
-  it('includes tests that covered a changed scope', () => {
-    const tests = [test('t1'), test('t2'), test('t3')];
-    const previous = snapshot([result(a, 'Survived', ['t1']), result(b, 'Killed', ['t2'], ['t2'])], tests);
-    const bNow = mutant('b', { scope: 'g', hash: 'g2' });
-    const r = testsToRecollect({ ...base, mutants: [a, bNow], tests, previous });
-    expect(r).toEqual({ all: false, tests: ['t2'], unknownScopes: [] });
-  });
-
-  it('reports scopes with no previous results as unknown', () => {
-    const fresh = mutant('n', { file: 'n.ts', scope: 'newFn' });
-    const ign = mutant('i', { file: 'n.ts', scope: 'ignoredFn', ignored: 'x' });
-    const previous = snapshot([result(a, 'Survived', ['t1'])], [test('t1')]);
-    const r = testsToRecollect({ ...base, mutants: [a, fresh, fresh, ign], tests: [test('t1')], previous });
-    expect(r).toEqual({ all: false, tests: [], unknownScopes: ['n.ts#newFn'] });
   });
 });
 

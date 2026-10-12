@@ -59,7 +59,6 @@ afterEach(({ task }) => {
 afterAll(({}, suite) => {
   const meta = suite.meta as Record<string, unknown>;
   meta.mutatorStatic = ns.cov.static;
-  meta.mutatorTotalHits = ns.hits;
   // Hits per mutant summed over the modules this file loaded (sizes hit limits).
   const counts: Record<string, number> = {};
   for (const [keys, n] of ns.modules) for (let i = 0; i < keys.length; i++) if (n[i]) counts[keys[i]!] = (counts[keys[i]!] ?? 0) + n[i]!;

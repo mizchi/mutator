@@ -1,6 +1,7 @@
 // Experimental static call graph between scopes, resolved by name.
 // It only sees calls written in the sources; values passed through test code
 // (`f(g(x))` in a test) connect f and g without any edge here.
+import { isTopLevelScope } from './scope.ts';
 import type { CallSite, ImportBinding, Scope } from './types.ts';
 
 export interface CallGraphSource {
@@ -14,7 +15,7 @@ export interface CallGraphSource {
 export type CallGraph = Map<string, Set<string>>;
 
 const key = (file: string, scope: string) => `${file}#${scope}`;
-const isTopLevel = (scopeKey: string) => scopeKey.slice(scopeKey.indexOf('#') + 1).startsWith('<top');
+const isTopLevel = (scopeKey: string) => isTopLevelScope(scopeKey.slice(scopeKey.indexOf('#') + 1));
 const fileOf = (scopeKey: string) => scopeKey.slice(0, scopeKey.indexOf('#'));
 
 export function buildCallGraph(sources: readonly CallGraphSource[], resolve: (from: string, specifier: string) => string | undefined): CallGraph {

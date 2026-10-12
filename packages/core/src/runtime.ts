@@ -6,6 +6,10 @@ export const RUNTIME_COLLECT = '__mutator_c';
 export const RUNTIME_HIT = '__mutator_hit';
 export const RUNTIME_COV = '__mutator_cov';
 export const RUNTIME_WEAK = '__mutator_w';
+/** Thrown by instrumented code once a run exceeds its hit limit; adapters report such a run as a Timeout. */
+export const HIT_LIMIT_MESSAGE = 'mutator: hit limit reached';
+/** Hit limit of dry runs and of mutant runs without a measured one. */
+export const DEFAULT_HIT_LIMIT = 1_000_000;
 
 /** Shape of `globalThis.__mutator__`, shared between instrumented code and the adapter. */
 export interface RuntimeState {
@@ -20,10 +24,6 @@ export interface RuntimeState {
   testId: string | null;
   hits: number;
   hitLimit: number;
-}
-
-export function createRuntimeState(init: Partial<RuntimeState> = {}): RuntimeState {
-  return { active: null, collect: true, cov: { static: {}, perTest: {} }, testId: null, hits: 0, hitLimit: Infinity, ...init };
 }
 
 /**
@@ -44,7 +44,7 @@ export function runtimeHeader(keys: readonly string[]): string {
     `var ${RUNTIME_ACTIVE} = __mutator_s.active, ${RUNTIME_COLLECT} = __mutator_s.collect !== false;`,
     `var __mutator_k = ${JSON.stringify(keys)}, __mutator_seen = new Int32Array(${keys.length}), __mutator_n = new Float64Array(${keys.length}), __mutator_t = {}, __mutator_g = 0;`,
     `if (${RUNTIME_COLLECT}) (__mutator_s.modules ??= []).push([__mutator_k, __mutator_n]);`,
-    `function ${RUNTIME_HIT}() { var ns = globalThis.${RUNTIME_GLOBAL}; if (++ns.hits > ns.hitLimit) throw new Error("mutator: hit limit reached (" + ns.hits + ")"); return true; }`,
+    `function ${RUNTIME_HIT}() { var ns = globalThis.${RUNTIME_GLOBAL}; if (++ns.hits > ns.hitLimit) throw new Error("${HIT_LIMIT_MESSAGE} (" + ns.hits + ")"); return true; }`,
     // Weak mutation (dry runs only): the side-effect-free original value, then (mutant
     // index, mutated value) pairs; a difference marks the mutant as infected by the current test.
     `var __mutator_iseen = new Int32Array(${keys.length}), __mutator_it = {}, __mutator_ig = 0;`,
@@ -53,11 +53,3 @@ export function runtimeHeader(keys: readonly string[]): string {
   ].join('\n');
 }
 
-/** Total hits per mutant key across the modules loaded by this runtime (dry runs). */
-export function collectedCounts(state: { modules?: [readonly string[], ArrayLike<number>][] }): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [keys, counts] of state.modules ?? []) {
-    for (let i = 0; i < keys.length; i++) if (counts[i]) out[keys[i]!] = (out[keys[i]!] ?? 0) + counts[i]!;
-  }
-  return out;
-}

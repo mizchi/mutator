@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { extname, relative } from 'node:path';
 import type { Position } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
-import { type Report, TOOL_VERSION } from './run.ts';
+import type { Report } from './run.ts';
+import { VERSION } from './version.ts';
 
 /** mutation-testing-elements release loaded by the HTML report (and the schema version tests validate against). */
 export const MTE_VERSION = '3.9.0';
@@ -70,7 +71,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     schemaVersion: '2',
     thresholds: { high: thresholds.high, low: thresholds.low },
     projectRoot: root,
-    framework: { name: 'mutator', version: TOOL_VERSION },
+    framework: { name: 'mutator', version: VERSION },
     files,
     testFiles,
   };

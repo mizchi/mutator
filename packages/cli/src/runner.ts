@@ -37,7 +37,7 @@ function resolves(root: string, specifier: string): boolean {
   }
 }
 
-export interface RunnerSessionOptions extends Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators'> {
+export interface RunnerSessionOptions extends Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators' | 'weak'> {
   root: string;
   /** Absolute paths of the sources to mutate. */
   targets: ReadonlySet<string>;

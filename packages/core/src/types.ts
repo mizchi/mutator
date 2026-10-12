@@ -173,8 +173,9 @@ export interface MutantResult {
 export interface TestInfo {
   id: string;
   /**
-   * Opaque fingerprint supplied by the adapter: changes whenever the test body
-   * or anything it depends on (that is not itself mutated) changes.
+   * Opaque fingerprint: changes whenever the test body or anything it depends on
+   * (that is not itself mutated) changes. The CLI derives it from the test file's hash
+   * and its dependencies.
    */
   fingerprint: string;
   durationMs: number;
@@ -184,7 +185,7 @@ export interface TestInfo {
 export interface RunSnapshot {
   /** Tool / mutator-set version; a mismatch invalidates everything. */
   toolVersion: string;
-  /** Hash of lockfile, tsconfig, runner config, node version ... supplied by the adapter. */
+  /** Hash of lockfile, tsconfig, runner config, node version ...; computed by the caller (the CLI). */
   envHash: string;
   results: MutantResult[];
   tests: TestInfo[];

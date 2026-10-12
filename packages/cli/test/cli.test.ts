@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
@@ -13,6 +13,12 @@ test('--help documents config files and exit codes', () => {
   expect(stdout).toContain('--config-file <file>');
   expect(stdout).toContain('--threshold-break <n>');
   expect(stdout).toMatch(/exit codes:\s+0 [^\n]+\n\s+1 [^\n]+\n\s+2 [^\n]+\n\s+4 /);
+});
+
+test('--version prints the package version', () => {
+  const { status, stdout } = run('--version');
+  expect(status).toBe(0);
+  expect(stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../package.json'), 'utf8')).version);
 });
 
 test('an invalid config file exits 1 with the reason', () => {

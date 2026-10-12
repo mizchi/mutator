@@ -7,7 +7,7 @@ import { schema } from 'mutation-testing-report-schema';
 import { describe, expect, test } from 'vitest';
 import { MTE_VERSION, formatHtml, formatMutationTestingJson } from '../src/mte-report.ts';
 import type { Report, ReportEntry } from '../src/run.ts';
-import { TOOL_VERSION } from '../src/run.ts';
+import { VERSION } from '../src/version.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'mutator-mte-'));
 const source = 'export function add(a, b) {\n  return a + b;\n}\n';
@@ -66,7 +66,7 @@ describe('formatMutationTestingJson', () => {
       schemaVersion: '2',
       thresholds: { high: 80, low: 60 },
       projectRoot: root,
-      framework: { name: 'mutator', version: TOOL_VERSION },
+      framework: { name: 'mutator', version: VERSION },
     });
   });
 

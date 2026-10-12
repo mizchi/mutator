@@ -8,9 +8,9 @@ import type { InstrumentOptions } from '@mizchi/mutator-core';
 
 // Published builds run from dist/; the CommonJS helpers ship in src/.
 const own = (name: string) => fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? `./${name}` : `../src/${name}`, import.meta.url));
-export const TRANSFORMER = own('transformer.cjs');
+const TRANSFORMER = own('transformer.cjs');
 export const SETUP_FILE = own('setup.cjs');
-export const HOOKS_FILE = own('hooks.cjs');
+const HOOKS_FILE = own('hooks.cjs');
 
 /** Jest's own default pattern for JavaScript / TypeScript. */
 const SOURCE_PATTERN = '\\.[cm]?[jt]sx?$';

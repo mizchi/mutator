@@ -1,8 +1,10 @@
 export type * from './types.ts';
 export type * from './runner.ts';
+export { emptyDryRun, numberDuplicates, testFileOf } from './runner.ts';
 export { applyMutant, instrument, scanImports } from './instrument.ts';
 export { hash } from './hash.ts';
-export { RUNTIME_GLOBAL, type RuntimeState, collectedCounts, createRuntimeState } from './runtime.ts';
+export { isTopLevelScope } from './scope.ts';
+export { DEFAULT_HIT_LIMIT, HIT_LIMIT_MESSAGE, RUNTIME_GLOBAL, type RuntimeState } from './runtime.ts';
 export {
   type DiffHunk,
   type FileDiff,
@@ -10,11 +12,9 @@ export {
   changedLines,
   lineRanges,
   parseUnifiedDiff,
-  renameMap,
   selectMutants,
-  verifyDiff,
 } from './diff.ts';
-export { mergeCoverage, plan, testsToRecollect, toResult } from './plan.ts';
+export { mergeCoverage, plan, toResult } from './plan.ts';
 export { type CallGraph, type CallGraphSource, buildCallGraph, relatedScopes } from './callgraph.ts';
 export { DEFAULT_ARID_CALLEES } from './arid.ts';
 export { defineIgnorer, defineMutator, definePlugin } from './plugin.ts';

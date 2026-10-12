@@ -9,7 +9,6 @@ export interface ResolvedOptions {
   /** The config file that was loaded, if any. */
   configPath?: string;
   run: Omit<RunOptions, 'root' | 'log'>;
-  typecheck?: boolean | 'auto';
   reporters: Set<Reporter>;
   reportDir: string;
   thresholds: Thresholds;
@@ -42,6 +41,7 @@ const OPTIONS = {
   'mutants-per-line': { type: 'string' },
   'time-budget': { type: 'string' },
   help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean', short: 'v' },
 } as const;
 
 /** Config key -> flag, for error messages about command line values. */
@@ -143,8 +143,8 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.excludedMutators?.length ? { excludedMutators: config.excludedMutators } : {}),
       ...(config.mutantsPerLine !== undefined ? { mutantsPerLine: config.mutantsPerLine } : {}),
       ...(config.timeBudget !== undefined ? { timeBudget: config.timeBudget } : {}),
+      ...(config.typecheck !== undefined ? { typecheck: config.typecheck } : {}),
     },
-    ...(config.typecheck !== undefined ? { typecheck: config.typecheck } : {}),
     reporters: new Set(config.reporters ?? ['text']),
     reportDir: resolve(root, config.reportDir ?? join('.mutator', 'report')),
     thresholds,

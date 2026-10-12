@@ -1,5 +1,6 @@
 // Runner contract: what a test-runner adapter (Vitest, Jest, ...) implements so the
-// CLI can orchestrate dry runs and mutant runs without knowing the runner. Types only.
+// CLI can orchestrate dry runs and mutant runs without knowing the runner, plus
+// the small helpers every adapter needs to produce the same results.
 import type { Mutant, MutantStatus, TestInfo } from './types.ts';
 
 /** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
@@ -60,4 +61,21 @@ export interface Session {
   /** Reuse the test index of another session's dry run instead of running one. */
   useTestIndex(index: ReadonlyMap<string, TestLocation>): void;
   close(): Promise<void>;
+}
+
+/** Test ids are `<test file>#<full name>`: the test file part (relative to root). */
+export const testFileOf = (testId: string): string => testId.slice(0, testId.indexOf('#'));
+
+export function emptyDryRun(): DryRunResult {
+  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map(), deps: new Map() };
+}
+
+/** Numbers repeated ids `#2`, `#3`, ... in encounter order, so tests sharing a full name stay distinct. */
+export function numberDuplicates(): (id: string) => string {
+  const seen = new Map<string, number>();
+  return (id) => {
+    const n = (seen.get(id) ?? 0) + 1;
+    seen.set(id, n);
+    return n > 1 ? `${id}#${n}` : id;
+  };
 }

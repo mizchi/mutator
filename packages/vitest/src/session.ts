@@ -1,18 +1,28 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type DryRunResult, type MutantRunResult, type Session, type TestInfo, type TestLocation, hash } from '@mizchi/mutator-core';
+import {
+  DEFAULT_HIT_LIMIT,
+  type DryRunResult,
+  HIT_LIMIT_MESSAGE,
+  type MutantRunResult,
+  type Session,
+  type TestInfo,
+  type TestLocation,
+  emptyDryRun,
+  hash,
+  numberDuplicates,
+} from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
 import { createVitest } from 'vitest/node';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
 import type {} from './provided.ts';
 
-// The runner contract lives in core; re-exported for existing imports.
+// The runner contract lives in core; re-exported for convenience.
 export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLocation } from '@mizchi/mutator-core';
 
 // Published builds ship setup.js next to session.js.
 const SETUP_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url));
-const DEFAULT_HIT_LIMIT = 1_000_000;
 
 export interface SessionOptions extends PluginOptions {
   root: string;
@@ -23,8 +33,9 @@ export interface SessionOptions extends PluginOptions {
   /** Stop a mutant run at the first failing test (default: true). */
   earlyExit?: boolean;
   /**
-   * Vitest pool (default: 'threads'). Threads stuck in a mutant's infinite loop are
-   * terminated with the instance; forked workers can outlive it as orphans.
+   * Vitest pool (default: 'forks'). Forks are force-killed on timeout, and one crashing
+   * cannot take the CLI down; force-terminating a thread stuck in a loop occasionally
+   * crashes the whole process. 'threads' starts faster.
    */
   pool?: 'threads' | 'forks';
 }
@@ -212,10 +223,6 @@ function testId(root: string, test: TestCase): string {
   return `${relative(root, test.module.moduleId)}#${test.fullName}`;
 }
 
-function emptyDryRun(): DryRunResult {
-  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map(), deps: new Map() };
-}
-
 function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const tests: TestInfo[] = [];
   const coverage = new Map<string, string[]>();
@@ -225,7 +232,7 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const index = new Map<string, TestLocation>();
   const staticByFile = new Map<string, Set<string>>();
   const infected = new Map<string, string[]>();
-  const seen = new Map<string, number>();
+  const distinct = numberDuplicates();
 
   for (const module of result.testModules) {
     const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorCounts?: Record<string, number> };
@@ -239,10 +246,7 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
     if (module.errors().length > 0) failed.push(relative(root, module.moduleId));
     const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
     for (const test of module.children.allTests()) {
-      let id = testId(root, test);
-      const n = (seen.get(id) ?? 0) + 1;
-      seen.set(id, n);
-      if (n > 1) id = `${id}#${n}`;
+      const id = distinct(testId(root, test));
       index.set(id, { moduleId: module.moduleId, taskId: test.id });
       const state = test.result().state;
       if (state === 'skipped') continue;
@@ -297,8 +301,6 @@ function collectDeps(vitest: Vitest, testFiles: readonly string[], options: Sess
   return deps;
 }
 
-const HIT_LIMIT = 'mutator: hit limit reached';
-
 function classify(
   result: TestRunResult,
   root: string,
@@ -332,5 +334,5 @@ function classify(
 
 function hitLimitOnly(test: TestCase): boolean {
   const errors = test.result().errors ?? [];
-  return errors.length > 0 && errors.every((e) => e.message?.includes(HIT_LIMIT));
+  return errors.length > 0 && errors.every((e) => e.message?.includes(HIT_LIMIT_MESSAGE));
 }

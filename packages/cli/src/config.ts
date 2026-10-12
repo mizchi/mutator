@@ -56,7 +56,7 @@ export function defineConfig(config: MutatorConfig): MutatorConfig {
 
 export const DEFAULT_THRESHOLDS: Thresholds = { high: 80, low: 60, break: null };
 
-export const CONFIG_FILES = ['mutator.config.ts', 'mutator.config.mts', 'mutator.config.mjs', 'mutator.config.js', 'mutator.config.json'];
+const CONFIG_FILES = ['mutator.config.ts', 'mutator.config.mts', 'mutator.config.mjs', 'mutator.config.js', 'mutator.config.json'];
 
 export class ConfigError extends Error {}
 
@@ -173,7 +173,7 @@ export function schemaErrors(value: unknown, schema: Schema, path: string): stri
   return [];
 }
 
-export function thresholdErrors(thresholds: Partial<Thresholds> | undefined): string[] {
+function thresholdErrors(thresholds: Partial<Thresholds> | undefined): string[] {
   const { high, low } = { ...DEFAULT_THRESHOLDS, ...thresholds };
   return high < low ? [`thresholds.high (${high}) must be >= thresholds.low (${low})`] : [];
 }

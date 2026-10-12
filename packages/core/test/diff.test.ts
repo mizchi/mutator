@@ -3,9 +3,7 @@ import {
   changedLines,
   lineRanges,
   parseUnifiedDiff,
-  renameMap,
   selectMutants,
-  verifyDiff,
   type FileDiff,
 } from '../src/diff.ts';
 import type { Range } from '../src/types.ts';
@@ -284,30 +282,6 @@ describe('changedLines (cargo-mutants semantics)', () => {
   });
 });
 
-describe('verifyDiff', () => {
-  const f = hunkFile('@@ -2,3 +2,3 @@', ' b', '-c', '+C', ' d');
-
-  it('accepts a source matching the new side', () => {
-    expect(verifyDiff(f, 'a\nb\nC\nd\ne\n')).toEqual({ ok: true });
-  });
-
-  it('accepts CRLF sources', () => {
-    expect(verifyDiff(f, 'a\r\nb\r\nC\r\nd\r\n')).toEqual({ ok: true });
-  });
-
-  it('reports the first mismatching line', () => {
-    expect(verifyDiff(f, 'a\nb\nc\nd\n')).toEqual({ ok: false, line: 3, expected: 'C', actual: 'c' });
-  });
-
-  it('reports lines past EOF with an empty actual', () => {
-    expect(verifyDiff(f, 'a\nb\nC\n')).toEqual({ ok: false, line: 4, expected: 'd', actual: '' });
-  });
-
-  it('accepts binary / hunkless diffs', () => {
-    expect(verifyDiff({ oldPath: 'x', newPath: 'x', hunks: [], binary: true }, 'anything')).toEqual({ ok: true });
-  });
-});
-
 describe('lineRanges', () => {
   const src = 'ab\ncde\n\nfg';
 
@@ -336,18 +310,6 @@ describe('lineRanges', () => {
 
   it('ignores out-of-range line numbers', () => {
     expect(lineRanges(src, [0, 99])).toEqual([]);
-  });
-});
-
-describe('renameMap', () => {
-  it('maps old -> new for renames only', () => {
-    const files: FileDiff[] = [
-      { oldPath: 'a.ts', newPath: 'b.ts', hunks: [], binary: false },
-      { oldPath: 'c.ts', newPath: 'c.ts', hunks: [], binary: false },
-      { oldPath: null, newPath: 'd.ts', hunks: [], binary: false },
-      { oldPath: 'e.ts', newPath: null, hunks: [], binary: false },
-    ];
-    expect(renameMap(files)).toEqual(new Map([['a.ts', 'b.ts']]));
   });
 });
 

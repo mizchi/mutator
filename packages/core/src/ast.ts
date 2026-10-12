@@ -38,12 +38,12 @@ const TS_RUNTIME = new Set([
   'TSExportAssignment',
 ]);
 
-export function isNode(value: unknown): value is Node {
+function isNode(value: unknown): value is Node {
   return typeof value === 'object' && value !== null && typeof (value as Node).type === 'string';
 }
 
 /** Nodes whose subtree contains no mutable runtime code. */
-export function isSkippedNode(node: Node): boolean {
+function isSkippedNode(node: Node): boolean {
   if (node.type.startsWith('TS')) return !TS_RUNTIME.has(node.type);
   switch (node.type) {
     case 'ImportDeclaration':
@@ -65,7 +65,7 @@ export function isSkippedNode(node: Node): boolean {
   }
 }
 
-export function childFrames(frame: Frame): Frame[] {
+function childFrames(frame: Frame): Frame[] {
   const node = frame.node;
   const keys = visitorKeys[node.type] ?? [];
   const out: Frame[] = [];

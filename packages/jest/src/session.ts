@@ -6,15 +6,19 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
+  DEFAULT_HIT_LIMIT,
   type DryRunResult,
+  HIT_LIMIT_MESSAGE,
   type InstrumentOptions,
   type Mutant,
   type MutantRunResult,
   type Session,
   type TestInfo,
   type TestLocation,
+  emptyDryRun,
   hash,
   instrument,
+  numberDuplicates,
 } from '@mizchi/mutator-core';
 import { type JestProject, mutatorJestConfig, readJestProject } from './config.ts';
 
@@ -33,8 +37,6 @@ export interface JestSessionOptions {
   pluginModules?: readonly string[];
 }
 
-const DEFAULT_HIT_LIMIT = 1_000_000;
-const HIT_LIMIT = 'mutator: hit limit reached';
 /** Jest start-up allowance added to every mutant timeout until a run has been measured. */
 const DEFAULT_STARTUP_MS = 3000;
 
@@ -259,29 +261,17 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
 
-function emptyDryRun(): DryRunResult {
-  return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map(), deps: new Map() };
-}
-
 const SKIPPED = new Set(['pending', 'skipped', 'todo', 'disabled', 'focused']);
 
 /** Test ids with `#n` suffixes for duplicate full names, as the vitest session does. */
 function* identify(suite: SuiteResult, root: string): Generator<{ id: string; assertion: AssertionResult; coverageKey: string }> {
   const rel = relative(root, suite.name);
-  const seen = new Map<string, number>();
-  const executed = new Map<string, number>();
+  const distinct = numberDuplicates();
+  const executed = numberDuplicates();
   for (const assertion of suite.assertionResults) {
-    let id = `${rel}#${assertion.fullName}`;
-    const n = (seen.get(id) ?? 0) + 1;
-    seen.set(id, n);
-    if (n > 1) id = `${id}#${n}`;
+    const id = distinct(`${rel}#${assertion.fullName}`);
     // The setup hooks only see executed tests; their counter skips skipped ones.
-    let coverageKey = assertion.fullName;
-    if (!SKIPPED.has(assertion.status)) {
-      const m = (executed.get(assertion.fullName) ?? 0) + 1;
-      executed.set(assertion.fullName, m);
-      if (m > 1) coverageKey = `${assertion.fullName}#${m}`;
-    }
+    const coverageKey = SKIPPED.has(assertion.status) ? assertion.fullName : executed(assertion.fullName);
     yield { id, assertion, coverageKey };
   }
 }
@@ -335,7 +325,7 @@ function classify(report: JsonReport, root: string, selected: ReadonlySet<string
   }
   if (killedBy.length === 0) return { status: 'Survived', killedBy };
   // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (messages.every((m) => m.includes(HIT_LIMIT))) return { status: 'Timeout', killedBy: [] };
+  if (messages.every((m) => m.includes(HIT_LIMIT_MESSAGE))) return { status: 'Timeout', killedBy: [] };
   if (suiteError && killedBy.every((k) => !k.includes('#'))) return { status: 'RuntimeError', killedBy };
   return { status: 'Killed', killedBy };
 }

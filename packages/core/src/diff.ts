@@ -252,24 +252,6 @@ export function changedLines(file: FileDiff): number[] {
   return [...out].sort((a, b) => a - b);
 }
 
-export function verifyDiff(
-  file: FileDiff,
-  newSource: string,
-): { ok: true } | { ok: false; line: number; expected: string; actual: string } {
-  const sourceLines = newSource.split(/\r?\n/);
-  for (const h of file.hunks) {
-    let lineno = firstNewLine(h);
-    for (const line of h.lines) {
-      if (line[0] === '-') continue;
-      const expected = line.slice(1);
-      const actual = sourceLines[lineno - 1] ?? '';
-      if (expected !== actual) return { ok: false, line: lineno, expected, actual };
-      lineno++;
-    }
-  }
-  return { ok: true };
-}
-
 export function lineRanges(source: string, lines: readonly number[]): Range[] {
   const starts = [0];
   for (let i = 0; i < source.length; i++) if (source[i] === '\n') starts.push(i + 1);
@@ -288,14 +270,6 @@ export function lineRanges(source: string, lines: readonly number[]): Range[] {
     prev = n;
   }
   return out;
-}
-
-export function renameMap(files: readonly FileDiff[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const f of files) {
-    if (f.oldPath !== null && f.newPath !== null && f.oldPath !== f.newPath) map.set(f.oldPath, f.newPath);
-  }
-  return map;
 }
 
 // ---- selection --------------------------------------------------------------

@@ -11,7 +11,7 @@ const MAX_LISTED = 20;
  * Where the tests stopped short of an undetected mutant, in the order a fault must pass
  * (reach, infect, reveal); each calls for a different fix.
  */
-export type Gap = 'notDetected' | 'notInfected' | 'notReached';
+type Gap = 'notDetected' | 'notInfected' | 'notReached';
 
 const GAPS: readonly { gap: Gap; heading: string; title: string }[] = [
   // Its value changes (or could not be checked) and no assertion notices: strengthen an assertion.
@@ -22,7 +22,7 @@ const GAPS: readonly { gap: Gap; heading: string; title: string }[] = [
   { gap: 'notReached', heading: 'not reached - no test runs it:', title: 'Mutant not reached' },
 ];
 
-export function gapOf(e: ReportEntry): Gap | undefined {
+function gapOf(e: ReportEntry): Gap | undefined {
   if (e.status === 'NoCoverage') return 'notReached';
   if (e.status === 'Survived') return e.reason === 'notInfected' ? 'notInfected' : 'notDetected';
   return undefined;

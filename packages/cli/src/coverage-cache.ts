@@ -1,11 +1,21 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join, relative } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { type Mutant, type MutantResult, type RunSnapshot, type Scope, type TestInfo, hash, mergeCoverage } from '@mizchi/mutator-core';
-import { type SourceInfo, followNames, importGraph, isTopLevel, loadersOf } from './consumers.ts';
+import {
+  type DryRunResult,
+  type Mutant,
+  type MutantResult,
+  type RunSnapshot,
+  type Scope,
+  type TestInfo,
+  type TestLocation,
+  hash,
+  isTopLevelScope,
+  mergeCoverage,
+} from '@mizchi/mutator-core';
+import { type SourceInfo, followNames, importGraph, loadersOf } from './consumers.ts';
 
 export type { SourceInfo } from './consumers.ts';
-import type { DryRunResult, TestLocation } from '@mizchi/mutator-vitest';
 
 /** Snapshot persisted by the CLI: the core run snapshot plus adapter-level coverage data. */
 export interface CliSnapshot extends RunSnapshot {
@@ -138,7 +148,7 @@ export function planDryRun(input: {
       const b = before[id];
       const a = after.get(id);
       if (b?.hash === a?.hash) continue;
-      if (isTopLevel(id)) {
+      if (isTopLevelScope(id)) {
         if (b) topLevel(file, b);
         if (a) topLevel(file, { hash: a.hash, declares: a.declares ?? [], pure: a.pure ?? false });
       } else if (b && a) {

@@ -7,7 +7,7 @@ import { disabledBy } from './disable.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, RUNTIME_WEAK, runtimeHeader } from './runtime.ts';
-import { ScopeTracker, normalize } from './scope.ts';
+import { ScopeTracker, isTopLevelScope, normalize } from './scope.ts';
 import type { CallSite, ImportBinding, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
@@ -58,7 +58,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       if (tracker.enter(frame, path.length)) {
         const info = tracker.current!;
         const scope: Scope = { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) };
-        if (info.id.startsWith('<top')) Object.assign(scope, topLevelInfo(info.node));
+        if (isTopLevelScope(info.id)) Object.assign(scope, topLevelInfo(info.node));
         scopes.set(info.node, scope);
         refs.set(info.node, new Set());
       }

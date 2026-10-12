@@ -26,7 +26,7 @@ describe('resolveOptions', () => {
       run: { scope: 'node', fullDryRun: false, callGraph: false },
     });
     expect(options.configPath).toBeUndefined();
-    expect(options.typecheck).toBeUndefined();
+    expect(options.run.typecheck).toBeUndefined();
   });
 
   test('config file fields map onto run options', async () => {
@@ -53,8 +53,8 @@ describe('resolveOptions', () => {
       reportDir: join(root, 'out'),
       thresholds: { high: 80, low: 60, break: 70 },
       failOnSurvived: true,
-      typecheck: 'auto',
       run: {
+        typecheck: 'auto',
         include: ['lib/**'],
         exclude: ['lib/x.ts'],
         since: 'main',
@@ -70,9 +70,9 @@ describe('resolveOptions', () => {
 
   test('typecheck: config value, overridden by --no-typecheck', async () => {
     const root = project({ typecheck: true });
-    expect((await resolve(root)).typecheck).toBe(true);
-    expect((await resolve(root, '--no-typecheck')).typecheck).toBe(false);
-    expect((await resolve(project())).typecheck).toBeUndefined();
+    expect((await resolve(root)).run.typecheck).toBe(true);
+    expect((await resolve(root, '--no-typecheck')).run.typecheck).toBe(false);
+    expect((await resolve(project())).run.typecheck).toBeUndefined();
   });
 
   test('CLI flags override the config file', async () => {

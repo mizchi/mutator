@@ -8,12 +8,21 @@ Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vi
 - **Result reuse** – mutant identity is position independent (`file + scope path + AST path + mutator + replacement`), and every result is cached with the hash of its enclosing function. Unchanged code with unchanged covering tests is never re-run.
 - **`--since <ref>`** – only mutants touched by `git diff <ref>` are executed or decided, and only they are counted, listed, annotated and checked by `--fail-on-survived`. The others needing work stay `Pending`, including those weak mutation would decide without running. A changed test file does not pull in the code it covers, since its survivors predate the change. The exception is a mutant outside the diff that was killed before but whose killing tests are all gone (removed or renamed): it is rechecked and listed apart as "killed before, undetected now". A test edited so that it no longer kills is not noticed; a full run catches it. The mutants in the diff are type-checked on a worker thread while the dry run goes on.
 
+## Install
+
+Requires Node.js 24 or later.
+
+```sh
+pnpm add -D @mizchi/mutator
+```
+
 ## Usage
 
 ```sh
-node packages/cli/src/cli.ts --root <project>               # full run, writes .mutator/snapshot.json
-node packages/cli/src/cli.ts --root <project>               # second run reuses unchanged results
-node packages/cli/src/cli.ts --root <project> --since main  # PR mode
+npx mutator                # full run, writes .mutator/snapshot.json
+npx mutator                # second run reuses unchanged results
+npx mutator --since main   # PR mode
+npx mutator --root <dir>   # another project directory
 ```
 
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
@@ -25,7 +34,7 @@ Mutants in logging-only code (calls matching `console.*`, `logger.*`, `log.*`, `
 ### Reports
 
 ```sh
-node packages/cli/src/cli.ts --root <project> --reporter text --reporter html --reporter json
+npx mutator --reporter text --reporter html --reporter json
 ```
 
 The text summary lists undetected mutants in three groups. Each group says where the tests stopped short, which calls for a different fix:
@@ -204,6 +213,7 @@ Mutants left out by either option are reported as `Pending` (excluded from the s
 | `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
 | `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
+| `@mizchi/mutator-typecheck` | type-checks mutants with the project's own TypeScript (compiler API for 6, native API for 7) so that ill-typed ones are reported as `CompileError` without running. |
 | `@mizchi/mutator` | CLI / orchestration: git, snapshot, report. |
 
 ## Development

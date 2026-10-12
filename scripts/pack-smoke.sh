@@ -6,6 +6,8 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/pack" "$work/app"
+# The packages are versioned in lockstep.
+version=$(node -p "require('$repo/packages/cli/package.json').version")
 for p in core vitest jest typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
 cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test,vitest.config.ts} "$work/app/"
 cat > "$work/app/package.json" <<JSON
@@ -14,7 +16,7 @@ cat > "$work/app/package.json" <<JSON
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-0.0.0.tgz",
+    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
     "vitest": "5.0.3"
   }
 }
@@ -22,10 +24,10 @@ JSON
 cat > "$work/app/pnpm-workspace.yaml" <<YAML
 packages: []
 overrides:
-  "@mizchi/mutator-core": "file:$work/pack/mizchi-mutator-core-0.0.0.tgz"
-  "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-0.0.0.tgz"
-  "@mizchi/mutator-typecheck": "file:$work/pack/mizchi-mutator-typecheck-0.0.0.tgz"
-  "@mizchi/mutator-jest": "file:$work/pack/mizchi-mutator-jest-0.0.0.tgz"
+  "@mizchi/mutator-core": "file:$work/pack/mizchi-mutator-core-$version.tgz"
+  "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-$version.tgz"
+  "@mizchi/mutator-typecheck": "file:$work/pack/mizchi-mutator-typecheck-$version.tgz"
+  "@mizchi/mutator-jest": "file:$work/pack/mizchi-mutator-jest-$version.tgz"
 YAML
 cd "$work/app"
 pnpm install --prefer-offline >/dev/null
@@ -41,7 +43,7 @@ cat > "$work/jest-app/package.json" <<JSON
   "private": true,
   "type": "module",
   "devDependencies": {
-    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-0.0.0.tgz",
+    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
     "jest": "30.5.2"
   }
 }

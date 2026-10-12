@@ -2,9 +2,18 @@
   "name": "@mizchi/mutator",
   "version": "0.0.0",
   "type": "module",
-  "description": "Diff-driven mutation testing for Vitest",
+  "description": "Diff-driven mutation testing for Vitest and Jest",
+  "keywords": [
+    "mutation-testing",
+    "vitest",
+    "jest",
+    "testing",
+    "cli"
+  ],
   "license": "MIT",
   "author": "mizchi",
+  "homepage": "https://github.com/mizchi/mutator#readme",
+  "bugs": "https://github.com/mizchi/mutator/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mizchi/mutator.git",
@@ -21,6 +30,9 @@
     "schema",
     "src"
   ],
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*",
     "@mizchi/mutator-jest": "workspace:*",
@@ -32,6 +44,7 @@
     "prepack": "tsc -p tsconfig.build.json"
   },
   "publishConfig": {
+    "access": "public",
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",

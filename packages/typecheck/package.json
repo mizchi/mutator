@@ -3,8 +3,14 @@
   "version": "0.0.0",
   "type": "module",
   "description": "Type-check mutants with the project's TypeScript (6 via the compiler API, 7 via the native API)",
+  "keywords": [
+    "mutation-testing",
+    "typescript"
+  ],
   "license": "MIT",
   "author": "mizchi",
+  "homepage": "https://github.com/mizchi/mutator#readme",
+  "bugs": "https://github.com/mizchi/mutator/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mizchi/mutator.git",
@@ -17,11 +23,15 @@
     "dist",
     "src"
   ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "prepack": "tsc -p tsconfig.build.json"
   },
   "publishConfig": {
+    "access": "public",
     "exports": {
       ".": {
         "types": "./dist/index.d.ts",

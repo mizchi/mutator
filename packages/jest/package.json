@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator-jest",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Jest adapter for @mizchi/mutator-core (experimental)",
   "keywords": [

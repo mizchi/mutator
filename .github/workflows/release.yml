@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # npm provenance (and trusted publishing, once configured on npmjs.com)
+      # npm trusted publishing (OIDC) and provenance
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -29,10 +29,17 @@ jobs:
       - run: pnpm exec tsc -p .
       - run: pnpm exec vitest run
       - run: ./scripts/pack-smoke.sh
-      # pnpm rewrites workspace:* to the published versions; npm publish would not.
-      - run: pnpm -r publish --access public --provenance --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # pnpm pack rewrites workspace:* to the published versions; npm publishes the
+      # tarballs, authenticating through OIDC (trusted publishing, npm >= 11.5.1),
+      # which also attaches provenance.
+      - run: npm install -g npm@11
+      - name: Publish
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          for p in core vitest jest typecheck cli; do
+            (cd "packages/$p" && pnpm pack --pack-destination "$RUNNER_TEMP/pack")
+          done
+          for t in "$RUNNER_TEMP"/pack/*.tgz; do npm publish "$t" --access public; done
       - name: GitHub release from the changelog
         run: |
           version=${GITHUB_REF_NAME#v}

@@ -224,6 +224,6 @@ pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exe
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, publishes with `pnpm -r publish --provenance` (it needs the `NPM_TOKEN` secret), and creates the GitHub release from the changelog section.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
 Design notes and the survey of StrykerJS / cargo-mutants / PIT live in [`docs/`](./docs).

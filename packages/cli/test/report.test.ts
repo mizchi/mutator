@@ -39,6 +39,15 @@ describe('formatSummary', () => {
     expect(formatSummary({ ...report, uncollectedTests: [] }, '/p')).not.toContain('warning:');
   });
 
+  test('counts accepted mutants and lists accepted entries that are killed now or gone', () => {
+    const entries = [{ ...entry(0, 'Ignored'), accepted: 'equivalent' }, entry(1, 'Killed')];
+    const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'all', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 }, acceptance: { killed: ['k1'], stale: ['gone'] } };
+    const text = formatSummary(report, '/p');
+    expect(text).toContain('accepted: 1 undetected mutant (mutator.accepted.json)');
+    expect(text).toMatch(/\naccepted, but detected now - remove from mutator\.accepted\.json:\n  src\/a\.ts:2:1 .*k1/);
+    expect(text).toMatch(/\naccepted, but the mutant no longer exists - remove from mutator\.accepted\.json:\n  gone/);
+  });
+
   test('says how many mutants were not run because of sampling or the time budget', () => {
     const entries = [entry(0, 'Killed'), entry(1, 'Pending'), entry(2, 'Pending'), entry(3, 'Pending')];
     const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 2, budget: 1 } };
@@ -71,6 +80,11 @@ describe('formatAnnotations', () => {
     const entries: ReportEntry[] = [{ ...entry(0, 'Survived'), focus: 'diff' }, { ...entry(1, 'Survived'), source: 'reuse' }, { ...entry(2, 'Survived'), focus: 'recheck' }];
     const report: Report = { entries, executed: 2, dryRunFiles: [], scope: 'diff', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
     expect(formatAnnotations(report, '/p').split('\n').map((l) => /line=(\d+)/.exec(l)?.[1])).toEqual(['1', '3']);
+  });
+
+  test('says how to accept the mutant if it is equivalent', () => {
+    const report: Report = { entries: [entry(0, 'Survived')], executed: 1, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    expect(formatAnnotations(report, '/p')).toMatch(/::ArithmeticOperator: a \+ b -> a - b \(if equivalent: mutator accept k0 --reason \.\.\.\)$/);
   });
 
   test('titles each annotation with the kind of gap; unreached code only with --since', () => {

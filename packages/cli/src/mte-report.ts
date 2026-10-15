@@ -40,7 +40,7 @@ const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 export function formatMutationTestingJson(report: Report, root: string, thresholds: Thresholds = DEFAULT_THRESHOLDS): MteReport {
   const files: MteReport['files'] = {};
   const tests = new Set<string>();
-  for (const { mutant, status, killedBy, coveredBy, reason } of report.entries) {
+  for (const { mutant, status, killedBy, coveredBy, reason, accepted } of report.entries) {
     const path = relative(root, mutant.file);
     files[path] ??= {
       language: TS_EXTENSIONS.has(extname(path)) ? 'typescript' : 'javascript',
@@ -58,6 +58,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       coveredBy,
       ...(mutant.ignored ? { statusReason: mutant.ignored } : {}),
       ...(reason === 'notInfected' ? { statusReason: 'not infected: no covering test reaches it with a value it changes' } : {}),
+      ...(accepted !== undefined ? { statusReason: `accepted: ${accepted}` } : {}),
     });
     for (const id of [...coveredBy, ...killedBy]) tests.add(id);
   }

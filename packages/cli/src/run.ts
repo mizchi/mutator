@@ -31,6 +31,7 @@ import { oneLine } from './report.ts';
 import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 import { diffTouched, sinceFocus, uncollectedTests } from './since.ts';
+import { applyAcceptance } from './accepted.ts';
 import { changedFiles } from './git.ts';
 import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
@@ -79,6 +80,8 @@ export interface RunOptions {
    * different value; covered mutants no test infects are decided Survived without running.
    */
   weakMutation?: boolean;
+  /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
+  accepted?: ReadonlyMap<string, string>;
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -110,6 +113,8 @@ export interface ReportEntry {
   focus?: 'diff' | 'recheck';
   /** A Survived mutant decided without running: no covering test reaches it with a value it changes. */
   reason?: 'notInfected';
+  /** Undetected but accepted (mutator.accepted.json), with the recorded reason; the status is then `Ignored`. */
+  accepted?: string;
 }
 
 export interface Report {
@@ -126,6 +131,8 @@ export interface Report {
   notRun: { sampled: number; budget: number };
   /** With --since: changed test files (relative) the runner does not collect. */
   uncollectedTests?: string[];
+  /** With accepted mutants: those detected now (their entry can go), and entries whose mutant no longer exists. */
+  acceptance?: { killed: string[]; stale: string[] };
 }
 
 export class BaselineError extends Error {}
@@ -249,8 +256,19 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         if (focus) e.focus = focus;
       }
     }
-    const scored = inScope ? report.filter((e) => e.focus === 'diff') : report;
-    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun, ...(uncollected ? { uncollectedTests: uncollected } : {}) };
+    const acceptance = options.accepted?.size ? applyAcceptance(report, options.accepted) : undefined;
+    const final = acceptance?.entries ?? report;
+    const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
+    return {
+      entries: final,
+      executed,       dryRunFiles: [...dryFiles].sort(),
+      score: score(scored),
+      scope: inScope ? 'diff' : 'all',
+      durationMs: performance.now() - started,
+      notRun,
+      ...(uncollected ? { uncollectedTests: uncollected } : {}),
+      ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
+    };
   } finally {
     early?.cancel();
     await Promise.all(sessions.map((s) => s.close()));

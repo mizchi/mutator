@@ -31,6 +31,8 @@ Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, 
 
 Mutants in logging-only code (calls matching `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`, and blocks / ifs that only log) are reported as `Ignored (arid)` and not run, following Google's arid-node rule. Disable per line with `// mutator-disable-next-line [Mutator]: reason` (StrykerJS `// Stryker disable` comments are honoured too).
 
+An undetected mutant judged equivalent (no input can observe it, e.g. `?.` on a value that is never nullish) can be accepted without touching the source: `mutator accept <key>... --reason <text>` records it in `mutator.accepted.json` at the project root, which is meant to be committed. Keys are the `id`s in `mutation.json`, and GitHub annotations print the command for each mutant. An accepted mutant still runs and keeps its cached verdict, but is reported as `Ignored` (`statusReason: accepted: <reason>`), outside the score and `--fail-on-survived`. Keys do not depend on position, so an entry survives edits that move the code. The summary lists entries whose mutant is detected now or no longer exists, so they can be removed.
+
 ### Reports
 
 ```sh

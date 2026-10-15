@@ -1,15 +1,18 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { parseArgs } from 'node:util';
+import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { qualityGate } from './gate.ts';
-import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
+import { type MteReport, formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseCli, resolveValues } from './options.ts';
-import { formatAnnotations, formatSummary } from './report.ts';
+import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { BaselineError, runMutation } from './run.ts';
 import { VERSION } from './version.ts';
 
 const USAGE = `usage: mutator [options]
+       mutator accept <key>... --reason <text>   record undetected mutants as accepted (${ACCEPTED_FILE})
 
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
@@ -49,6 +52,10 @@ exit codes:
   4  tests fail without mutants (baseline)`;
 
 try {
+  if (process.argv[2] === 'accept') {
+    accept(process.argv.slice(3));
+    process.exit(0);
+  }
   const values = parseCli(process.argv.slice(2));
   if (values.help) {
     console.log(USAGE);
@@ -61,9 +68,11 @@ try {
   const options = await resolveValues(values, process.cwd());
   const { root, reporters } = options;
   if (options.configPath) console.error(`config: ${options.configPath}`);
+  const accepted = readAccepted(join(root, ACCEPTED_FILE));
   const report = await runMutation({
     root,
     ...options.run,
+    ...(accepted.size > 0 ? { accepted } : {}),
     log: (message) => console.error(message),
   });
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));
@@ -91,4 +100,22 @@ try {
     process.exit(4);
   }
   throw error;
+}
+
+/** `mutator accept <key>... --reason <text>`: records undetected mutants as accepted. */
+function accept(argv: string[]): void {
+  const { values, positionals } = parseArgs({ args: argv, options: { reason: { type: 'string' }, root: { type: 'string' }, 'report-dir': { type: 'string' } }, allowPositionals: true });
+  if (positionals.length === 0 || !values.reason) throw new ConfigError('accept: give the mutant keys (the `id`s in mutation.json) and --reason <text>');
+  const root = resolve(values.root ?? '.');
+  // Describe each mutant from the last JSON report, when there is one.
+  const where = new Map<string, string>();
+  const reportFile = join(resolve(root, values['report-dir'] ?? join('.mutator', 'report')), 'mutation.json');
+  if (existsSync(reportFile)) {
+    const json = JSON.parse(readFileSync(reportFile, 'utf8')) as MteReport;
+    for (const [file, { mutants }] of Object.entries(json.files)) {
+      for (const m of mutants) where.set(m.id, `${file}:${m.location.start.line}:${m.location.start.column} ${m.mutatorName}: ${oneLine(m.replacement)}`);
+    }
+  }
+  acceptMutants(join(root, ACCEPTED_FILE), positionals, values.reason, where);
+  console.error(`accepted ${positionals.length} mutant(s) in ${ACCEPTED_FILE}`);
 }

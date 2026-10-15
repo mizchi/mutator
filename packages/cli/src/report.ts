@@ -1,6 +1,7 @@
 import { relative } from 'node:path';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { reported, scoreLevel } from './gate.ts';
+import { ACCEPTED_FILE } from './accepted.ts';
 import type { Report, ReportEntry } from './run.ts';
 
 const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'CompileError', 'Ignored', 'Pending'] as const;
@@ -57,15 +58,23 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
+  const accepted = main.filter((e) => e.accepted !== undefined).length;
+  if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
   for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap), root);
   list(lines, 'killed before, undetected now (their killing test is gone):', rechecked.filter((e) => gapOf(e)), root);
+  const { killed = [], stale = [] } = report.acceptance ?? {};
+  const detected = new Set(killed);
+  list(lines, `accepted, but detected now - remove from ${ACCEPTED_FILE}:`, report.entries.filter((e) => detected.has(e.mutant.key)), root, true);
+  if (stale.length > 0) lines.push('', `accepted, but the mutant no longer exists - remove from ${ACCEPTED_FILE}:`, ...stale.map((key) => `  ${key}`));
   return lines.join('\n');
 }
 
-function list(lines: string[], heading: string, entries: readonly ReportEntry[], root: string): void {
+function list(lines: string[], heading: string, entries: readonly ReportEntry[], root: string, withKey = false): void {
   if (entries.length === 0) return;
   lines.push('', heading);
-  for (const e of entries.slice(0, MAX_LISTED)) lines.push(`  ${location(e, root)}  ${e.status.padEnd(10)} ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)}`);
+  for (const e of entries.slice(0, MAX_LISTED)) {
+    lines.push(`  ${location(e, root)}  ${e.status.padEnd(10)} ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)}${withKey ? `  ${e.mutant.key}` : ''}`);
+  }
   if (entries.length > MAX_LISTED) lines.push(`  … ${entries.length - MAX_LISTED} more (see --reporter json or html)`);
 }
 
@@ -81,7 +90,7 @@ export function formatAnnotations(report: Report, root: string): string {
       const gap = gapOf(e);
       if (!gap || (gap === 'notReached' && report.scope !== 'diff')) return [];
       const { start, end } = e.mutant.location;
-      const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)}`;
+      const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
       return [`::warning file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${titles.get(gap)}::${message}`];
     });
   return [...uncollected, ...mutants].join('\n');

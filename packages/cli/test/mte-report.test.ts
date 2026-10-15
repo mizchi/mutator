@@ -94,6 +94,11 @@ describe('formatMutationTestingJson', () => {
     expect(json.files['util.js']!.mutants[0]).toMatchObject({ status: 'NoCoverage', location: { start: { line: 1, column: 18 } } });
   });
 
+  test('accepted mutants carry their reason', () => {
+    const accepted = formatMutationTestingJson({ ...report, entries: [entry('add.ts', 'k9', 'Ignored', { accepted: 'equivalent' })] }, root);
+    expect(accepted.files['add.ts']!.mutants[0]).toMatchObject({ status: 'Ignored', statusReason: 'accepted: equivalent' });
+  });
+
   test('lists changed test files the runner did not collect as warnings', () => {
     expect(json.warnings).toBeUndefined();
     const warned = formatMutationTestingJson({ ...report, uncollectedTests: ['x.test.ts'] }, root);

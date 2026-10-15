@@ -21,6 +21,14 @@ test('--version prints the package version', () => {
   expect(stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../package.json'), 'utf8')).version);
 });
 
+test('accept records mutant keys with a reason', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));
+  const { status, stderr } = run('accept', 'k1', 'k2', '--reason', 'equivalent', '--root', root);
+  expect(status, stderr).toBe(0);
+  expect(JSON.parse(readFileSync(join(root, 'mutator.accepted.json'), 'utf8'))).toEqual({ k1: { reason: 'equivalent' }, k2: { reason: 'equivalent' } });
+  expect(run('accept', 'k3', '--root', root).status).toBe(1);
+});
+
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));
   writeFileSync(join(root, 'mutator.config.json'), '{"concurency": 2}');

@@ -59,6 +59,20 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(flipped).toMatchObject({ status: 'Killed', source: 'run' });
   });
 
+  test('accepted survivors are Ignored with their reason, without touching the cache', async () => {
+    const first = await runMutation({ root });
+    const survivor = first.entries.find((e) => e.status === 'Survived')!;
+    const accepted = await runMutation({ root, accepted: new Map([[survivor.mutant.key, 'equivalent'], ['gone', 'old']]) });
+    const entry = accepted.entries.find((e) => e.mutant.key === survivor.mutant.key)!;
+    expect([entry.status, entry.accepted]).toEqual(['Ignored', 'equivalent']);
+    expect(accepted.score).toBeGreaterThan(first.score);
+    expect(accepted.acceptance).toEqual({ killed: [], stale: ['gone'] });
+    const again = await runMutation({ root });
+    expect(again.executed).toBe(0);
+    expect(again.entries.find((e) => e.mutant.key === survivor.mutant.key)!.status).toBe('Survived');
+    expect(again.acceptance).toBeUndefined();
+  });
+
   test('second run reuses everything from the snapshot', async () => {
     const first = await runMutation({ root });
     const second = await runMutation({ root });

@@ -27,6 +27,16 @@ export interface DryRunResult {
   deps: Map<string, string[]>;
   /** Weak mutation: mutant key -> tests that reached it with a different value (runners that support it). */
   infected?: Map<string, string[]>;
+  /** test id -> processes it started (runners that support it); mutants applied in memory are not seen there. */
+  spawns?: Map<string, SpawnedCommand[]>;
+}
+
+/** A process a test started through `node:child_process`. */
+export interface SpawnedCommand {
+  /** The command and its arguments (a shell command line split on whitespace). */
+  argv: string[];
+  /** Working directory (absolute) the arguments are relative to. */
+  cwd: string;
 }
 
 export interface RunMutantOptions {

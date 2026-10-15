@@ -6,6 +6,7 @@ import {
   type DryRunResult,
   HIT_LIMIT_MESSAGE,
   type MutantRunResult,
+  type SpawnedCommand,
   type Session,
   type TestInfo,
   type TestLocation,
@@ -232,10 +233,11 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
   const index = new Map<string, TestLocation>();
   const staticByFile = new Map<string, Set<string>>();
   const infected = new Map<string, string[]>();
+  const spawns = new Map<string, SpawnedCommand[]>();
   const distinct = numberDuplicates();
 
   for (const module of result.testModules) {
-    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorCounts?: Record<string, number> };
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorConcurrentSpawns?: SpawnedCommand[]; mutatorCounts?: Record<string, number> };
     const moduleStatic = new Set<string>();
     staticByFile.set(relative(root, module.moduleId), moduleStatic);
     for (const key of Object.keys(moduleMeta.mutatorStatic ?? {})) {
@@ -264,10 +266,12 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
         ? (moduleMeta.mutatorConcurrentInfected ?? {})
         : ((test.meta() as { mutatorInfected?: Record<string, number> }).mutatorInfected ?? {});
       for (const key of Object.keys(testInfected)) infected.set(key, [...(infected.get(key) ?? []), id]);
+      const spawned = test.options.concurrent ? moduleMeta.mutatorConcurrentSpawns : (test.meta() as { mutatorSpawns?: SpawnedCommand[] }).mutatorSpawns;
+      if (spawned) spawns.set(id, spawned);
     }
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map(), infected };
+  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map(), infected, spawns };
 }
 
 interface GraphModule {

@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-spawn",
+  "private": true,
+  "type": "module"
+}

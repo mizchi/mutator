@@ -413,6 +413,14 @@ describe('scope dependency info', () => {
       { local: 'z', imported: 'y', source: './b.ts' },
     ];
     expect(instrument('m.ts', src).reexports).toEqual(expected);
-    expect(scanImports('m.ts', `import d, { q } from './q.ts';\n${src}`)).toEqual({ imports: [{ local: 'd', imported: 'default', source: './q.ts' }, { local: 'q', imported: 'q', source: './q.ts' }], reexports: expected });
+    expect(scanImports('m.ts', `import d, { q } from './q.ts';\n${src}`)).toEqual({
+      imports: [{ local: 'd', imported: 'default', source: './q.ts' }, { local: 'q', imported: 'q', source: './q.ts' }],
+      reexports: expected,
+      loads: ['./q.ts', './a.ts', './n.ts', './b.ts'],
+    });
+  });
+
+  test('scanImports lists the modules loaded for their side effects too, without types', () => {
+    expect(scanImports('m.ts', "import './side.ts';\nimport type { T } from './t.ts';\nimport { type U } from './u.ts';\nexport {};").loads).toEqual(['./side.ts', './u.ts']);
   });
 });

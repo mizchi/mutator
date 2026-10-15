@@ -32,6 +32,7 @@ import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { applyAcceptance } from './accepted.ts';
+import { childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
 import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
@@ -39,7 +40,7 @@ const SHARD_TARGET_MS = 10_000;
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
-export const SNAPSHOT_VERSION = '0.0.5';
+export const SNAPSHOT_VERSION = '0.0.6';
 
 export interface RunOptions {
   root: string;
@@ -140,6 +141,10 @@ export interface Report {
   selection?: 'only';
   /** `only` keys that match no mutant (a typo, or code that changed). */
   unknownKeys?: string[];
+  /** Tests whose child process runs a project file (spawned in the dry run), with the command. */
+  childProcessTests?: { test: string; command: string }[];
+  /** Undetected mutants in files those child processes may load: possibly reached there, not counted by --fail-on-survived. */
+  childProcessMutants?: string[];
 }
 
 export class BaselineError extends Error {}
@@ -270,6 +275,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const acceptance = options.accepted?.size ? applyAcceptance(report, options.accepted) : undefined;
     const final = acceptance?.entries ?? report;
     const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
+    const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
     return {
       entries: final,
       executed,       dryRunFiles: [...dryFiles].sort(),
@@ -282,6 +288,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
       ...(skipped?.length ? { skippedTests: skipped } : {}),
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
+      ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),
     };
   } finally {
     early?.cancel();
@@ -510,6 +517,7 @@ function buildSnapshot(
     index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
     staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
     hits: Object.fromEntries(merged.hits),
+    spawns: Object.fromEntries(merged.spawns),
     scopes: scopeTable(root, run.sources),
   };
 }
@@ -568,14 +576,18 @@ function collectSources(root: string, files: readonly string[], instrumentOption
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];
 
-/** Relative import specifier -> one of the mutated files (TS-style `.js` -> `.ts` included). */
-function importResolver(files: readonly string[]) {
+/**
+ * Relative import specifier -> one of the mutated files (TS-style `.js` -> `.ts` included);
+ * with `onDisk`, any existing file.
+ */
+export function importResolver(files: readonly string[], onDisk = false) {
   const known = new Set(files);
+  const found = (path: string) => known.has(path) || (onDisk && isFile(path));
   return (from: string, specifier: string): string | undefined => {
     if (!specifier.startsWith('.')) return undefined;
     const base = join(dirname(from), specifier);
     const stems = [base, base.replace(/\.(c|m)?js$/, '.$1ts').replace(/\.jsx$/, '.tsx')];
-    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) if (known.has(stem + suffix)) return stem + suffix;
+    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) if (found(stem + suffix)) return stem + suffix;
     return undefined;
   };
 }

@@ -45,6 +45,8 @@ The text summary lists undetected mutants in three groups. Each group says where
 - **not infected:** tests run it, but never with a value it changes. Add an input.
 - **not reached:** no test runs it. Add a test case.
 
+Tests that run the sources in a child process (`node src/cli.js`, through `node:child_process`) do not see the mutants, which are applied in memory. The dry run records the commands each test starts. When one names a file in the project, the summary prints a warning listing those tests, and the undetected mutants in the files that entry imports go to a fourth group, **possibly reached in a child process**. They are not counted by `--fail-on-survived`. The JSON report gives them a `statusReason` and the agent reporter a `childProcess: true` flag.
+
 See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本語](docs/coverage-and-mutation.ja.md)) for how this relates to code coverage.
 
 `--reporter` is repeatable: `text` (default, summary on stdout), `json` and `html`. `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.

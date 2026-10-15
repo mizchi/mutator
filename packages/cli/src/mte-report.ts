@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { extname, relative } from 'node:path';
 import type { Position } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
+import { POSSIBLY_IN_CHILD_PROCESS, childProcessMessage } from './child-process.ts';
 import { uncollectedMessage } from './report.ts';
 import type { Report } from './run.ts';
 import { VERSION } from './version.ts';
@@ -32,7 +33,7 @@ export interface MteReport {
   files: Record<string, { language: string; source: string; mutants: MteMutant[] }>;
   testFiles: Record<string, { tests: { id: string; name: string }[] }>;
   /** mutator extension (the schema allows extra fields): conditions that make the verdicts less trustworthy. */
-  warnings?: { kind: 'uncollectedTest'; file: string; message: string }[];
+  warnings?: ({ kind: 'uncollectedTest'; file: string; message: string } | { kind: 'childProcessTest'; test: string; command: string; message: string })[];
 }
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
@@ -40,6 +41,7 @@ const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 export function formatMutationTestingJson(report: Report, root: string, thresholds: Thresholds = DEFAULT_THRESHOLDS): MteReport {
   const files: MteReport['files'] = {};
   const tests = new Set<string>();
+  const childProcess = new Set(report.childProcessMutants);
   for (const { mutant, status, killedBy, coveredBy, reason, accepted } of report.entries) {
     const path = relative(root, mutant.file);
     files[path] ??= {
@@ -58,6 +60,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       coveredBy,
       ...(mutant.ignored ? { statusReason: mutant.ignored } : {}),
       ...(reason === 'notInfected' ? { statusReason: 'not infected: no covering test reaches it with a value it changes' } : {}),
+      ...(childProcess.has(mutant.key) ? { statusReason: `${POSSIBLY_IN_CHILD_PROCESS}: a test runs the file in a child process, where mutator cannot observe mutants` } : {}),
       ...(accepted !== undefined ? { statusReason: `accepted: ${accepted}` } : {}),
     });
     for (const id of [...coveredBy, ...killedBy]) tests.add(id);
@@ -71,6 +74,10 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     (testFiles[file] ??= { tests: [] }).tests.push({ id, name: id.slice(hashAt + 1) });
   }
 
+  const warnings: NonNullable<MteReport['warnings']> = [
+    ...(report.uncollectedTests ?? []).map((file) => ({ kind: 'uncollectedTest' as const, file, message: uncollectedMessage(file) })),
+    ...(report.childProcessTests ?? []).map(({ test, command }) => ({ kind: 'childProcessTest' as const, test, command, message: childProcessMessage(command) })),
+  ];
   return {
     schemaVersion: '2',
     thresholds: { high: thresholds.high, low: thresholds.low },
@@ -78,7 +85,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     framework: { name: 'mutator', version: VERSION },
     files,
     testFiles,
-    ...(report.uncollectedTests?.length ? { warnings: report.uncollectedTests.map((file) => ({ kind: 'uncollectedTest' as const, file, message: uncollectedMessage(file) })) } : {}),
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 

@@ -19,7 +19,9 @@ export function qualityGate(report: Report, options: { thresholds: Thresholds; f
   const percent = report.score * 100;
   const { break: breakAt } = options.thresholds;
   if (breakAt !== null && percent < breakAt) failures.push(`mutation score ${percent.toFixed(1)}% is below the break threshold ${breakAt}%`);
-  const survived = reported(report).filter((e) => e.status === 'Survived').length;
+  // Possibly reached in a child process: still listed, but not counted.
+  const childProcess = new Set(report.childProcessMutants);
+  const survived = reported(report).filter((e) => e.status === 'Survived' && !childProcess.has(e.mutant.key)).length;
   if (options.failOnSurvived && survived > 0) failures.push(`${survived} mutant(s) survived (--fail-on-survived)`);
   return failures;
 }

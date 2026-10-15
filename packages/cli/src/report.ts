@@ -2,6 +2,7 @@ import { relative } from 'node:path';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { reported, scoreLevel } from './gate.ts';
 import { ACCEPTED_FILE } from './accepted.ts';
+import { CHILD_PROCESS_WARNING, POSSIBLY_IN_CHILD_PROCESS } from './child-process.ts';
 import type { Report, ReportEntry } from './run.ts';
 
 const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'CompileError', 'Ignored', 'Pending'] as const;
@@ -64,9 +65,13 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
   for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
+  const spawning = report.childProcessTests ?? [];
+  if (spawning.length > 0) lines.push(`warning: ${CHILD_PROCESS_WARNING}:`, ...spawning.map(({ test, command }) => `  ${test}  ${command}`));
   const accepted = main.filter((e) => e.accepted !== undefined).length;
   if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
-  for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap), root);
+  const childProcess = new Set(report.childProcessMutants);
+  for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap && !childProcess.has(e.mutant.key)), root);
+  list(lines, `${POSSIBLY_IN_CHILD_PROCESS} - no in-process test detects it:`, main.filter((e) => gapOf(e) && childProcess.has(e.mutant.key)), root);
   list(lines, 'killed before, undetected now (their killing test is gone):', rechecked.filter((e) => gapOf(e)), root);
   const { killed = [], stale = [] } = report.acceptance ?? {};
   const detected = new Set(killed);
@@ -90,6 +95,7 @@ function list(lines: string[], heading: string, entries: readonly ReportEntry[],
  */
 export function formatAnnotations(report: Report, root: string): string {
   const titles = new Map(GAPS.map((g) => [g.gap, g.title]));
+  const childProcess = new Set(report.childProcessMutants);
   const uncollected = (report.uncollectedTests ?? []).map((file) => `::warning file=${file},title=Test file not collected::${uncollectedMessage(file)}`);
   const skipped = (report.skippedTests ?? []).map((s) => `::warning file=${s.file},line=${s.line},title=Skipped test::${skippedMessage(s)}`);
   const mutants = reported(report)
@@ -97,7 +103,7 @@ export function formatAnnotations(report: Report, root: string): string {
       const gap = gapOf(e);
       if (!gap || (gap === 'notReached' && report.scope !== 'diff')) return [];
       const { start, end } = e.mutant.location;
-      const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
+      const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (${childProcess.has(e.mutant.key) ? `${POSSIBLY_IN_CHILD_PROCESS}; ` : ''}if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
       return [`::warning file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${titles.get(gap)}::${message}`];
     });
   return [...uncollected, ...skipped, ...mutants].join('\n');

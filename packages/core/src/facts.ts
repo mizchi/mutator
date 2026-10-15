@@ -34,10 +34,18 @@ export function reexportBindings(program: Node): ImportBinding[] {
 
 const moduleExportName = (node: Node): string => node.name ?? node.value;
 
-/** Value imports and re-exports of a module, without instrumenting it. */
-export function scanImports(file: string, source: string): { imports: ImportBinding[]; reexports: ImportBinding[] } {
+/**
+ * Value imports and re-exports of a module, without instrumenting it, and the specifiers of
+ * every module it loads statically (`loads`: side-effect imports included, type-only ones not).
+ */
+export function scanImports(file: string, source: string): { imports: ImportBinding[]; reexports: ImportBinding[]; loads: string[] } {
   const { program } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
-  return { imports: importBindings(program), reexports: reexportBindings(program) };
+  const loads: string[] = [];
+  for (const st of program.body as Node[]) {
+    const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;
+    if (st.source && kind !== 'type' && !loads.includes(st.source.value)) loads.push(st.source.value);
+  }
+  return { imports: importBindings(program), reexports: reexportBindings(program), loads };
 }
 
 /** Identifier references (not property names, object keys or labels). */

@@ -7,6 +7,20 @@ import { createJestSession } from '../src/session.ts';
 const root = fileURLToPath(new URL('./fixtures/esm', import.meta.url));
 const T = '__tests__/math.test.js';
 
+describe('jest session: child processes', { timeout: 60_000 }, () => {
+  test('the dry run records the processes each test starts', async () => {
+    const spawnRoot = fileURLToPath(new URL('./fixtures/spawn', import.meta.url));
+    const session = await createJestSession({ root: spawnRoot, targets: [join(spawnRoot, 'src/cli.js')] });
+    try {
+      const dry = await session.dryRun();
+      expect(dry.failed).toEqual([]);
+      expect(Object.fromEntries(dry.spawns ?? [])).toEqual({ '__tests__/cli.test.js#greets': [{ argv: ['node', 'src/cli.js'], cwd: spawnRoot }] });
+    } finally {
+      await session.close();
+    }
+  });
+});
+
 describe('jest session (ESM fixture)', { timeout: 60_000 }, () => {
   let session: Session;
   beforeAll(async () => {

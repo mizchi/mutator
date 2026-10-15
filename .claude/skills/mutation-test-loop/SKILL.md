@@ -28,6 +28,7 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
 - Check `warnings` before anything else:
   - `uncollectedTest`: a changed test file is not run, so the gaps it would close are false. Fix the runner config first (include globs, projects, env filters).
   - `skippedTest`: the change adds or edits a skipped or todo test. It checks nothing. Find out why it is skipped. Re-enable it if it passes; otherwise say so to the user rather than deleting it.
+  - `childProcessTest`: a test runs the sources in a child process, where mutants are not observed. Gaps with `childProcess: true` may already be covered there: prefer an in-process test of the same behaviour, or leave them.
 - Stop if the run exits 4: the tests fail without any mutant, so fix them first.
 
 ## 2. Close each gap

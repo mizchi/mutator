@@ -71,6 +71,14 @@ describe('qualityGate', () => {
   });
 });
 
+describe('qualityGate and child processes', () => {
+  test('survivors possibly reached in a child process do not fail --fail-on-survived', () => {
+    const r = { ...report(0, ['Survived', 'Survived']), childProcessMutants: ['k0'] };
+    expect(qualityGate(r, { thresholds, failOnSurvived: true })).toEqual(['1 mutant(s) survived (--fail-on-survived)']);
+    expect(qualityGate({ ...r, childProcessMutants: ['k0', 'k1'] }, { thresholds, failOnSurvived: true })).toEqual([]);
+  });
+});
+
 describe('thresholds in reports', () => {
   test('text summary labels the score', () => {
     expect(formatSummary(report(0.9), '/p', thresholds)).toContain('score: 90.0% [high]');

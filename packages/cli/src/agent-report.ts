@@ -2,6 +2,7 @@
 // One record per undetected mutant, with the code around it and the kind of fix it needs.
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
+import { childProcessMessage } from './child-process.ts';
 import { reported } from './gate.ts';
 import { type Gap, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
 import type { Report } from './run.ts';
@@ -25,6 +26,8 @@ export interface AgentGap {
   gap: Gap;
   /** Outside the diff, but killed before by tests that are gone now. */
   recheck?: true;
+  /** In a file a test's child process may load: possibly reached there, where mutants are not observed. */
+  childProcess?: true;
   /** Relative to the project root; line and column are 1-based. */
   file: string;
   line: number;
@@ -51,12 +54,14 @@ export interface AgentReport {
     | { kind: 'uncollectedTest'; file: string; message: string }
     | { kind: 'skippedTest'; file: string; line: number; message: string }
     | { kind: 'unknownKey'; key: string; message: string }
+    | { kind: 'childProcessTest'; test: string; command: string; message: string }
   )[];
   acceptance?: { killed: string[]; stale: string[] };
 }
 
 export function formatAgentReport(report: Report, root: string): AgentReport {
   const entries = reported(report);
+  const childProcess = new Set(report.childProcessMutants);
   const counts: Record<string, number> = {};
   for (const e of entries) counts[e.status] = (counts[e.status] ?? 0) + 1;
   const lines = new Map<string, string[]>();
@@ -81,6 +86,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
         key: mutant.key,
         gap,
         ...(e.focus === 'recheck' ? { recheck: true as const } : {}),
+        ...(childProcess.has(mutant.key) ? { childProcess: true as const } : {}),
         file: relative(root, mutant.file),
         line,
         column: mutant.location.start.column + 1,
@@ -105,6 +111,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
       ...(report.uncollectedTests ?? []).map((file) => ({ kind: 'uncollectedTest' as const, file, message: uncollectedMessage(file) })),
       ...(report.skippedTests ?? []).map((s) => ({ kind: 'skippedTest' as const, file: s.file, line: s.line, message: skippedMessage(s) })),
       ...(report.unknownKeys ?? []).map((key) => ({ kind: 'unknownKey' as const, key, message: `--only: no mutant with key ${key}` })),
+      ...(report.childProcessTests ?? []).map(({ test, command }) => ({ kind: 'childProcessTest' as const, test, command, message: childProcessMessage(command) })),
     ],
     ...(report.acceptance ? { acceptance: report.acceptance } : {}),
   };

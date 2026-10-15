@@ -53,6 +53,18 @@ test('one record per undetected mutant, with the gap, the code around it and how
   ]);
 });
 
+test('flags gaps possibly reached in a child process, and warns about the spawning tests', () => {
+  const report: Report = {
+    entries: [entry('NoCoverage'), entry('Survived', { mutant: { ...mutant, key: 'k2' } })],
+    executed: 1, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 },
+    childProcessTests: [{ test: 'cli.test.ts#runs', command: 'node a.js' }],
+    childProcessMutants: ['k1'],
+  };
+  const out = formatAgentReport(report, root);
+  expect(out.gaps.map((g) => [g.key, g.childProcess])).toEqual([['k1', true], ['k2', undefined]]);
+  expect(out.warnings).toEqual([{ kind: 'childProcessTest', test: 'cli.test.ts#runs', command: 'node a.js', message: expect.stringContaining('child process') }]);
+});
+
 test('long scopes are cut to the lines around the mutant', () => {
   const big = { ...mutant, scope: { ...mutant.scope, location: { start: { line: 1, column: 0 }, end: { line: 500, column: 1 } } } };
   writeFileSync(join(root, 'big.ts'), Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join('\n'));

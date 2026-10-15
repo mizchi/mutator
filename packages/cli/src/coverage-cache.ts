@@ -7,6 +7,7 @@ import {
   type MutantResult,
   type RunSnapshot,
   type Scope,
+  type SpawnedCommand,
   type TestInfo,
   type TestLocation,
   hash,
@@ -28,6 +29,8 @@ export interface CliSnapshot extends RunSnapshot {
   /** test file (relative) -> local files it imports, including mutated sources */
   deps: Record<string, string[]>;
   hits: Record<string, number>;
+  /** test id -> processes it started in the dry run */
+  spawns?: Record<string, SpawnedCommand[]>;
   /** source file (relative) -> scope id -> entry */
   scopes?: Record<string, Record<string, ScopeEntry>>;
 }
@@ -175,7 +178,7 @@ export function planDryRun(input: {
 
 const sorted = (files: ReadonlySet<string>, testFiles: Readonly<Record<string, string>>) => [...files].filter((f) => f in testFiles).sort();
 
-export type MergedDryRun = Omit<DryRunResult, 'failed'>;
+export type MergedDryRun = Omit<DryRunResult, 'failed' | 'spawns'> & { spawns: Map<string, SpawnedCommand[]> };
 
 /** Combine a partial dry run with the previous snapshot's data for the test files that were skipped. */
 export function mergeDryRun(input: {
@@ -220,5 +223,8 @@ export function mergeDryRun(input: {
   // A partial run only sees some test files: never lower a hit count (and thus a hit limit).
   for (const [key, n] of dry.hits) hits.set(key, Math.max(n, hits.get(key) ?? 0));
 
-  return { tests, coverage, staticKeys, hits, index, staticByFile, deps };
+  const spawns = new Map(dry.spawns);
+  for (const [id, list] of Object.entries(previous?.spawns ?? {})) if (keptModule(previous?.index[id]?.module)) spawns.set(id, list);
+
+  return { tests, coverage, staticKeys, hits, index, staticByFile, deps, spawns };
 }

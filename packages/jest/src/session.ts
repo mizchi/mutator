@@ -13,6 +13,7 @@ import {
   type Mutant,
   type MutantRunResult,
   type Session,
+  type SpawnedCommand,
   type TestInfo,
   type TestLocation,
   emptyDryRun,
@@ -64,6 +65,8 @@ interface FileCoverage {
   perTest: Record<string, Record<string, number>>;
   /** Hits per mutant summed over the file's modules. */
   counts?: Record<string, number>;
+  /** Test name -> processes it started. */
+  spawns?: Record<string, SpawnedCommand[]>;
 }
 
 interface RunOutcome {
@@ -296,6 +299,8 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
       if (assertion.status === 'failed') dry.failed.push(id);
       const test: TestInfo = { id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: assertion.duration ?? 0 };
       dry.tests.push(test);
+      const spawned = cov?.spawns?.[coverageKey];
+      if (spawned) (dry.spawns ??= new Map()).set(id, spawned);
       for (const key of Object.keys(cov?.perTest[coverageKey] ?? {})) {
         const covering = dry.coverage.get(key) ?? [];
         covering.push(id);

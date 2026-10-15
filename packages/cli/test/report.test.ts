@@ -86,6 +86,26 @@ describe('formatSummary', () => {
   });
 });
 
+describe('child processes', () => {
+  const report: Report = {
+    entries: [entry(0, 'NoCoverage'), entry(1, 'Survived'), entry(2, 'NoCoverage')],
+    executed: 1, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 },
+    childProcessTests: [{ test: 'test/cli.test.ts#runs', command: 'node src/cli.js' }],
+    childProcessMutants: ['k0', 'k1'],
+  };
+
+  test('warns once about the spawning tests, and lists their undetected mutants apart', () => {
+    const text = formatSummary(report, '/p');
+    expect(text).toContain('warning: these tests run code in a child process; mutator cannot observe mutants there:\n  test/cli.test.ts#runs  node src/cli.js');
+    expect(text).toMatch(/\nnot reached - no test runs it:\n  src\/a\.ts:3:1 [^\n]*\n\npossibly reached in a child process - no in-process test detects it:\n  src\/a\.ts:1:1 [^\n]*\n  src\/a\.ts:2:1 /);
+    expect(text).not.toMatch(/not detected/);
+  });
+
+  test('annotations say a child process may reach the mutant', () => {
+    expect(formatAnnotations(report, '/p')).toMatch(/line=2,.*possibly reached in a child process/);
+  });
+});
+
 describe('formatAnnotations', () => {
   test('with --since, annotates only survivors in the diff or rechecked', () => {
     const entries: ReportEntry[] = [{ ...entry(0, 'Survived'), focus: 'diff' }, { ...entry(1, 'Survived'), source: 'reuse' }, { ...entry(2, 'Survived'), focus: 'recheck' }];

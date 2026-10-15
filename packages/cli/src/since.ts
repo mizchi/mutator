@@ -41,7 +41,7 @@ export function sinceFocus(touched: ReadonlySet<string>, previous: readonly Muta
   return focus;
 }
 
-const TEST_FILE = /(^|\/)__tests__\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+export const TEST_FILE = /(^|\/)__tests__\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
  * Changed files that look like tests (`*.test.*`, `*.spec.*`, `__tests__/`) but are not among

@@ -470,3 +470,34 @@ The [`mutation-test-loop`](../.claude/skills/mutation-test-loop/SKILL.md) skill 
   - `--only` with an unknown key exits 1 instead of reporting an empty, perfect selection.
   - `accept` checks keys and records where each mutant is.
   - The agent JSON caps `coveredBy` at 10 tests, with those naming the function first. Uncapped, it had made up 86% of pathe's output (298 tests per gap).
+
+## select-tests on past ufo commits (2026-10-16)
+
+`mutator select-tests --since HEAD` was checked on four ufo fix commits. Each commit changes one function in `src` and adds tests for it. The clone pins vitest 5.0.3, and only `src/` and `test/` were taken from each commit. Every scenario starts from a warm run (snapshot written), applies a source change, runs `select-tests`, and then runs the whole suite to find the tests that actually fail.
+
+- **forward:** warm at the parent, then the commit's source change with the parent's tests.
+- **revert:** warm at the commit, then the parent's source with the commit's tests. This undoes the fix, a regression that really happened.
+- **inject:** warm at the commit, then a one-token regression by hand in the changed function.
+
+Group sizes are tests, out of 456–489 tests in 13 test files. "Rank" is the position of the first failing test in group 1.
+
+| commit | scenario | failing tests | group 1 / 2 | group 1 has a failing test | rank | failing in group 2 | files selected |
+|---|---|---|---|---|---|---|---|
+| `5cd9e67` withoutBase: collapse leading slashes | forward | 0 | 6 / 12 | – | – | – | 1 |
+| | revert | 4 | 7 / 15 | yes (1 of 4) | 6 | 3 | 1 |
+| | inject: drop `nextChar !== "?"` | 1 | 7 / 15 | yes | 3 | 0 | 1 |
+| `62199a0` withProtocol: relative protocol | forward | 0 | 1 / 25 | – | – | – | 1 |
+| | revert | 1 | 3 / 26 | yes | 2 | 0 | 1 |
+| | inject: `return protocol + input` → `return input` | 4 | 3 / 26 | yes (1 of 4) | 3 | 3 | 1 |
+| `229e83e` parseURL: drive letters only for `file:` | forward | 0 | 12 / 159 | – | – | – | 6 |
+| | revert | 1 | 15 / 157 | yes | 13 | 0 | 6 |
+| | inject: drop `.toLowerCase()` on the protocol | 1 | 15 / 157 | **no** | – | 1 | 6 |
+| `6cd1fcd` withoutTrailingSlash: query param | forward | 0 | 10 / 67 | – | – | – | 4 |
+| | revert | 1 | 11 / 72 | yes | 8 | 0 | 4 |
+| | inject: `cleanPath \|\| "/"` → `cleanPath \|\| ""` | 2 | 11 / 72 | yes (1 of 2) | 1 | 1 | 4 |
+
+- **Forward.** No commit broke a parent test, as expected for fixes that only add tests. The useful check is therefore revert and inject.
+- **Group 1 caught 7 of 8 regressions.** All four reverted fixes and three of the four injected bugs had a failing test in group 1, which held 3–15 tests. The failing test file was always among the selected files: 1–6 of 13 files, against 11 for import-based selection (11 of the 13 test files import `src/index.ts`, which re-exports every module).
+- **The miss shows the first-killer limit.** The failing test for parseURL's dropped `.toLowerCase()` is `parseURL > Https://domain.test:3000#owo`. It covers the `toLowerCase` mutants, but earlier tests always killed them first, so the snapshot never credits it with a kill. It is in group 2. The same limit explains why group 1 held only one of several failing tests in three scenarios.
+- **Kill count ranks poorly.** The first failing test sat at rank 1–13 in group 1. The most frequent killers are broad tests that fail on many mutants, not the narrow test pinning a specific behaviour. Run all of group 1, not only its head.
+- **Cost.** `select-tests` took 0.19–0.43 s per call, mostly loading the configuration and parsing the sources. The warm runs it reads from took 9–49 s.

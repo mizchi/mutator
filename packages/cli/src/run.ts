@@ -203,10 +203,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const { mutants, sources, graphSources } = collectSources(root, files, instrumentOptions);
     const mutated = new Set(files.map((f) => relative(root, f)));
-    const envFiles = [...ENV_FILES.map((f) => join(root, f)), ...session.configFiles()];
-    // Mutation settings change which mutants are placed (and thus covered): part of the environment.
-    const settings = JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
-    const envHash = hash([process.version, settings, ...[...new Set(envFiles)].sort().flatMap((f) => [relative(root, f), readIfExists(f)])].join('\0'));
+    const envFiles = [...new Set([...ENV_FILES, ...session.configFiles().map((f) => relative(root, f))])].sort();
+    const envHash = environmentHash(root, mutationSettings(options, { runner, arid, plugins }), envFiles);
     const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
     const valid = previous !== undefined && previous.toolVersion === SNAPSHOT_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // The previous snapshot when it can be reused; every consumer below goes through this.
@@ -264,7 +262,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
     const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency });
 
-    const snapshot = buildSnapshot(root, reusable, { envHash, results, mutants, merged, testFiles: finalTestFiles, sources });
+    const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     writeSnapshot(snapshotPath, snapshot, root);
     if (inScope) {
       for (const e of report) {
@@ -296,6 +294,42 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     unguard();
     restorePath();
   }
+}
+
+/** Mutation settings change which mutants are placed (and thus covered): part of the environment. */
+function mutationSettings(options: RunOptions, setup: { runner: Runner; arid: InstrumentOptions['arid']; plugins: { fingerprint: unknown } }): string {
+  const { runner, arid, plugins } = setup;
+  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
+}
+
+/** Node version, mutation settings, and the content of the environment files (relative to root). */
+function environmentHash(root: string, settings: string, envFiles: readonly string[]): string {
+  return hash([process.version, settings, ...envFiles.flatMap((f) => [f, readIfExists(join(root, f))])].join('\0'));
+}
+
+/** The snapshot cannot be used: missing, or written by another tool version or environment. */
+export class SnapshotError extends Error {}
+
+/**
+ * The snapshot of the last run with the current mutants, without running anything. The
+ * environment is re-hashed from the files the run recorded (the runner's config files are
+ * only known to a runner session), so the snapshot must have been written by a run that
+ * recorded them.
+ */
+export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[] }> {
+  const root = resolve(options.root);
+  const snapshotPath = options.snapshotPath ?? join(root, '.mutator', 'snapshot.json');
+  const setup = await resolveSetup(root, options, () => {});
+  const snapshot = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
+  const rel = relative(process.cwd(), snapshotPath) || snapshotPath;
+  if (!snapshot) throw new SnapshotError(`no snapshot at ${rel}: run \`mutator\` once first`);
+  if (snapshot.toolVersion !== SNAPSHOT_VERSION || !snapshot.envFiles || snapshot.index === undefined) {
+    throw new SnapshotError(`${rel} was written by another mutator version: run \`mutator\` once first`);
+  }
+  if (snapshot.envHash !== environmentHash(root, mutationSettings(options, setup), snapshot.envFiles)) {
+    throw new SnapshotError(`${rel} is from another environment (lockfile, tsconfig, runner config, node version or mutation options changed): run \`mutator\` once first`);
+  }
+  return { snapshot, mutants: collectSources(root, setup.files, setup.instrumentOptions).mutants };
 }
 
 /** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
@@ -506,12 +540,13 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
 function buildSnapshot(
   root: string,
   reusable: CliSnapshot | undefined,
-  run: { envHash: string; results: MutantResult[]; mutants: readonly Mutant[]; merged: MergedDryRun; testFiles: Record<string, string>; sources: ReadonlyMap<string, SourceInfo> },
+  run: { envHash: string; envFiles: string[]; results: MutantResult[]; mutants: readonly Mutant[]; merged: MergedDryRun; testFiles: Record<string, string>; sources: ReadonlyMap<string, SourceInfo> },
 ): CliSnapshot {
   const { merged } = run;
   const core = mergeSnapshot(reusable, { toolVersion: SNAPSHOT_VERSION, envHash: run.envHash, results: run.results, tests: merged.tests }, run.mutants);
   return {
     ...core,
+    envFiles: run.envFiles,
     testFiles: run.testFiles,
     deps: Object.fromEntries(merged.deps),
     index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),

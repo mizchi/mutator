@@ -20,6 +20,8 @@ export type { SourceInfo } from './consumers.ts';
 
 /** Snapshot persisted by the CLI: the core run snapshot plus adapter-level coverage data. */
 export interface CliSnapshot extends RunSnapshot {
+  /** Files (relative) whose content `envHash` covers: lockfiles, tsconfig, the runner's config and setup files. */
+  envFiles?: string[];
   /** test file (relative) -> content hash */
   testFiles: Record<string, string>;
   /** test id -> location (module relative to root) */

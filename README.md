@@ -55,6 +55,21 @@ See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本
 
 `--reporter agent` prints JSON on stdout (logs go to stderr): one record per undetected mutant in scope, with its gap, the enclosing function's source, the covering tests and the kind of fix it needs. `--only <key>` (repeatable) runs and reports just those mutants and reuses the cache for the rest, so re-checking a survivor after adding a test takes about a second. The [`mutation-test-loop`](.claude/skills/mutation-test-loop/SKILL.md) skill runs the loop with Claude Code: find the gaps with `--since`, write a test per gap, re-check with `--only`, and accept the mutants no input can observe.
 
+### Selecting the tests a change can break
+
+```sh
+npx vitest run $(npx mutator select-tests --since main)
+npx mutator select-tests --since main --format json
+```
+
+`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. The ranking has three groups:
+
+1. tests that killed mutants in the changed functions, most kills first;
+2. other tests that executed those mutants. A changed function the snapshot has no results for, such as a new one, brings the test files importing its file instead;
+3. changed test files, and test files importing a changed helper or fixture.
+
+`--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. Without a snapshot, or with one from another mutator version or environment (lockfile, tsconfig, runner config, Node version, mutation options), the command exits 1 and asks for a `mutator` run first.
+
 ### Thresholds and exit codes
 
 `thresholds: { high: 80, low: 60, break: null }` (StrykerJS semantics, in percent). The text summary labels the score `[high]` (>= high), `[low]` (>= low) or `[danger]`, and the JSON/HTML report uses the same `high`/`low`. When `break` (or `--threshold-break <n>`) is set and the score is below it, the run fails the quality gate.

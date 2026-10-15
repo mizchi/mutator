@@ -122,6 +122,22 @@ export function parseAcceptCli(argv: string[]) {
   }
 }
 
+export const SELECT_FORMATS = ['files', 'json'] as const;
+
+/** `mutator select-tests --since <ref> [--format files|json] [options]`. */
+export function parseSelectCli(argv: string[]) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: { ...OPTIONS, format: { type: 'string' } }, allowNegative: true }).values;
+  } catch (error) {
+    throw new ConfigError(`select-tests: ${(error as Error).message}`);
+  }
+  const { format = 'files', ...values } = parsed;
+  if (!(SELECT_FORMATS as readonly string[]).includes(format)) throw new ConfigError(`select-tests: --format must be one of ${SELECT_FORMATS.join(', ')} (got ${format})`);
+  if (!values.since && !values.help) throw new ConfigError('select-tests: --since <ref> is required');
+  return { format: format as (typeof SELECT_FORMATS)[number], values: values as CliValues };
+}
+
 export async function resolveOptions(argv: string[], cwd: string): Promise<ResolvedOptions> {
   return resolveValues(parseCli(argv), cwd);
 }

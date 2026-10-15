@@ -6,13 +6,17 @@ import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { qualityGate } from './gate.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
-import { parseAcceptCli, parseCli, resolveValues } from './options.ts';
+import { parseAcceptCli, parseCli, parseSelectCli, resolveValues } from './options.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
-import { BaselineError, listMutants, runMutation } from './run.ts';
+import { BaselineError, SnapshotError, listMutants, runMutation } from './run.ts';
+import { selectTestsSince, selectionFiles } from './select-tests.ts';
 import { VERSION } from './version.ts';
 
 const USAGE = `usage: mutator [options]
        mutator accept <key>... --reason <text>   record undetected mutants as accepted (${ACCEPTED_FILE})
+       mutator select-tests --since <ref> [--format files|json]   rank the tests a change can break,
+                       from the last run's snapshot without running anything: killers of mutants in
+                       the changed functions, other tests covering them, then changed test files
 
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
@@ -55,6 +59,10 @@ exit codes:
 try {
   if (process.argv[2] === 'accept') {
     await accept(process.argv.slice(3));
+    process.exit(0);
+  }
+  if (process.argv[2] === 'select-tests') {
+    await selectTestsCommand(process.argv.slice(3));
     process.exit(0);
   }
   const values = parseCli(process.argv.slice(2));
@@ -101,6 +109,10 @@ try {
     console.error(`${error.message}\n\nrun \`mutator --help\` for usage`);
     process.exit(1);
   }
+  if (error instanceof SnapshotError) {
+    console.error(`select-tests: ${error.message}`);
+    process.exit(1);
+  }
   if (error instanceof BaselineError) {
     console.error(error.message);
     process.exit(4);
@@ -124,4 +136,20 @@ async function accept(argv: string[]): Promise<void> {
   );
   acceptMutants(join(root, ACCEPTED_FILE), keys, reason, where);
   console.error(`accepted ${keys.length} mutant(s) in ${ACCEPTED_FILE}`);
+}
+
+/** `mutator select-tests --since <ref> [--format files|json]`: the tests a change can break, from the snapshot. */
+async function selectTestsCommand(argv: string[]): Promise<void> {
+  const { format, values } = parseSelectCli(argv);
+  if (values.help) {
+    console.log(USAGE);
+    return;
+  }
+  const { root, run } = await resolveValues(values, process.cwd());
+  const selection = await selectTestsSince({ root, ...run, since: values.since! });
+  const files = selectionFiles(selection);
+  if (format === 'json') console.log(JSON.stringify({ files, ...selection }, null, 2));
+  else if (files.length > 0) console.log(files.join('\n'));
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  console.error(`select-tests: ${count(selection.killers.length, 'killer')}, ${count(selection.covering.length, 'other covering test')}, ${count(selection.changedTests.length, 'changed test file')} -> ${count(files.length, 'test file')}`);
 }

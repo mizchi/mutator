@@ -22,6 +22,11 @@ const GAPS: readonly { gap: Gap; heading: string; title: string }[] = [
   { gap: 'notReached', heading: 'not reached - no test runs it:', title: 'Mutant not reached' },
 ];
 
+/** Why a changed test file that the runner does not collect matters. */
+export function uncollectedMessage(file: string): string {
+  return `${file} changed, but the test runner does not collect it: it kills nothing, so mutants only it would kill are reported as undetected (check the runner's include patterns, projects or env-based filters)`;
+}
+
 function gapOf(e: ReportEntry): Gap | undefined {
   if (e.status === 'NoCoverage') return 'notReached';
   if (e.status === 'Survived') return e.reason === 'notInfected' ? 'notInfected' : 'notDetected';
@@ -51,6 +56,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
     ...(report.notRun.budget ? [`${report.notRun.budget} over the time budget (--time-budget)`] : []),
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
+  for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
   for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap), root);
   list(lines, 'killed before, undetected now (their killing test is gone):', rechecked.filter((e) => gapOf(e)), root);
   return lines.join('\n');
@@ -69,15 +75,16 @@ function list(lines: string[], heading: string, entries: readonly ReportEntry[],
  */
 export function formatAnnotations(report: Report, root: string): string {
   const titles = new Map(GAPS.map((g) => [g.gap, g.title]));
-  return reported(report)
+  const uncollected = (report.uncollectedTests ?? []).map((file) => `::warning file=${file},title=Test file not collected::${uncollectedMessage(file)}`);
+  const mutants = reported(report)
     .flatMap((e) => {
       const gap = gapOf(e);
       if (!gap || (gap === 'notReached' && report.scope !== 'diff')) return [];
       const { start, end } = e.mutant.location;
       const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)}`;
       return [`::warning file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${titles.get(gap)}::${message}`];
-    })
-    .join('\n');
+    });
+  return [...uncollected, ...mutants].join('\n');
 }
 
 function location(e: ReportEntry, root: string): string {

@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { extname, relative } from 'node:path';
 import type { Position } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
+import { uncollectedMessage } from './report.ts';
 import type { Report } from './run.ts';
 import { VERSION } from './version.ts';
 
@@ -30,6 +31,8 @@ export interface MteReport {
   framework: { name: string; version: string };
   files: Record<string, { language: string; source: string; mutants: MteMutant[] }>;
   testFiles: Record<string, { tests: { id: string; name: string }[] }>;
+  /** mutator extension (the schema allows extra fields): conditions that make the verdicts less trustworthy. */
+  warnings?: { kind: 'uncollectedTest'; file: string; message: string }[];
 }
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
@@ -74,6 +77,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     framework: { name: 'mutator', version: VERSION },
     files,
     testFiles,
+    ...(report.uncollectedTests?.length ? { warnings: report.uncollectedTests.map((file) => ({ kind: 'uncollectedTest' as const, file, message: uncollectedMessage(file) })) } : {}),
   };
 }
 

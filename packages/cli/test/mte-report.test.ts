@@ -94,6 +94,12 @@ describe('formatMutationTestingJson', () => {
     expect(json.files['util.js']!.mutants[0]).toMatchObject({ status: 'NoCoverage', location: { start: { line: 1, column: 18 } } });
   });
 
+  test('lists changed test files the runner did not collect as warnings', () => {
+    expect(json.warnings).toBeUndefined();
+    const warned = formatMutationTestingJson({ ...report, uncollectedTests: ['x.test.ts'] }, root);
+    expect(warned.warnings).toEqual([{ kind: 'uncollectedTest', file: 'x.test.ts', message: expect.stringContaining('does not collect') }]);
+  });
+
   test('testFiles lists every referenced test once', () => {
     expect(json.testFiles).toEqual({
       'add.test.ts': {

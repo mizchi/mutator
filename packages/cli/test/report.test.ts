@@ -32,6 +32,13 @@ describe('formatSummary', () => {
     );
   });
 
+  test('warns about changed test files the runner did not collect', () => {
+    const report: Report = { entries: [entry(0, 'Survived')], executed: 1, dryRunFiles: [], scope: 'diff', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 }, uncollectedTests: ['test/x.test.ts'] };
+    expect(formatSummary(report, '/p')).toContain('warning: test/x.test.ts changed, but the test runner does not collect it');
+    expect(formatAnnotations(report, '/p')).toContain('::warning file=test/x.test.ts,title=Test file not collected::');
+    expect(formatSummary({ ...report, uncollectedTests: [] }, '/p')).not.toContain('warning:');
+  });
+
   test('says how many mutants were not run because of sampling or the time budget', () => {
     const entries = [entry(0, 'Killed'), entry(1, 'Pending'), entry(2, 'Pending'), entry(3, 'Pending')];
     const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 2, budget: 1 } };

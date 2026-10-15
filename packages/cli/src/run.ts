@@ -30,7 +30,8 @@ import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, plan
 import { oneLine } from './report.ts';
 import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
-import { diffTouched, sinceFocus } from './since.ts';
+import { diffTouched, sinceFocus, uncollectedTests } from './since.ts';
+import { changedFiles } from './git.ts';
 import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
@@ -123,6 +124,8 @@ export interface Report {
   durationMs: number;
   /** Mutants that needed a run but were left Pending: sampled out (mutantsPerLine) or over the time budget. */
   notRun: { sampled: number; budget: number };
+  /** With --since: changed test files (relative) the runner does not collect. */
+  uncollectedTests?: string[];
 }
 
 export class BaselineError extends Error {}
@@ -197,6 +200,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
     // off this thread, so it overlaps the dry run.
     const touched = options.since ? diffTouched(root, options.since, mutants, options.scope ?? 'node') : undefined;
+    const uncollected = options.since ? uncollectedTests(changedFiles(root, options.since, { untracked: true }).filter((f) => existsSync(join(root, f))), new Set(testFileList)) : undefined;
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
     early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
@@ -246,7 +250,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       }
     }
     const scored = inScope ? report.filter((e) => e.focus === 'diff') : report;
-    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun };
+    return { entries: report, executed, dryRunFiles: [...dryFiles].sort(), score: score(scored), scope: inScope ? 'diff' : 'all', durationMs: performance.now() - started, notRun, ...(uncollected ? { uncollectedTests: uncollected } : {}) };
   } finally {
     early?.cancel();
     await Promise.all(sessions.map((s) => s.close()));

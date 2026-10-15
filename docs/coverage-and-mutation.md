@@ -56,6 +56,6 @@ Some mutants cannot be detected by any test, because no input can observe the di
 
 ## Pitfalls seen in practice
 
-- **The runner's test set is part of the result.** A test file that the runner does not collect cannot kill anything. Examples are a CI tier that leaves out integration tests, or an `include` glob that misses it. In one trial, 18 of 32 "survivors" were killed by the commit's own test, which the selected tier excluded.
+- **The runner's test set is part of the result.** A test file that the runner does not collect cannot kill anything. Examples are a CI tier that leaves out integration tests, or an `include` glob that misses it. In one trial, 18 of 32 "survivors" were killed by the commit's own test, which the selected tier excluded. With `--since`, mutator now warns about changed test files that the runner does not collect.
 - **Tests that spawn a child process** to run the sources do not see mutants that mutator applies in memory. Mutants covered only that way look not reached.
 - **A line that the commit touched is not necessarily code the commit changed.** A mutant on an old guard can show up in a pull request because the commit edited the same line.

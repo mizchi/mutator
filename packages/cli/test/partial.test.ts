@@ -173,6 +173,19 @@ describe('--since runs the diff only', { timeout: 60_000 }, () => {
     }
   });
 
+  test('a changed test file the runner does not collect is reported', async () => {
+    const { root, first } = await setup('since-uncollected');
+    try {
+      expect(first.uncollectedTests).toBeUndefined();
+      writeFileSync(join(root, 'test/extra.spec.ts'), "import { test } from 'vitest';\ntest('x', () => {});\n");
+      edit(root, 'test/helper.ts', 'export', '// edited\nexport');
+      const since = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
+      expect(since.uncollectedTests).toEqual(['test/extra.spec.ts']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test('mutants outside the diff are rechecked when every test that killed them is gone', async () => {
     const { root, first } = await setup('since-removed');
     try {

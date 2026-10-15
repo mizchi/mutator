@@ -34,3 +34,13 @@ export function sinceFocus(touched: ReadonlySet<string>, previous: readonly Muta
   }
   return focus;
 }
+
+const TEST_FILE = /(^|\/)__tests__\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * Changed files that look like tests (`*.test.*`, `*.spec.*`, `__tests__/`) but are not among
+ * the runner's test files: they kill nothing, so the mutants only they would kill look undetected.
+ */
+export function uncollectedTests(changed: readonly string[], collected: ReadonlySet<string>): string[] {
+  return changed.filter((f) => TEST_FILE.test(f) && !collected.has(f)).sort();
+}

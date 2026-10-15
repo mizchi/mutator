@@ -49,11 +49,35 @@ Tests that run the sources in a child process (`node src/cli.js`, through `node:
 
 See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本語](docs/coverage-and-mutation.ja.md)) for how this relates to code coverage.
 
-`--reporter` is repeatable: `text` (default, summary on stdout), `json` and `html`. `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.
+`--reporter` is repeatable: `text` (default, summary on stdout), `json`, `html`, `agent` and `simplify` (both below). `json` writes `mutation.json` in the [mutation-testing-elements schema](https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema) (`schemaVersion: "2"`, the format StrykerJS emits), so existing tooling such as the Stryker dashboard can read it. `html` writes `index.html` with that JSON inlined; it loads the `mutation-testing-elements` web component from unpkg (pinned version), so viewing it needs network access. Both go to `--report-dir` (default `<root>/.mutator/report`). Mutants outside `--since` are reported as `Pending`, which the report UI excludes from the score.
 
 ### Closing gaps with a coding agent
 
 `--reporter agent` prints JSON on stdout (logs go to stderr): one record per undetected mutant in scope, with its gap, the enclosing function's source, the covering tests and the kind of fix it needs. `--only <key>` (repeatable) runs and reports just those mutants and reuses the cache for the rest, so re-checking a survivor after adding a test takes about a second. The [`mutation-test-loop`](.claude/skills/mutation-test-loop/SKILL.md) skill runs the loop with Claude Code: find the gaps with `--since`, write a test per gap, re-check with `--only`, and accept the mutants no input can observe.
+
+### Code that may be unnecessary
+
+`--reporter simplify` prints a second text report on stdout: code whose removal no test observes. It lists the covered survivors (not `NoCoverage`) of the mutants that remove code rather than change a value, grouped by the enclosing function, with the removed code:
+
+| kind | mutator | removal |
+|---|---|---|
+| statement removed | `CallExpression` | `cache.clear();` → `;` |
+| block emptied | `BlockStatement` | `{ ... }` → `{}` |
+| condition always `true` / `false` | `ConditionalExpression` | a guard, a branch, a loop or one operand of `&&` / `\|\|` removed |
+| `?.` replaced by `.` | `OptionalChaining` | `a?.b` → `a.b`, `f?.()` → `f()` |
+| call dropped | `MethodExpression` (removals only) | `s.trim()` → `s` |
+
+```
+may be unnecessary - no test observes the removal of this code (1 candidate in 1 function):
+each is also listed as a test gap in the summary; remove the code, or add a test that needs it.
+
+src/label.js  label (lines 1-5)
+  3:7  condition always false  name.length === 0
+```
+
+Value replacements (`ArrowFunction`, `FnValue`, operators, literals, `MethodExpression` swaps) are left out: a survivor there is a test gap, not code that could go. Accepted, equivalent-by-types and other `Ignored` mutants are left out, and so are mutants possibly reached in a child process. With `--since`, only the reported mutants are listed. A row ending in `(no test reaches it with a value it changes)` is not infected: the tests never make the condition differ, which more often means a missing input than dead code.
+
+The two views overlap on purpose. Each candidate is also a *not detected* or *not infected* gap in the summary, because the run cannot tell "the code is unnecessary" from "no test checks what it does": both look like a survivor. The simplify report only frames the removal-type survivors as a question about the code. Reading them, decide per row: delete the code, add the test that needs it, or accept the mutant when the code is there for something tests do not see (a fast path, input from untyped callers). It does not change the score or the quality gate. The agent reporter marks the same gaps with `simplify: "<kind>"`. On scule and ufo, 8 of 62 candidates were code that could go, 38 were test gaps and 16 were fast paths or defensive code ([benchmark](docs/benchmark.md#simplify-reporter-on-scule-and-ufo-2026-10-16)).
 
 ### Selecting the tests a change can break
 
@@ -134,7 +158,7 @@ export default defineConfig({
   arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
   experimentalCallgraph: false,
   fullDryRun: false,
-  reporters: ['text', 'html'],            // text | json | html
+  reporters: ['text', 'html'],            // text | json | html | agent | simplify
   reportDir: '.mutator/report',
   thresholds: { high: 80, low: 60, break: 50 },
   failOnSurvived: false,

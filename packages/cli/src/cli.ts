@@ -11,6 +11,7 @@ import { parseAcceptCli, parseCli, parseSelectCli, resolveValues } from './optio
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { BaselineError, SnapshotError, listMutants, runMutation } from './run.ts';
 import { selectTestsSince, selectionFiles } from './select-tests.ts';
+import { formatSimplify, simplifyCandidates } from './simplify.ts';
 import { VERSION } from './version.ts';
 
 const USAGE = `usage: mutator [options]
@@ -44,7 +45,9 @@ const USAGE = `usage: mutator [options]
   --kill-matrix        run every covering test for every mutant (no early exit) and report tests
                        that kill nothing or whose kills another test subsumes (slower; occasional use)
   --only <key>         run and report only this mutant (key: the id in mutation.json), repeatable
-  --reporter <name>    text (default), json, html, agent (JSON for coding agents, on stdout); repeatable
+  --reporter <name>    text (default), json, html, agent (JSON for coding agents, on stdout),
+                       simplify (code no test observes the removal of: it may be unnecessary;
+                       no effect on the score or the gate); repeatable
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)
   --threshold-break <n>  exit 2 when the mutation score (%) is below n
   --fail-on-survived   exit 2 when a mutant survives
@@ -92,6 +95,7 @@ try {
   const critical = criticalMutants(report.entries, root, options.critical);
   if (critical.length > 0) report.criticalMutants = critical;
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));
+  if (reporters.has('simplify')) console.log(`${reporters.has('text') ? '\n' : ''}${formatSimplify(simplifyCandidates(report, root))}`);
   if (reporters.has('agent')) console.log(JSON.stringify(formatAgentReport(report, root), null, 2));
   if (reporters.has('json') || reporters.has('html')) {
     mkdirSync(options.reportDir, { recursive: true });

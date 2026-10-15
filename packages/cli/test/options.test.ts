@@ -74,6 +74,10 @@ describe('resolveOptions', () => {
     expect(options.reporters).toEqual(new Set(['agent']));
   });
 
+  test('simplify is a reporter', async () => {
+    expect((await resolve(project(), '--reporter', 'simplify', '--reporter', 'text')).reporters).toEqual(new Set(['simplify', 'text']));
+  });
+
   test('typecheck: config value, overridden by --no-typecheck', async () => {
     const root = project({ typecheck: true });
     expect((await resolve(root)).run.typecheck).toBe(true);

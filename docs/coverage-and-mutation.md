@@ -49,6 +49,8 @@ Some mutants cannot be detected by any test, because no input can observe the di
 
 Some of them follow from types alone. When the project has `strictNullChecks` (or `strict`) and `noUncheckedIndexedAccess`, the type check drops `a?.b` → `a.b` when the type of `a` excludes `null` and `undefined`, and reports it `Ignored` (`equivalent: a is never nullish`) instead of *not detected*. The summary counts these (`equivalent by types: N`). This trusts the types: a cast or an `any` that hides a nullish value makes the verdict wrong. The other equivalent mutants still need a judgment, and `mutator accept` records it.
 
+A survivor can also point at the code instead of the tests. When a statement, a block, a guard or a `?.` is removed and every test that runs it still passes, the code may be unnecessary: a redundant early return, a check another check already makes, dead code. `--reporter simplify` lists these removal-type survivors per function ([README](../README.md#code-that-may-be-unnecessary)). They stay in the three gap groups as well, because a survivor looks the same whether the code is unnecessary or merely unchecked: only reading the code tells them apart. On scule and ufo, about one in eight candidates was code that could go. Most were test gaps, and a quarter were fast paths or defensive code that tests do not see ([benchmark](benchmark.md#simplify-reporter-on-scule-and-ufo-2026-10-16)). The report does not change the score or the gate.
+
 ## How to use each
 
 1. **Use code coverage as a map of the whole project.** It is cheap, and it shows where there are no tests at all. As a target it is easy to game: executing code without asserting anything raises it.

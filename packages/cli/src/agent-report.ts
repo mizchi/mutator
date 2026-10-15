@@ -7,6 +7,7 @@ import { reported } from './gate.ts';
 import { type Gap, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
+import { type RemovalKind, isSimplifyCandidate, removalKind } from './simplify.ts';
 
 /** Scopes longer than this many lines are cut to CONTEXT lines on each side of the mutant. */
 const MAX_SCOPE_LINES = 80;
@@ -31,6 +32,11 @@ export interface AgentGap {
   critical?: true;
   /** In a file a test's child process may load: possibly reached there, where mutants are not observed. */
   childProcess?: true;
+  /**
+   * A covered survivor that removes code (see `--reporter simplify`): no test observes the
+   * removal, so the code may be unnecessary. Deleting it closes the gap as well as a new test does.
+   */
+  simplify?: RemovalKind;
   /** Relative to the project root; line and column are 1-based. */
   file: string;
   line: number;
@@ -94,6 +100,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
         ...(e.focus === 'recheck' ? { recheck: true as const } : {}),
         ...(critical.has(mutant.key) ? { critical: true as const } : {}),
         ...(childProcess.has(mutant.key) ? { childProcess: true as const } : {}),
+        ...(isSimplifyCandidate(e, childProcess) ? { simplify: removalKind(mutant)! } : {}),
         file: relative(root, mutant.file),
         line,
         column: mutant.location.start.column + 1,

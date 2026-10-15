@@ -90,7 +90,8 @@
           "text",
           "json",
           "html",
-          "agent"
+          "agent",
+          "simplify"
         ]
       }
     },

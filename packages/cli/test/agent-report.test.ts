@@ -82,3 +82,16 @@ test('covering tests are capped, those naming the function first', () => {
   expect(gap.coveredBy[0]).toBe('a.test.ts#isAdult > boundary');
   expect(gap.coveredByCount).toBe(21);
 });
+
+test('marks covered survivors of removals as simplification candidates, with the kind of removal', () => {
+  const removal = (key: string, status: ReportEntry['status'], mutator: string, original: string, replacement: string) => entry(status, { mutant: { ...mutant, key, mutator, original, replacement } });
+  const report: Report = {
+    entries: [
+      removal('guard', 'Survived', 'ConditionalExpression', 'age >= 18', 'true'),
+      removal('unreached', 'NoCoverage', 'ConditionalExpression', 'age >= 18', 'false'),
+      entry('Survived', { mutant: { ...mutant, key: 'value' } }),
+    ],
+    executed: 2, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 },
+  };
+  expect(formatAgentReport(report, root).gaps.map((g) => [g.key, g.simplify])).toEqual([['guard', 'condition'], ['unreached', undefined], ['value', undefined]]);
+});

@@ -521,3 +521,30 @@ Group sizes are tests, out of 456–489 tests in 13 test files. "Rank" is the po
   - Duplicate groups inside one table point at rows that exercise the same path. One example is `encodeParam` with `123`, `hello world`, `true` and `áéíóú`, which all have the same 7 kills. A boundary row would add more than another row of the same kind.
 - **Subsumed across files: mostly false positives.** 23 of ufo's subsumed tests are subsumed only by tests in other files. For example, `stringifyParsedURL` rows are subsumed by `resolveURL` tests, and `decode` rows by `normalizeURL` tests. The direct unit tests are the ones that localise a failure, so deleting them would be the wrong reading. The same holds for defu: `should not override Object prototype` (6 kills) is subsumed by `defuFn()`, but it is the prototype-pollution regression test.
 - **The full killer set helps `select-tests`.** The first-killer miss in the select-tests trial above (`parseURL > Https://domain.test:3000#owo` never credited with the `protocol.toLowerCase()` mutant) disappears with a matrix snapshot. That test is one of the mutant's 70 killers.
+
+## Simplify reporter on scule and ufo (2026-10-16)
+
+`--reporter simplify` was run once over each whole project (scule `5bc6804`, ufo `f06c800`, vitest 5.0.3, `src/**/*.ts`), and every candidate was classified by reading the code:
+
+- **simplification:** the removal is equivalent, and the code buys nothing;
+- **test gap:** some input tells the two versions apart, and no test uses it;
+- **unseen by tests:** the removal is equivalent for the results, but the code is there for something tests do not observe: a fast path, avoiding a parse / stringify round trip that re-encodes the input, or input from untyped callers.
+
+| project | survivors | candidates (functions) | not infected | simplification | test gap | unseen by tests |
+|---|---|---|---|---|---|---|
+| scule | 12 | 10 (7) | 1 | 3 | 6 | 1 |
+| ufo | 111 | 52 (20) | 11 | 5 | 32 | 15 |
+| total | 123 | 62 | 12 | **8 (13%)** | **38 (61%)** | **16 (26%)** |
+
+Examples:
+
+- **Simplification.** In ufo's `withFragment`, `hash === "" ? "" : "#" + encodeHash(hash)` cannot see `""`, because `if (!hash || hash === "#") return input` came first. In `joinRelativeURL`, `if (!i || i === "/") continue` repeats `_input.filter(Boolean)`, and `"/"` splits into empty segments that the inner loop skips anyway. In scule's `splitByCase`, `previousSplitter === false` holds from the first non-splitter character on. Before that, `previousUpper` is still `undefined`, so both inner conditions are false anyway. The `str ? ... : ""` in `pascalCase` and `kebabCase` repeats the empty-input check of `splitByCase`. The vendored punycode passes `0` to the case flag of `c(n, t)` at every call site.
+- **Test gap.** ufo's `isScriptProtocol` returns `true` for every input when its condition is forced: the tests list only script protocols. Forcing `segments.length === 1` in `joinRelativeURL` stops `..` from removing the path segment after an origin (`"http://a.com/b", ".."`), and no test joins `..` onto a URL with a path. scule's `isUppercase` returns `undefined` for digits; without the guard, `splitByCase("a1B")` splits differently, and no test has a digit before a capital.
+- **Unseen by tests.** `withoutTrailingSlash`, `filterQuery`, `resolveURL` and `withFragment` return the input early when there is nothing to do. Without the early return the general path parses and re-serialises the URL and gets the same string on every tested input: a fast path that also avoids normalising the input. `toASCII` throws on an overflow, which only a crafted input reaches. scule's `typeof str !== "string"` protects JavaScript callers.
+
+Findings:
+
+- **The report is a question, not a verdict.** One candidate in eight was code that could go. Deleting by the list alone would have removed 38 real behaviours. This is why the candidates stay in the gap groups of the summary and the report does not change the score.
+- **Not-infected candidates are mostly test gaps.** 9 of ufo's 11 were: the tests never make the condition differ, such as `withBase` with a base followed by `?`, or `parseQuery` with a `__proto__` key. The other 2 were the dead code above, which no input can reach.
+- **It finds dead code that the summary does not single out.** In the summary the 8 simplifications are mixed into 123 survivors, and it prints at most 20 per group. In the simplify report they sit among 62 removal candidates, grouped by function. In ufo 20 functions hold the 52 candidates, and 9 of the candidates are in the minified, vendored `punycode.ts`, which is better excluded or accepted as a whole.
+- **Not evaluated:** uneffect, where the issue first saw redundant guards among the survivors. Its report strings are `StringLiteral` survivors, which the simplify report leaves out by design.

@@ -50,6 +50,11 @@ export interface RunMutantOptions {
   stallMs?: number;
   isStatic?: boolean;
   hitLimit?: number;
+  /**
+   * Stop at the first failing test (default: the session's setting, normally true). False
+   * runs every selected test and reports all that fail (--kill-matrix).
+   */
+  earlyExit?: boolean;
 }
 
 export interface MutantRunResult {

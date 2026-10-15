@@ -36,6 +36,7 @@ const full = {
   mutantsPerLine: 1,
   timeBudget: 600,
   critical: ['src/auth/**'],
+  killMatrix: false,
 };
 
 describe('validateConfig', () => {

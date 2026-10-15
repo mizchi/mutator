@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-matrix",
+  "private": true,
+  "type": "module"
+}

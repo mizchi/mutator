@@ -527,3 +527,46 @@ describe('weak mutation (infection)', () => {
     expect(entries.map((e) => e.kind)).toEqual(['run', 'run']);
   });
 });
+
+describe('kill matrix', () => {
+  const a = mutant('a');
+  const matrix = (r: MutantResult): MutantResult => ({ ...r, matrix: true });
+
+  it('re-runs a kill recorded with early exit: its killedBy may be incomplete', () => {
+    const tests = [test('k1'), test('t2')];
+    const previous = snapshot([result(a, 'Killed', ['k1', 't2'], ['k1'])], tests);
+    expect(only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['k1', 't2'] }) }))).kind).toBe('reuse');
+    expect(only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['k1', 't2'] }), killMatrix: true }))).kind).toBe('run');
+  });
+
+  it('reuses a full matrix while every covering test is unaffected', () => {
+    const tests = [test('k1'), test('t2')];
+    const previous = snapshot([matrix(result(a, 'Killed', ['k1', 't2'], ['k1']))], tests);
+    const e = only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['k1', 't2'] }), killMatrix: true })));
+    expect(e).toMatchObject({ kind: 'reuse', result: { matrix: true } });
+  });
+
+  it('re-runs a full matrix when a covering test that did not kill changed or is new', () => {
+    const previous = snapshot([matrix(result(a, 'Killed', ['k1', 't2'], ['k1']))], [test('k1'), test('t2')]);
+    const changed = [test('k1'), test('t2', 10, 'new')];
+    expect(only(plan(input({ mutants: [a], tests: changed, previous, coverage: cov({ a: ['k1', 't2'] }), killMatrix: true }))).kind).toBe('run');
+    const added = [test('k1'), test('t2'), test('t3')];
+    expect(only(plan(input({ mutants: [a], tests: added, previous, coverage: cov({ a: ['k1', 't2', 't3'] }), killMatrix: true }))).kind).toBe('run');
+  });
+
+  it('a normal run reuses the verdict of a stale matrix but no longer marks it complete', () => {
+    const previous = snapshot([matrix(result(a, 'Killed', ['k1', 't2'], ['k1']))], [test('k1'), test('t2')]);
+    const tests = [test('k1'), test('t2', 10, 'new')];
+    const e = only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['k1', 't2'] }) })));
+    expect(e.kind).toBe('reuse');
+    expect(e.kind === 'reuse' && e.result.matrix).toBeUndefined();
+  });
+
+  it('survivors, timeouts and runtime errors are reused as usual', () => {
+    const tests = [test('t1')];
+    for (const status of ['Survived', 'Timeout', 'RuntimeError'] as const) {
+      const previous = snapshot([result(a, status, ['t1'])], tests);
+      expect(only(plan(input({ mutants: [a], tests, previous, coverage: cov({ a: ['t1'] }), killMatrix: true }))).kind).toBe('reuse');
+    }
+  });
+});

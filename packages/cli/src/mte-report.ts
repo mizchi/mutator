@@ -6,6 +6,7 @@ import type { Position } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { POSSIBLY_IN_CHILD_PROCESS, childProcessMessage } from './child-process.ts';
 import { uncollectedMessage } from './report.ts';
+import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
 import { VERSION } from './version.ts';
 
@@ -34,6 +35,8 @@ export interface MteReport {
   testFiles: Record<string, { tests: { id: string; name: string }[] }>;
   /** mutator extension (the schema allows extra fields): conditions that make the verdicts less trustworthy. */
   warnings?: ({ kind: 'uncollectedTest'; file: string; message: string } | { kind: 'childProcessTest'; test: string; command: string; message: string })[];
+  /** mutator extension, with --kill-matrix: tests that kill nothing, are subsumed, or duplicate another. */
+  killMatrix?: KillMatrixAnalysis;
 }
 
 const CRITICAL_REASON = 'critical region: must be killed or accepted';
@@ -97,6 +100,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     files,
     testFiles,
     ...(warnings.length ? { warnings } : {}),
+    ...(report.killMatrix ? { killMatrix: report.killMatrix } : {}),
   };
 }
 

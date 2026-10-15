@@ -89,8 +89,8 @@ export async function createSession(options: SessionOptions): Promise<Session> {
   };
   const idOf = (test: TestCase) => byTask.get(test.id) ?? testId(options.root, test);
 
-  const earlyExit = options.earlyExit !== false;
-  const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0]) => {
+  const sessionEarlyExit = options.earlyExit !== false;
+  const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0], earlyExit = sessionEarlyExit) => {
     vitest.provide('mutator', { active, hitLimit, earlyExit });
     return vitest.runTestSpecifications(specs);
   };
@@ -129,7 +129,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       for (const [id, location] of index) locate(id, location);
     },
 
-    async runMutant(key, testIds, { timeoutMs, stallMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT }) {
+    async runMutant(key, testIds, { timeoutMs, stallMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT, earlyExit = sessionEarlyExit }) {
       const byModule = new Map<string, string[]>();
       for (const id of testIds) {
         const location = locations.get(id);
@@ -159,7 +159,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const current = vitest;
       const currentWatch = watch;
       currentWatch.arm(earlyExit ? () => void current.cancelCurrentRun('test-failure') : () => {}, progress);
-      const outcome = await Promise.race([run(key, hitLimit, specs), timeout]);
+      const outcome = await Promise.race([run(key, hitLimit, specs, earlyExit), timeout]);
       clearTimeout(timer);
       clearTimeout(stall);
       const observed = currentWatch.disarm();

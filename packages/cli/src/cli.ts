@@ -41,6 +41,8 @@ const USAGE = `usage: mutator [options]
   --mutants-per-line <n>  run at most n mutants per source line, most productive
                        mutators first (the rest stay pending; default: unlimited)
   --time-budget <s>    start no new mutant run after s seconds (default: unlimited)
+  --kill-matrix        run every covering test for every mutant (no early exit) and report tests
+                       that kill nothing or whose kills another test subsumes (slower; occasional use)
   --only <key>         run and report only this mutant (key: the id in mutation.json), repeatable
   --reporter <name>    text (default), json, html, agent (JSON for coding agents, on stdout); repeatable
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)

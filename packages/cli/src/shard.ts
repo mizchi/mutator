@@ -35,6 +35,8 @@ export interface ShardedJob {
  * started jobs. A Killed / Timeout / RuntimeError shard settles its job (its other
  * shards are dropped, results still in flight are ignored); a job survives when all
  * its shards survive. Once `shouldStop` is true no new job starts, but started jobs finish.
+ * With `allShards` (kill matrix) only a Timeout settles a job early: every other shard runs,
+ * and the job's failing tests are those of all its shards.
  * Returns the jobs that never started.
  */
 export async function runSharded<J extends ShardedJob>(input: {
@@ -43,8 +45,9 @@ export async function runSharded<J extends ShardedJob>(input: {
   run: (worker: number, job: J, shard: readonly string[]) => Promise<MutantRunResult>;
   onDone: (job: J, outcome: MutantRunResult) => void;
   shouldStop?: () => boolean;
+  allShards?: boolean;
 }): Promise<J[]> {
-  const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false }));
+  const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false, outcomes: [] as MutantRunResult[] }));
   let unstarted = 0;
   const take = () => {
     if (unstarted < state.length && !input.shouldStop?.()) return state[unstarted++]!;
@@ -57,16 +60,26 @@ export async function runSharded<J extends ShardedJob>(input: {
   await Promise.all(
     Array.from({ length: input.workers }, async (_, worker) => {
       for (let s = take(); s; s = take()) {
-        const shard = s.job.shards[s.next++]!;
+        const index = s.next++;
+        const shard = s.job.shards[index]!;
         s.running++;
         const outcome = await input.run(worker, s.job, shard);
         s.running--;
         if (s.settled) continue;
         s.durationMs += outcome.durationMs;
-        if (outcome.status !== 'Survived') settle(s, outcome);
-        else if (s.next >= s.job.shards.length && s.running === 0) settle(s, outcome);
+        // Kept in shard order: killers stay in the planned order.
+        s.outcomes[index] = outcome;
+        const decisive = input.allShards ? outcome.status === 'Timeout' : outcome.status !== 'Survived';
+        if (decisive) settle(s, outcome);
+        else if (s.next >= s.job.shards.length && s.running === 0) settle(s, input.allShards ? combine(s.outcomes) : outcome);
       }
     }),
   );
   return state.slice(unstarted).map((s) => s.job);
+}
+
+/** Shards of one job, none timed out: the failing tests of all of them, under the strongest verdict. */
+function combine(outcomes: readonly MutantRunResult[]): MutantRunResult {
+  const status = outcomes.some((o) => o.status === 'Killed') ? 'Killed' : outcomes.some((o) => o.status === 'RuntimeError') ? 'RuntimeError' : 'Survived';
+  return { status, killedBy: [...new Set(outcomes.flatMap((o) => o.killedBy))], durationMs: 0 };
 }

@@ -172,6 +172,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "killMatrix": {
+      "description": "Run every covering test for every mutant (no early exit) and report tests that kill no mutant or whose kills another test subsumes. Slower: meant for occasional runs.",
+      "type": "boolean"
     }
   }
 }

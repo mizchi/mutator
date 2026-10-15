@@ -4,6 +4,7 @@ import { reported, scoreLevel } from './gate.ts';
 import { ACCEPTED_FILE } from './accepted.ts';
 import { criticalSummary } from './critical.ts';
 import { CHILD_PROCESS_WARNING, POSSIBLY_IN_CHILD_PROCESS } from './child-process.ts';
+import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report, ReportEntry } from './run.ts';
 
 const ORDER = ['Killed', 'Timeout', 'RuntimeError', 'Survived', 'NoCoverage', 'CompileError', 'Ignored', 'Pending'] as const;
@@ -97,7 +98,27 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   const detected = new Set(killed);
   list(lines, `accepted, but detected now - remove from ${ACCEPTED_FILE}:`, report.entries.filter((e) => detected.has(e.mutant.key)), root, true);
   if (stale.length > 0) lines.push('', `accepted, but the mutant no longer exists - remove from ${ACCEPTED_FILE}:`, ...stale.map((key) => `  ${key}`));
+  if (report.killMatrix) killMatrixSection(lines, report.killMatrix);
   return lines.join('\n');
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function killMatrixSection(lines: string[], k: KillMatrixAnalysis): void {
+  const { full, timeout, incomplete } = k.mutants;
+  const excluded = [...(timeout ? [`${timeout} timed out`] : []), ...(incomplete ? [`${incomplete} without one (not run, killed with early exit, or a test file failing to load)`] : [])];
+  lines.push('', `kill matrix: ${plural(full, 'mutant')} with a full matrix, ${plural(k.tests, 'covering test')}${excluded.length ? `; excluded: ${excluded.join(', ')}` : ''}`);
+  const section = (heading: string, items: readonly string[]) => {
+    if (items.length === 0) return;
+    lines.push('', heading, ...items.slice(0, MAX_LISTED).map((item) => `  ${item}`));
+    if (items.length > MAX_LISTED) lines.push(`  … ${items.length - MAX_LISTED} more (see --reporter json or agent)`);
+  };
+  section('detects nothing - covers mutants, but kills none of them:', k.noKills);
+  section(
+    'subsumed - another test kills every mutant it kills, and more:',
+    k.subsumed.map(({ test, kills, by }) => `${test}  subsumed by ${by[0]}${by.length > 1 ? ` (+${by.length - 1} more)` : ''}  (${plural(kills, 'kill')})`),
+  );
+  section('duplicates - the same kill set:', k.duplicates.map(({ tests, kills }) => `${tests.join(' = ')}  (${plural(kills, 'kill')})`));
 }
 
 function list(lines: string[], heading: string, entries: readonly ReportEntry[], root: string, withKey = false): void {

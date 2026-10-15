@@ -7,7 +7,7 @@ import type { MutantResult, MutantStatus, ResultReason, RunSnapshot } from '@miz
 // 333 MB snapshot as plain objects). File paths are relative to the project root
 // so a snapshot can be restored in another checkout (e.g. a CI cache).
 
-type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number | null, reason?: 1 | string];
+type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number | null, reason?: 0 | 1 | string, matrix?: 1];
 
 interface Compact {
   format: 2;
@@ -26,7 +26,7 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
     const absolute = (file: string) => (isAbsolute(file) ? file : join(root, file));
     if (data.format === 2 && data.rows && data.ids && data.strings) {
       const { format: _format, rows, ids, strings, ...rest } = data;
-      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs, reason]): MutantResult => ({
+      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs, reason, matrix]): MutantResult => ({
         key,
         file: absolute(strings[file]!),
         scopeId: strings[scope]!,
@@ -35,8 +35,9 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
         killedBy: killedBy.map((i) => ids[i]!),
         coveredBy: coveredBy.map((i) => ids[i]!),
         ...(durationMs !== undefined && durationMs !== null ? { durationMs } : {}),
-        // 1: `notInfected`, the common case; other reasons are stored as text.
+        // 1: `notInfected`, the common case; other reasons are stored as text (0: none, before `matrix`).
         ...(reason ? { reason: reason === 1 ? 'notInfected' : (reason as ResultReason) } : {}),
+        ...(matrix ? { matrix: true as const } : {}),
       }));
       return { ...rest, results } as RunSnapshot;
     }
@@ -55,8 +56,9 @@ export function writeSnapshot(path: string, snapshot: RunSnapshot, root: string)
   const str = (s: string) => strings.get(s) ?? (strings.set(s, strings.size), strings.size - 1);
   const rows = results.map((r): Row => {
     const row: Row = [r.key, str(relative(root, r.file)), str(r.scopeId), r.scopeHash, r.status, r.killedBy.map(id), r.coveredBy.map(id)];
-    if (r.durationMs !== undefined || r.reason) row.push(r.durationMs !== undefined ? Math.round(r.durationMs * 10) / 10 : null);
-    if (r.reason) row.push(r.reason === 'notInfected' ? 1 : r.reason);
+    if (r.durationMs !== undefined || r.reason || r.matrix) row.push(r.durationMs !== undefined ? Math.round(r.durationMs * 10) / 10 : null);
+    if (r.reason || r.matrix) row.push(r.reason ? (r.reason === 'notInfected' ? 1 : r.reason) : 0);
+    if (r.matrix) row.push(1);
     return row;
   });
   const compact: Compact = { format: 2, ids: [...ids.keys()], strings: [...strings.keys()], rows };

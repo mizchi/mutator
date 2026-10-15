@@ -101,20 +101,35 @@ export function plan(input: PlanInput): PlanEntry[] {
     for (const t of r.killedBy) counts.set(t, (counts.get(t) ?? 0) + 1);
   }
 
-  const canReuse = (m: Mutant, prev: MutantResult, isStatic: boolean): boolean => {
-    if (prev.scopeHash !== m.scope.hash || prev.file !== m.file) return false;
-    const unaffected = (t: string) => !affects(t, m);
-    if (prev.status === 'Killed') return prev.killedBy.some((t) => testById.has(t) && unaffected(t));
-    // Re-checked every run: cheap, and the types it depends on may live in other files.
-    if (prev.status === 'Ignored' || prev.status === 'Pending' || prev.status === 'CompileError') return false;
+  // Every covering test is unaffected and none is new: running again would give the same
+  // outcome for each test, not only the same verdict.
+  const sameTests = (m: Mutant, prev: MutantResult, isStatic: boolean): boolean => {
     // A static mutant influences every test through module loading, so any affected test invalidates it.
     if (isStatic && anyAffected) return false;
-    if (!prev.coveredBy.every(unaffected)) return false;
+    if (!prev.coveredBy.every((t) => !affects(t, m))) return false;
     if (prev.status === 'Timeout' || prev.status === 'RuntimeError') return true;
     const now = coverage?.get(m.key);
     if (coverage && prev.status === 'NoCoverage' && (now?.length ?? 0) > 0) return false;
     const before = new Set(prev.coveredBy);
     return !(now ?? []).some((t) => !before.has(t));
+  };
+
+  const canReuse = (m: Mutant, prev: MutantResult, isStatic: boolean): boolean => {
+    if (prev.scopeHash !== m.scope.hash || prev.file !== m.file) return false;
+    if (prev.status === 'Killed') return prev.killedBy.some((t) => testById.has(t) && !affects(t, m));
+    // Re-checked every run: cheap, and the types it depends on may live in other files.
+    if (prev.status === 'Ignored' || prev.status === 'Pending' || prev.status === 'CompileError') return false;
+    return sameTests(m, prev, isStatic);
+  };
+
+  /** A reusable kill: still a full matrix only while its covering tests are all unaffected. */
+  const reuse = (m: Mutant, prev: MutantResult, isStatic: boolean): PlanEntry | undefined => {
+    if (prev.status !== 'Killed') return { kind: 'reuse', mutant: m, result: prev };
+    const full = prev.matrix === true && sameTests(m, prev, isStatic);
+    if (input.killMatrix && !full) return undefined;
+    if (full || !prev.matrix) return { kind: 'reuse', mutant: m, result: prev };
+    const { matrix: _stale, ...result } = prev;
+    return { kind: 'reuse', mutant: m, result };
   };
 
   const selectTests = (m: Mutant, prev: MutantResult | undefined, isStatic: boolean): string[] => {
@@ -149,7 +164,8 @@ export function plan(input: PlanInput): PlanEntry[] {
     if (m.ignored !== undefined) return { kind: 'ignored', mutant: m, reason: m.ignored };
     const isStatic = staticKeys.has(m.key);
     const prev = prevByKey.get(m.key);
-    if (prev && canReuse(m, prev, isStatic)) return { kind: 'reuse', mutant: m, result: prev };
+    const reused = prev && canReuse(m, prev, isStatic) ? reuse(m, prev, isStatic) : undefined;
+    if (reused) return reused;
     let selected = selectTests(m, prev, isStatic);
     if (selected.length === 0) return { kind: 'noCoverage', mutant: m };
     if (m.weak && !isStatic && input.infection) {

@@ -17,6 +17,8 @@ const results: MutantResult[] = Array.from({ length: 2000 }, (_, i) => ({
   coveredBy: i % 3 === 2 ? [] : tests.slice(i % 150, (i % 150) + 40).map((t) => t.id),
   ...(i % 2 ? { durationMs: i } : {}),
   ...(i % 3 === 1 && i % 4 < 2 ? { reason: 'notInfected' as const } : {}),
+  // Killed by a --kill-matrix run, with or without a duration.
+  ...(i % 3 === 0 && i % 5 < 2 ? { matrix: true as const } : {}),
 }));
 const snapshot: RunSnapshot & { extra: { nested: string[] } } = { toolVersion: 'v', envHash: 'e', tests, results, extra: { nested: ['kept as is'] } };
 

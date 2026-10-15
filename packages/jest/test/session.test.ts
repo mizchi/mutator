@@ -21,6 +21,23 @@ describe('jest session: child processes', { timeout: 60_000 }, () => {
   });
 });
 
+describe('jest session: kill matrix', { timeout: 60_000 }, () => {
+  test('without early exit every failing test file runs', async () => {
+    const matrixRoot = fileURLToPath(new URL('./fixtures/matrix', import.meta.url));
+    const session = await createJestSession({ root: matrixRoot, targets: [join(matrixRoot, 'src/add.js')] });
+    try {
+      const dry = await session.dryRun();
+      const key = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
+      const tests = dry.coverage.get(key)!;
+      expect(tests.sort()).toEqual(['__tests__/a.test.js#a', '__tests__/b.test.js#b']);
+      const all = await session.runMutant(key, tests, { timeoutMs: 10_000, earlyExit: false });
+      expect(all.killedBy.sort()).toEqual(['__tests__/a.test.js#a', '__tests__/b.test.js#b']);
+    } finally {
+      await session.close();
+    }
+  });
+});
+
 describe('jest session (ESM fixture)', { timeout: 60_000 }, () => {
   let session: Session;
   beforeAll(async () => {

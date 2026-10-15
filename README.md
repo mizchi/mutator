@@ -25,7 +25,7 @@ npx mutator --since main   # PR mode
 npx mutator --root <dir>   # another project directory
 ```
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -69,6 +69,24 @@ npx mutator select-tests --since main --format json
 3. changed test files, and test files importing a changed helper or fixture.
 
 `--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. Without a snapshot, or with one from another mutator version or environment (lockfile, tsconfig, runner config, Node version, mutation options), the command exits 1 and asks for a `mutator` run first.
+
+### Finding tests that detect nothing or are subsumed (kill matrix)
+
+```sh
+npx mutator --kill-matrix
+```
+
+A normal run stops each mutant at its first failing test, so `killedBy` names the first killer, not every test that can kill it. `--kill-matrix` runs every covering test for every mutant: no early exit inside a test file, every test file runs, and long runs split across sessions run all their shards. Each Killed result then records all its killing tests and is marked as a full matrix in the snapshot. The text summary adds a section, and the JSON (`killMatrix` in `mutation.json`) and agent reporters carry the full lists:
+
+- **detects nothing**: tests that cover at least one mutant but kill none. They run the code without an assertion mutation can observe.
+- **subsumed**: tests whose kill set is a strict subset of another single test's, with that test (largest kill set first).
+- **duplicates**: groups of tests with the same kill set.
+
+Only mutants with a full matrix count: Killed results from a matrix run, and survivors (a survivor ran every covering test anyway). Timeouts have no matrix and are excluded, as are mutants that were not run (`--mutants-per-line`, `--time-budget`, `--since`) and kills attributed to a test file that failed to load. The summary says how many mutants were used and how many were excluded.
+
+The mode costs 1.1-2.5x a normal cold run on the benchmark projects (every covering test runs, and many of them fail), so it is meant for occasional runs and combines with `--mutants-per-line` and `--time-budget`. Results stay reusable both ways. A normal run reuses matrix verdicts like any other. A matrix run reuses survivors, timeouts and full matrices whose covering tests are all unchanged, and re-runs kills recorded with early exit. A matrix whose covering tests changed loses its mark, even when a normal run keeps its verdict. A snapshot written by a matrix run also gives `select-tests` every killer instead of the first.
+
+Subsumption is measured on today's mutants, not on future faults. A row of a test table, or a test of another function that shares a helper, is often subsumed while still pinning a behaviour worth keeping. Read the lists as candidates for review, not for deletion. Jest runs the mode too (without `--bail`).
 
 ### Thresholds and exit codes
 
@@ -124,6 +142,7 @@ export default defineConfig({
   mutantsPerLine: 1,                      // default: unlimited
   timeBudget: 600,                        // seconds; default: unlimited
   critical: ['src/auth/**'],              // every mutant here must be killed or accepted
+  killMatrix: false,                      // run every covering test per mutant (slower)
 });
 ```
 

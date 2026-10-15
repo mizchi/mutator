@@ -173,6 +173,11 @@ export interface MutantResult {
    * it changes (weak mutation). `equivalent: ...`: Ignored, the types prove it equivalent.
    */
   reason?: ResultReason;
+  /**
+   * Killed by a run without early exit (--kill-matrix): `killedBy` lists every covering test
+   * that fails, not only the first. Dropped once a covering test changes.
+   */
+  matrix?: true;
 }
 
 export type ResultReason = 'notInfected' | `equivalent: ${string}`;
@@ -236,6 +241,11 @@ export interface PlanInput {
    * differ (e.g. a top-level constant they read was edited).
    */
   affected?: { tests?: ReadonlySet<string>; scopes?: ReadonlySet<string> };
+  /**
+   * Kill matrix mode: a Killed result is reused only when it is a full matrix (`matrix`)
+   * whose covering tests are all unaffected; other kills run again.
+   */
+  killMatrix?: boolean;
 }
 
 export type PlanEntry =

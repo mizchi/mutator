@@ -35,6 +35,7 @@ import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } f
 import { applyAcceptance } from './accepted.ts';
 import { childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
 import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
+import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
@@ -95,6 +96,11 @@ export interface RunOptions {
   mutantsPerLine?: number;
   /** Seconds from the start of the run after which no new mutant run starts; the rest are Pending. */
   timeBudget?: number;
+  /**
+   * Measure the kill matrix: mutants run every covering test without early exit, so `killedBy`
+   * lists every test that fails; the report then lists tests that detect nothing or are subsumed.
+   */
+  killMatrix?: boolean;
   log?: (message: string) => void;
 }
 
@@ -121,6 +127,8 @@ export interface ReportEntry {
   reason?: ResultReason;
   /** Undetected but accepted (mutator.accepted.json), with the recorded reason; the status is then `Ignored`. */
   accepted?: string;
+  /** Killed without early exit (--kill-matrix): `killedBy` lists every covering test that fails. */
+  matrix?: true;
 }
 
 export interface Report {
@@ -151,6 +159,8 @@ export interface Report {
   childProcessMutants?: string[];
   /** Mutants in critical regions (config globs or `// mutator-critical`): each must be killed or accepted. Set by the CLI. */
   criticalMutants?: string[];
+  /** With --kill-matrix: tests that kill nothing or are subsumed, over the mutants with a full matrix. */
+  killMatrix?: KillMatrixAnalysis;
 }
 
 export class BaselineError extends Error {}
@@ -256,6 +266,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
       ...(dryPlan.all ? {} : { affected: { tests: testsOf(merged.tests, new Set(dryPlan.stale)), scopes: new Set(dryPlan.impacted) } }),
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
+      ...(options.killMatrix ? { killMatrix: true } : {}),
     });
 
     const since = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
@@ -267,7 +278,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     applyTypecheck(tally, jobs, notInfected, typecheck, merged.coverage);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
-    const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency });
+    const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     writeSnapshot(snapshotPath, snapshot, root);
@@ -294,6 +305,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(skipped?.length ? { skippedTests: skipped } : {}),
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
       ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),
+      // Before acceptance: an accepted survivor still shows which tests kill nothing.
+      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key }))) } : {}),
     };
   } finally {
     early?.cancel();
@@ -443,7 +456,7 @@ function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryRun['cov
       case 'reuse':
         // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
         results.push({ ...entry.result, coveredBy });
-        report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}) });
+        report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}), ...(entry.result.matrix ? { matrix: true as const } : {}) });
         break;
       case 'run':
         jobs.push({ index: report.length, entry });
@@ -500,6 +513,8 @@ interface ExecuteContext {
   started: number;
   timeBudget: number | undefined;
   concurrency: number | undefined;
+  /** No early exit: every covering test runs, kills are recorded as a full matrix. */
+  killMatrix: boolean;
 }
 
 /** Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many ran. */
@@ -525,6 +540,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
     workers: workers.length,
     jobs: sharded,
     shouldStop: () => performance.now() >= deadline,
+    allShards: ctx.killMatrix,
     // A shard keeps its job's timeout: test durations leave out module loading, so a
     // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
     run: (worker, { entry }, tests) =>
@@ -533,14 +549,16 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
         stallMs: stallBudget(tests, testDurations),
         isStatic: entry.isStatic,
         hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
+        ...(ctx.killMatrix ? { earlyExit: false } : {}),
       }),
     onDone: ({ index, entry }, outcome) => {
       const { mutant } = entry;
       executed++;
       log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
       const { coveredBy } = report[index]!;
-      results.push(toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs));
-      report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy };
+      const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
+      results.push({ ...toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs), ...matrix });
+      report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy, ...matrix };
     },
   });
   // Over the time budget: the jobs never started.

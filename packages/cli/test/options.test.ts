@@ -168,6 +168,16 @@ describe('large-run options', () => {
   });
 });
 
+describe('kill matrix', () => {
+  test('off by default; from the config file, or --kill-matrix / --no-kill-matrix', async () => {
+    expect((await resolve(project())).run.killMatrix).toBeUndefined();
+    expect((await resolve(project(), '--kill-matrix')).run.killMatrix).toBe(true);
+    const root = project({ killMatrix: true });
+    expect((await resolve(root)).run.killMatrix).toBe(true);
+    expect((await resolve(root, '--no-kill-matrix')).run.killMatrix).toBeUndefined();
+  });
+});
+
 describe('runner config files', () => {
   test('--config is the vitest config and --jest-config the jest config', async () => {
     const root = project();

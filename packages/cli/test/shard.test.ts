@@ -71,6 +71,41 @@ describe('runSharded', () => {
     expect(settled).toEqual(['j:Killed']);
   });
 
+  test('kill matrix: every shard runs and the killing tests of all shards are combined', async () => {
+    const ran: string[] = [];
+    const done = new Map<string, Outcome>();
+    await runSharded({
+      workers: 2,
+      allShards: true,
+      jobs: [{ id: 'j', shards: [['a'], ['b'], ['c']] }],
+      run: async (_w, _job, shard) => {
+        ran.push(shard.join());
+        await tick();
+        return shard[0] === 'b' ? { status: 'Survived', killedBy: [], durationMs: 1 } : { status: 'Killed', killedBy: [shard[0]!], durationMs: 1 };
+      },
+      onDone: (job, outcome) => done.set(job.id, outcome),
+    });
+    expect(ran.sort()).toEqual(['a', 'b', 'c']);
+    expect(done.get('j')).toEqual({ status: 'Killed', killedBy: ['a', 'c'], durationMs: 3 });
+  });
+
+  test('kill matrix: a timed-out shard settles the job (it has no full matrix anyway)', async () => {
+    const ran: string[] = [];
+    const done = new Map<string, Outcome>();
+    await runSharded({
+      workers: 1,
+      allShards: true,
+      jobs: [{ id: 'j', shards: [['a'], ['t'], ['c']] }],
+      run: async (_w, _job, shard) => {
+        ran.push(shard.join());
+        return shard[0] === 't' ? { status: 'Timeout', killedBy: [], durationMs: 5 } : { status: 'Killed', killedBy: [shard[0]!], durationMs: 1 };
+      },
+      onDone: (job, outcome) => done.set(job.id, outcome),
+    });
+    expect(ran).toEqual(['a', 't']);
+    expect(done.get('j')).toEqual({ status: 'Timeout', killedBy: [], durationMs: 6 });
+  });
+
   test('stops taking work once `shouldStop` says so', async () => {
     let calls = 0;
     const done: string[] = [];

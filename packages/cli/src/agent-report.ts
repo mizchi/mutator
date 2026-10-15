@@ -5,6 +5,7 @@ import { relative } from 'node:path';
 import { childProcessMessage } from './child-process.ts';
 import { reported } from './gate.ts';
 import { type Gap, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
+import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
 
 /** Scopes longer than this many lines are cut to CONTEXT lines on each side of the mutant. */
@@ -59,6 +60,8 @@ export interface AgentReport {
     | { kind: 'childProcessTest'; test: string; command: string; message: string }
   )[];
   acceptance?: { killed: string[]; stale: string[] };
+  /** With --kill-matrix: tests that kill nothing, are subsumed by another test, or duplicate one. */
+  killMatrix?: KillMatrixAnalysis;
 }
 
 export function formatAgentReport(report: Report, root: string): AgentReport {
@@ -118,6 +121,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
       ...(report.childProcessTests ?? []).map(({ test, command }) => ({ kind: 'childProcessTest' as const, test, command, message: childProcessMessage(command) })),
     ],
     ...(report.acceptance ? { acceptance: report.acceptance } : {}),
+    ...(report.killMatrix ? { killMatrix: report.killMatrix } : {}),
   };
 }
 

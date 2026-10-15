@@ -202,7 +202,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
       for (const [id, location] of index) locations.set(id, location);
     },
 
-    async runMutant(key, testIds, { timeoutMs, hitLimit = DEFAULT_HIT_LIMIT }) {
+    async runMutant(key, testIds, { timeoutMs, hitLimit = DEFAULT_HIT_LIMIT, earlyExit = true }) {
       const byFile = new Map<string, Set<string>>();
       for (const id of testIds) {
         const location = locations.get(id);
@@ -215,7 +215,8 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
       const names = [...new Set([...byFile.values()].flatMap((s) => [...s]))];
       const pattern = `^(?:${names.map(escapeRegExp).join('|')})$`;
       const outcome = await jest(
-        ['--runInBand', '--bail', '--testNamePattern', pattern, '--runTestsByPath', ...byFile.keys()],
+        // --bail stops after the first failing test file; without it every file runs (--kill-matrix).
+        ['--runInBand', ...(earlyExit ? ['--bail'] : []), '--testNamePattern', pattern, '--runTestsByPath', ...byFile.keys()],
         { MUTATOR_ACTIVE: key, MUTATOR_HIT_LIMIT: String(hitLimit) },
         timeoutMs + startupMs,
       );

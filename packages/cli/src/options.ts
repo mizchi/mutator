@@ -44,6 +44,7 @@ const OPTIONS = {
   'mutants-per-line': { type: 'string' },
   'time-budget': { type: 'string' },
   critical: { type: 'string', multiple: true },
+  'kill-matrix': { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;
@@ -102,6 +103,7 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     fullDryRun: values['full-dry-run'],
     mutantsPerLine: numeric(values['mutants-per-line']),
     timeBudget: numeric(values['time-budget']),
+    killMatrix: values['kill-matrix'],
     reporters: values.reporter,
     reportDir: values['report-dir'] && resolve(cwd, values['report-dir']),
     thresholds: values['threshold-break'] === undefined ? undefined : { break: numeric(values['threshold-break']) },
@@ -177,6 +179,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.mutantsPerLine !== undefined ? { mutantsPerLine: config.mutantsPerLine } : {}),
       ...(config.timeBudget !== undefined ? { timeBudget: config.timeBudget } : {}),
       ...(config.typecheck !== undefined ? { typecheck: config.typecheck } : {}),
+      ...(config.killMatrix ? { killMatrix: true } : {}),
       ...(values.only?.length ? { only: new Set(values.only) } : {}),
     },
     reporters: new Set(config.reporters ?? ['text']),

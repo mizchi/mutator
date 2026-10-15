@@ -126,6 +126,12 @@ describe('early exit inside a test file', () => {
       const result = await session.runMutant(mutant.key, tests, { timeoutMs: 30_000 });
       expect(result.status).toBe('Killed');
       expect(result.killedBy).toEqual(['test/m.test.ts#add 1']);
+      // Without early exit every failing test is recorded (the kill matrix), and the next
+      // early-exit run is not affected.
+      const all = await session.runMutant(mutant.key, tests, { timeoutMs: 30_000, earlyExit: false });
+      expect(all.status).toBe('Killed');
+      expect(all.killedBy).toHaveLength(30);
+      expect((await session.runMutant(mutant.key, tests, { timeoutMs: 30_000 })).killedBy).toEqual(['test/m.test.ts#add 1']);
     } finally {
       await session.close();
     }

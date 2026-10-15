@@ -51,6 +51,8 @@ mutator は検出されなかった mutant ごとに、テストがどの段階�
 
 どの入力でも差を観測できない mutant もあります。これを等価 mutant と呼びます。null にならない値への `?.`、順序を誰も見ない `.sort()`、性能改善で入れた高速経路を無効にする変更などです。等価 mutant は not detected として表示されます。そのため、ミュータントスコア 100% は一般には到達できません。目標値にはしないでください。
 
+型だけで等価だと分かるものもあります。プロジェクトで `strictNullChecks`（または `strict`）と `noUncheckedIndexedAccess` が有効なら、型チェックの段階で `a?.b` → `a.b` のうち `a` の型が `null` も `undefined` も含まないものを除外し、not detected ではなく `Ignored`（`equivalent: a is never nullish`）として報告します。件数はサマリに `equivalent by types: N` と出ます。これは型を信用した判定です。キャストや `any` で nullish な値が隠れていれば、判定は誤ります。それ以外の等価 mutant は人が判断する必要があり、その判断は `mutator accept` で記録できます。
+
 ## 使い分け
 
 1. **コードカバレッジは、プロジェクト全体の地図として使います。** 安く測れて、テストがまったく無い場所が分かります。ただし目標値にすると、assertion なしでコードを実行するだけで簡単に上げられてしまいます。

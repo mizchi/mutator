@@ -16,6 +16,12 @@ export interface TypeChecker {
    * present in the original source are ignored): key -> first new error.
    */
   check(mutants: readonly TypecheckMutant[]): Map<string, string>;
+  /**
+   * Mutants proven equivalent from the types of the original source: key -> reason
+   * (`equivalent: ...`). Only `a?.b` -> `a.b` where `a` is never nullish; nothing
+   * without strictNullChecks and noUncheckedIndexedAccess.
+   */
+  equivalent(mutants: readonly TypecheckMutant[]): Map<string, string>;
   close(): void;
 }
 

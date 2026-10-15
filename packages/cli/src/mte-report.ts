@@ -59,7 +59,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       killedBy,
       coveredBy,
       ...(mutant.ignored ? { statusReason: mutant.ignored } : {}),
-      ...(reason === 'notInfected' ? { statusReason: 'not infected: no covering test reaches it with a value it changes' } : {}),
+      ...(reason === 'notInfected' ? { statusReason: 'not infected: no covering test reaches it with a value it changes' } : reason ? { statusReason: reason } : {}),
       ...(childProcess.has(mutant.key) ? { statusReason: `${POSSIBLY_IN_CHILD_PROCESS}: a test runs the file in a child process, where mutator cannot observe mutants` } : {}),
       ...(accepted !== undefined ? { statusReason: `accepted: ${accepted}` } : {}),
     });

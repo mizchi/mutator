@@ -9,7 +9,9 @@ if (!checker) {
   parentPort!.postMessage(undefined);
 } else {
   try {
-    parentPort!.postMessage({ version: checker.version, errors: checker.check(mutants) });
+    // Equivalence first: it reads the original program, before any mutant is swapped in.
+    const equivalent = checker.equivalent(mutants);
+    parentPort!.postMessage({ version: checker.version, errors: checker.check(mutants), equivalent });
   } finally {
     checker.close();
   }

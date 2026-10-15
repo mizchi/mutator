@@ -180,6 +180,8 @@ Mutants of TypeScript files are type-checked with the project's own `typescript`
 
 `typecheck: 'auto'` (default) enables it when `typescript` and `tsconfig.json` are present; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
 
+The same pass drops mutants the types prove equivalent, on both backends: `a?.b` → `a.b` (and `a?.()` → `a()`, `a?.[k]` → `a[k]`) when the type of `a` excludes `null` and `undefined`. They are reported `Ignored` with `statusReason: equivalent: a is never nullish`, are not run, stay outside the score and `--fail-on-survived`, and the summary counts them (`equivalent by types: N`). This needs both `strictNullChecks` (or `strict`) and `noUncheckedIndexedAccess`: without the latter `xs[0]` is typed `string` but is `undefined` for `[]`, and on ufo all four mutants of that kind were killed. Types can still be wrong (a cast, an `any` assigned to a typed variable, a test passing `undefined as any`, `globalThis.process` in a browser); a dropped mutant is then one a test could have killed. `??` mutants are not dropped: the `??` → `&&` mutant differs whenever the left side is truthy. Only mutants that would otherwise run or be decided by weak mutation are considered; `NoCoverage` ones stay as they are.
+
 ## Jest (experimental)
 
 `--runner jest` (or `runner: 'jest'`; `auto`, the default, picks Jest when the root has a `jest.config.*` or a `jest` field in package.json and no Vitest config) runs the same pipeline on a Jest 30 project. Jest is resolved from the project root.
@@ -236,7 +238,7 @@ Mutants left out by either option are reported as `Pending` (excluded from the s
 | `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
 | `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
-| `@mizchi/mutator-typecheck` | type-checks mutants with the project's own TypeScript (compiler API for 6, native API for 7) so that ill-typed ones are reported as `CompileError` without running. |
+| `@mizchi/mutator-typecheck` | type-checks mutants with the project's own TypeScript (compiler API for 6, native API for 7) so that ill-typed ones are reported as `CompileError`, and those the types prove equivalent as `Ignored`, without running. |
 | `@mizchi/mutator` | CLI / orchestration: git, snapshot, report. |
 
 ## Development

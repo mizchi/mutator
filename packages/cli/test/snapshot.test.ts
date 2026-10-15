@@ -27,6 +27,14 @@ describe('snapshot format', () => {
     expect(readSnapshot(path, root)).toEqual(snapshot);
   });
 
+  test('keeps the reason of mutants proven equivalent by types', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'snap-')), 'snapshot.json');
+    const equivalent: MutantResult = { ...results[2]!, status: 'Ignored', reason: 'equivalent: a.b is never nullish' };
+    const withEquivalent = { ...snapshot, results: [...results, equivalent] };
+    writeSnapshot(path, withEquivalent, root);
+    expect(readSnapshot(path, root)).toEqual(withEquivalent);
+  });
+
   test('stores repeated test ids, files and scopes once', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'snap-')), 'snapshot.json');
     writeSnapshot(path, snapshot, root);

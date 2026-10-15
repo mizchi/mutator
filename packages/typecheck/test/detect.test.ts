@@ -66,6 +66,15 @@ describe('checkInWorker', () => {
     expect([...checked!.errors.keys()]).toEqual(['bad']);
   });
 
+  test('also reports mutants proven equivalent by types', async () => {
+    const root = projectWith('typescript7');
+    const file = join(root, 'src/chain.ts');
+    const at = readFileSync(file, 'utf8').indexOf('box?.value') + 3;
+    const checked = await checkInWorker({ root }, [{ key: 'eq', file, range: { start: at, end: at + 2 }, replacement: '.' }]);
+    expect(checked?.errors.size).toBe(0);
+    expect(checked?.equivalent).toEqual(new Map([['eq', 'equivalent: box is never nullish']]));
+  });
+
   test('is undefined without typescript or tsconfig', async () => {
     const root = join(tmp, `tc-none-worker-${process.pid}`);
     roots.push(root);

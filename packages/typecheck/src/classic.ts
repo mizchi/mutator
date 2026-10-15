@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type * as TS from 'typescript6';
 import { checkEach } from './diff.ts';
+import { type AstNode, provenEquivalent } from './equivalent.ts';
 import type { CheckerOptions, TypeChecker } from './types.ts';
 
 export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions): TypeChecker {
@@ -43,6 +44,17 @@ export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions
           return [...service.getSyntacticDiagnostics(file), ...service.getSemanticDiagnostics(file)].map(message);
         },
       );
+    },
+    equivalent(mutants) {
+      const program = service.getProgram()!;
+      const checker = program.getTypeChecker();
+      return provenEquivalent(mutants, (file) => readFileSync(file, 'utf8'), {
+        honest: () => program.getCompilerOptions().noUncheckedIndexedAccess === true && !checker.isTypeAssignableTo(checker.getUndefinedType(), checker.getStringType()),
+        sourceFile: (file) => program.getSourceFile(file) as unknown as AstNode | undefined,
+        typesAt: (nodes) => nodes.map((node) => checker.getTypeAtLocation(node as unknown as TS.Node)),
+        members: (type) => (type as TS.UnionOrIntersectionType).types,
+        flags: ts.TypeFlags,
+      });
     },
     close() {
       service.dispose();

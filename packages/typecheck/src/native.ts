@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import type * as Native from 'typescript7/unstable/sync';
 import { checkEach } from './diff.ts';
+import { type AstNode, provenEquivalent } from './equivalent.ts';
 import type { CheckerOptions, TypeChecker } from './types.ts';
 
 export function createNativeChecker(native: typeof Native, { root, tsconfig }: CheckerOptions, version: string): TypeChecker {
@@ -32,6 +33,16 @@ export function createNativeChecker(native: typeof Native, { root, tsconfig }: C
           return [...program.getSyntacticDiagnostics(file), ...program.getSemanticDiagnostics(file)].map((d) => `${d.code} ${d.text}`);
         },
       );
+    },
+    equivalent(mutants) {
+      const { program, checker } = project();
+      return provenEquivalent(mutants, (file) => readFileSync(file, 'utf8'), {
+        honest: () => program.getCompilerOptions().noUncheckedIndexedAccess === true && !checker.isTypeAssignableTo(checker.getUndefinedType(), checker.getStringType()),
+        sourceFile: (file) => program.getSourceFile(file) as unknown as AstNode | undefined,
+        typesAt: (nodes) => (nodes.length ? checker.getTypeAtLocation(nodes as unknown as Parameters<typeof checker.getTypeAtLocation>[0]) : []),
+        members: (type) => (type as Native.UnionOrIntersectionType).getTypes(),
+        flags: native.TypeFlags,
+      });
     },
     close() {
       snapshot.dispose();

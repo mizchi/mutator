@@ -38,13 +38,13 @@ export async function createTypeChecker(options: { root: string; tsconfig?: stri
 const WORKER_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './worker.ts' : './worker.js', import.meta.url));
 
 /**
- * `createTypeChecker(options).check(mutants)` on a worker thread, leaving this thread free
+ * `createTypeChecker(options).check(mutants)` (and `.equivalent(mutants)`) on a worker thread, leaving this thread free
  * (e.g. to drive a test run meanwhile). Undefined when there is nothing to check with.
  */
 export function checkInWorker(
   options: { root: string; tsconfig?: string; signal?: AbortSignal },
   mutants: readonly TypecheckMutant[],
-): Promise<{ version: string; errors: Map<string, string> } | undefined> {
+): Promise<{ version: string; errors: Map<string, string>; equivalent: Map<string, string> } | undefined> {
   const { signal, ...data } = options;
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_FILE, { workerData: { ...data, mutants } });

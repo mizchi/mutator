@@ -67,6 +67,8 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
   const spawning = report.childProcessTests ?? [];
   if (spawning.length > 0) lines.push(`warning: ${CHILD_PROCESS_WARNING}:`, ...spawning.map(({ test, command }) => `  ${test}  ${command}`));
+  const equivalent = main.filter((e) => e.reason?.startsWith('equivalent:')).length;
+  if (equivalent > 0) lines.push(`equivalent by types: ${equivalent}`);
   const accepted = main.filter((e) => e.accepted !== undefined).length;
   if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
   const childProcess = new Set(report.childProcessMutants);

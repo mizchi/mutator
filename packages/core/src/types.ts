@@ -166,9 +166,14 @@ export interface MutantResult {
   /** Tests that executed this mutant during the coverage run. */
   coveredBy: string[];
   durationMs?: number;
-  /** Survived without a run: no covering test reaches it with a value it changes (weak mutation). */
-  reason?: 'notInfected';
+  /**
+   * Decided without a run. `notInfected`: Survived, no covering test reaches it with a value
+   * it changes (weak mutation). `equivalent: ...`: Ignored, the types prove it equivalent.
+   */
+  reason?: ResultReason;
 }
+
+export type ResultReason = 'notInfected' | `equivalent: ${string}`;
 
 export interface TestInfo {
   id: string;

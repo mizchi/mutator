@@ -4,7 +4,9 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
+import { formatSummary } from '../src/report.ts';
 import { BaselineError, type Report, runMutation } from '../src/run.ts';
+import { readSnapshot } from '../src/snapshot.ts';
 
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
 const CONFIG = `import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n`;
@@ -242,6 +244,29 @@ describe('type checking', { timeout: 120_000 }, () => {
     const untyped = await runMutation({ root, concurrency: 1, typecheck: false, snapshotPath: join(root, '.mutator/untyped.json') });
     expect(untyped.entries.some((e) => e.status === 'CompileError')).toBe(false);
     expect(untyped.executed).toBeGreaterThan(report.executed);
+  });
+
+  test('mutants proven equivalent by types are Ignored with the reason, and kept so in the snapshot', async () => {
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noUncheckedIndexedAccess: true, noEmit: true, target: 'es2022', module: 'nodenext', moduleResolution: 'nodenext', allowImportingTsExtensions: true }, include: ['src'] }),
+      'src/a.ts': 'export function scaled(o: { k: number }, n: number): number {\n  return n * o?.k;\n}\nexport function size(o?: { n: number }): number | undefined {\n  return o?.n;\n}\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { scaled, size } from '../src/a.ts';\ntest('a', () => { expect(scaled({ k: 2 }, 3)).toBe(6); expect(size({ n: 1 })).toBe(1); expect(size()).toBe(undefined); });\n",
+    });
+    const report = await runMutation({ root, concurrency: 1 });
+    const unchained = (r: Report) => r.entries.filter((e) => e.mutant.original === '?.').map((e) => [e.mutant.location.start.line, e.status, e.reason]);
+    expect(unchained(report)).toEqual([
+      [2, 'Ignored', 'equivalent: o is never nullish'],
+      [5, 'CompileError', undefined],
+    ]);
+    expect(formatSummary(report, root)).toMatch(/^equivalent by types: 1$/m);
+    const saved = readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.find((r) => r.status === 'Ignored');
+    expect(saved?.reason).toBe('equivalent: o is never nullish');
+
+    // The next run decides it again, with the same reason.
+    expect(unchained(await runMutation({ root, concurrency: 1 }))).toEqual(unchained(report));
+    // Without type checking it runs and is not killed.
+    const untyped = await runMutation({ root, concurrency: 1, typecheck: false, snapshotPath: join(root, '.mutator/untyped.json') });
+    expect(untyped.entries.find((e) => e.mutant.original === '?.' && e.mutant.location.start.line === 2)?.status).toBe('Survived');
   });
 
   test('with --since, the mutants in the diff are type-checked alongside the dry run', async () => {

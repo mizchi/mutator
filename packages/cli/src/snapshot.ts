@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
-import type { MutantResult, MutantStatus, RunSnapshot } from '@mizchi/mutator-core';
+import type { MutantResult, MutantStatus, ResultReason, RunSnapshot } from '@mizchi/mutator-core';
 
 // On disk, results are stored as rows referring to tables: test ids, files and
 // scope ids repeat across thousands of mutants (a 141k-mutant project wrote a
 // 333 MB snapshot as plain objects). File paths are relative to the project root
 // so a snapshot can be restored in another checkout (e.g. a CI cache).
 
-type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number | null, notInfected?: 1];
+type Row = [key: string, file: number, scope: number, scopeHash: string, status: MutantStatus, killedBy: number[], coveredBy: number[], durationMs?: number | null, reason?: 1 | string];
 
 interface Compact {
   format: 2;
@@ -26,7 +26,7 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
     const absolute = (file: string) => (isAbsolute(file) ? file : join(root, file));
     if (data.format === 2 && data.rows && data.ids && data.strings) {
       const { format: _format, rows, ids, strings, ...rest } = data;
-      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs, notInfected]): MutantResult => ({
+      const results = rows.map(([key, file, scope, scopeHash, status, killedBy, coveredBy, durationMs, reason]): MutantResult => ({
         key,
         file: absolute(strings[file]!),
         scopeId: strings[scope]!,
@@ -35,7 +35,8 @@ export function readSnapshot(path: string, root: string): RunSnapshot | undefine
         killedBy: killedBy.map((i) => ids[i]!),
         coveredBy: coveredBy.map((i) => ids[i]!),
         ...(durationMs !== undefined && durationMs !== null ? { durationMs } : {}),
-        ...(notInfected ? { reason: 'notInfected' as const } : {}),
+        // 1: `notInfected`, the common case; other reasons are stored as text.
+        ...(reason ? { reason: reason === 1 ? 'notInfected' : (reason as ResultReason) } : {}),
       }));
       return { ...rest, results } as RunSnapshot;
     }
@@ -55,7 +56,7 @@ export function writeSnapshot(path: string, snapshot: RunSnapshot, root: string)
   const rows = results.map((r): Row => {
     const row: Row = [r.key, str(relative(root, r.file)), str(r.scopeId), r.scopeHash, r.status, r.killedBy.map(id), r.coveredBy.map(id)];
     if (r.durationMs !== undefined || r.reason) row.push(r.durationMs !== undefined ? Math.round(r.durationMs * 10) / 10 : null);
-    if (r.reason) row.push(1);
+    if (r.reason) row.push(r.reason === 'notInfected' ? 1 : r.reason);
     return row;
   });
   const compact: Compact = { format: 2, ids: [...ids.keys()], strings: [...strings.keys()], rows };

@@ -8,6 +8,7 @@ import {
   type MutantResult,
   type MutantStatus,
   type PlanEntry,
+  type ResultReason,
   type RunSnapshot,
   type Session,
   type TestInfo,
@@ -33,14 +34,14 @@ import { readSnapshot, writeSnapshot } from './snapshot.ts';
 import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { applyAcceptance } from './accepted.ts';
 import { childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
-import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
+import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
 
 // Bump whenever mutators or the snapshot format change: new mutants in unchanged
 // code have no cached coverage, so old snapshots must not be reused.
-export const SNAPSHOT_VERSION = '0.0.6';
+export const SNAPSHOT_VERSION = '0.0.7';
 
 export interface RunOptions {
   root: string;
@@ -113,8 +114,11 @@ export interface ReportEntry {
    * killed before but whose killing tests are all gone. Other entries are context, not reported.
    */
   focus?: 'diff' | 'recheck';
-  /** A Survived mutant decided without running: no covering test reaches it with a value it changes. */
-  reason?: 'notInfected';
+  /**
+   * Decided without running. `notInfected`: Survived, no covering test reaches it with a value
+   * it changes. `equivalent: ...`: Ignored, proven equivalent by types.
+   */
+  reason?: ResultReason;
   /** Undetected but accepted (mutator.accepted.json), with the recorded reason; the status is then `Ignored`. */
   accepted?: string;
 }
@@ -257,9 +261,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const inScope = options.only ? selectOnly(options.only, since, mutants) : since;
     const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
-    const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
-    applyTypecheck(tally, jobs, notInfected, uncompilable, merged.coverage);
-    log(`${mutants.length} mutants, ${jobs.length} to run${uncompilable.size ? ` (${uncompilable.size} do not type-check)` : ''}`);
+    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
+    applyTypecheck(tally, jobs, notInfected, typecheck, merged.coverage);
+    const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
+    log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
     const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
@@ -447,26 +452,35 @@ function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryRun['cov
   return { tally, jobs, notInfected };
 }
 
-/** Uncompilable mutants become CompileError (and leave `jobs`); the other notInfected ones are settled Survived. */
-function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], uncompilable: ReadonlyMap<string, string>, coverage: MergedDryRun['coverage']): void {
+/**
+ * Uncompilable mutants become CompileError, those proven equivalent by types Ignored (both
+ * leave `jobs`); the other notInfected ones are settled Survived.
+ */
+function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent }: TypecheckResult, coverage: MergedDryRun['coverage']): void {
   const { report, results } = tally;
+  const decided = (key: string): { status: MutantStatus; reason?: ResultReason } | undefined => {
+    if (errors.has(key)) return { status: 'CompileError' };
+    const reason = equivalent.get(key);
+    return reason === undefined ? undefined : { status: 'Ignored', reason };
+  };
   for (const i of notInfected) {
     const entry = report[i]!;
-    if (uncompilable.has(entry.mutant.key)) {
+    const verdict = decided(entry.mutant.key);
+    if (verdict) {
       const { reason: _reason, ...rest } = entry;
-      report[i] = { ...rest, status: 'CompileError' };
+      report[i] = { ...rest, ...verdict };
     }
     // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
-    const result = toResult(entry.mutant, report[i]!.status, [], entry.coveredBy);
-    results.push(report[i]!.reason ? { ...result, reason: 'notInfected' } : result);
+    const { status, reason } = report[i]!;
+    results.push({ ...toResult(entry.mutant, status, [], entry.coveredBy), ...(reason ? { reason } : {}) });
   }
   for (let i = jobs.length - 1; i >= 0; i--) {
     const { index, entry } = jobs[i]!;
-    const error = uncompilable.get(entry.mutant.key);
-    if (error === undefined) continue;
+    const verdict = decided(entry.mutant.key);
+    if (!verdict) continue;
     const coveredBy = [...(coverage.get(entry.mutant.key) ?? [])];
-    results.push(toResult(entry.mutant, 'CompileError', [], coveredBy));
-    report[index] = { mutant: entry.mutant, status: 'CompileError', source: 'static', killedBy: [], coveredBy };
+    results.push({ ...toResult(entry.mutant, verdict.status, [], coveredBy), ...(verdict.reason ? { reason: verdict.reason } : {}) });
+    report[index] = { mutant: entry.mutant, source: 'static', killedBy: [], coveredBy, ...verdict };
     jobs.splice(i, 1);
   }
 }

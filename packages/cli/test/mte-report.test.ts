@@ -99,6 +99,11 @@ describe('formatMutationTestingJson', () => {
     expect(accepted.files['add.ts']!.mutants[0]).toMatchObject({ status: 'Ignored', statusReason: 'accepted: equivalent' });
   });
 
+  test('mutants proven equivalent by types carry the proof', () => {
+    const proven = formatMutationTestingJson({ ...report, entries: [entry('add.ts', 'k9', 'Ignored', { reason: 'equivalent: a is never nullish' })] }, root);
+    expect(proven.files['add.ts']!.mutants[0]).toMatchObject({ status: 'Ignored', statusReason: 'equivalent: a is never nullish' });
+  });
+
   test('lists changed test files the runner did not collect as warnings', () => {
     expect(json.warnings).toBeUndefined();
     const warned = formatMutationTestingJson({ ...report, uncollectedTests: ['x.test.ts'] }, root);

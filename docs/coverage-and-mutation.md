@@ -47,6 +47,8 @@ Infection is known only for side-effect-free expressions: comparisons and arithm
 
 Some mutants cannot be detected by any test, because no input can observe the difference. These are equivalent mutants: a `?.` on a value that is never nullish, a `.sort()` whose order nothing reads, a disabled fast path in a performance change. They appear as *not detected*. A mutation score of 100% is therefore not reachable in general. Do not make it a target.
 
+Some of them follow from types alone. When the project has `strictNullChecks` (or `strict`) and `noUncheckedIndexedAccess`, the type check drops `a?.b` → `a.b` when the type of `a` excludes `null` and `undefined`, and reports it `Ignored` (`equivalent: a is never nullish`) instead of *not detected*. The summary counts these (`equivalent by types: N`). This trusts the types: a cast or an `any` that hides a nullish value makes the verdict wrong. The other equivalent mutants still need a judgment, and `mutator accept` records it.
+
 ## How to use each
 
 1. **Use code coverage as a map of the whole project.** It is cheap, and it shows where there are no tests at all. As a target it is easy to game: executing code without asserting anything raises it.

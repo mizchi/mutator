@@ -444,3 +444,29 @@ The equivalent mutants are mostly no-op rewrites:
 - a redundant `=== Object.prototype` check.
 
 Compared with uneffect (5 real gaps out of 14), the small libraries' survivors are far more often worth a test, because their changes are plain input/output functions with few redundant guards or report strings.
+
+## Agent loop trial (2026-10-16)
+
+The [`mutation-test-loop`](../.claude/skills/mutation-test-loop/SKILL.md) skill was run by a fresh agent, which followed it literally on two past commits from the survivor study above. Each commit was checked out as `trial` on top of its parent `base`, and the agent ran `--since base`.
+
+| commit | gaps at start | killed | accepted | left | `--only` re-check |
+|---|---|---|---|---|---|
+| defu 4111333 "only merge plain objects" | 17 (16 not detected, 1 not infected) | 16 | 1 | 0 | 16 keys, 1.49 s |
+| pathe a8b4840 "fast-path normalized paths" | 10 (8 not detected, 2 not infected) | 6 | 4 | 0 | 6 keys, 1.52 s |
+
+- **Tests the agent added.**
+  - defu: four tests through the public `defu()`. They check that a class instance is kept as is, that a null-prototype object is merged, that a plain object from another realm (`node:vm`) is merged, and that array defaults are ignored.
+  - pathe: five rows in the `normalizeWindowsPath` table: `a:/`, `z:/`, `c:foo`, `é:/` and `ab/c`.
+  - Every one asserts only on return values.
+  - The agent flagged two of them as close to pinning behaviour nobody clearly intended: pathe's `c:foo` staying lowercase, and defu dropping array defaults, which is new in that commit.
+- **Accepted mutants.** Each came with a specific equivalence argument.
+  - The redundant `prototype === Object.prototype` clause, whose case the next clause already covers.
+  - pathe's backslash fast path, where the replace is a no-op when there is no backslash.
+  - The `>= "a"` lower bound, since every code unit below `a` is its own upper case.
+  - A later check found no accepted mutant that a test could kill.
+- **Real cause in defu.** The commit's own two new tests were `it.skip`. mutator gave no hint of this at the time.
+- **Changes made after the trial.**
+  - `--since` now warns about skipped and todo tests on changed lines.
+  - `--only` with an unknown key exits 1 instead of reporting an empty, perfect selection.
+  - `accept` checks keys and records where each mutant is.
+  - The agent JSON caps `coveredBy` at 10 tests, with those naming the function first. Uncapped, it had made up 86% of pathe's output (298 tests per gap).

@@ -140,6 +140,15 @@ describe('plugins options', () => {
   });
 });
 
+describe('critical regions', () => {
+  test('globs from the config file, overridden by --critical; none by default', async () => {
+    expect((await resolve(project())).critical).toEqual([]);
+    const root = project({ critical: ['src/auth/**'] });
+    expect((await resolve(root)).critical).toEqual(['src/auth/**']);
+    expect((await resolve(root, '--critical', 'src/pay/**', '--critical', 'src/acl.ts')).critical).toEqual(['src/pay/**', 'src/acl.ts']);
+  });
+});
+
 describe('large-run options', () => {
   test('mutantsPerLine / timeBudget from the config file; flags override', async () => {
     const root = project({ mutantsPerLine: 2, timeBudget: 300 });

@@ -165,6 +165,13 @@
       "description": "Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).",
       "type": "number",
       "minimum": 0
+    },
+    "critical": {
+      "description": "Globs (relative to the root) of critical sources: any undetected mutant there that is not accepted fails the run (exit 2), whatever the thresholds.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

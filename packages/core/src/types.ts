@@ -82,6 +82,8 @@ export interface Mutant {
    * cannot kill it.
    */
   weak?: boolean;
+  /** Inside a function or class marked `// mutator-critical`: it must be killed or accepted. */
+  critical?: true;
 }
 
 export interface SourceMapLike {

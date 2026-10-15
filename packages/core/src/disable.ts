@@ -83,3 +83,11 @@ export function disabledBy(comments: readonly CommentLike[], lineOf: (offset: nu
     return active && label(active);
   };
 }
+
+// mutator-critical, on the line before a function or class declaration
+const CRITICAL = /^\s*\*?\s*mutator-critical\b/;
+
+/** Lines that follow a `// mutator-critical` comment: the function or class starting there is critical. */
+export function criticalLines(comments: readonly CommentLike[], lineOf: (offset: number) => number): Set<number> {
+  return new Set(comments.filter((c) => CRITICAL.test(c.value)).map((c) => lineOf(c.end) + 1));
+}

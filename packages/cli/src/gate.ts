@@ -1,4 +1,5 @@
 import type { Thresholds } from './config.ts';
+import { criticalSummary } from './critical.ts';
 import type { Report, ReportEntry } from './run.ts';
 
 export type ScoreLevel = 'high' | 'low' | 'danger';
@@ -23,5 +24,8 @@ export function qualityGate(report: Report, options: { thresholds: Thresholds; f
   const childProcess = new Set(report.childProcessMutants);
   const survived = reported(report).filter((e) => e.status === 'Survived' && !childProcess.has(e.mutant.key)).length;
   if (options.failOnSurvived && survived > 0) failures.push(`${survived} mutant(s) survived (--fail-on-survived)`);
+  // Critical regions fail regardless of the thresholds and flags, child-process mutants included.
+  const critical = criticalSummary(report)?.undetected.length ?? 0;
+  if (critical > 0) failures.push(`${critical} undetected mutant(s) in critical regions: each must be killed or accepted`);
   return failures;
 }

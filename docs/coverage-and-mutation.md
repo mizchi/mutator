@@ -55,6 +55,7 @@ Some of them follow from types alone. When the project has `strictNullChecks` (o
 2. **Use mutation testing as a check on a change.** Run it with `--since` in pull requests, and read the three groups as review comments. In our trials, the survivors on changed lines were real test gaps 77% of the time on five small libraries, and 36% on a large analyser with many report strings and redundant guards ([benchmark](benchmark.md#are-the-survivors-worth-acting-on-10-past-commits-2026-10-11)). Over a whole project, the older survivors outnumber the new ones, and a full run costs much more.
 3. **Treat the score as a work list, not a KPI.** Equivalent mutants cap it below 100%. Chasing the last points produces tests that assert implementation details.
 4. **Read not-reached mutants on changed lines as coverage at a finer grain.** They overlap with code coverage, but in a diff they name the exact branch or sub-expression no test runs, such as the `: []` fallback of a conditional.
+5. **Require 100% only where a missed fault is expensive.** Authentication, permission checks and money calculations can be marked as critical regions (`critical` globs in the config, or `// mutator-critical` before a function). There, any undetected mutant fails the run unless it is accepted with a reason, so each equivalent mutant is decided once and recorded, while the rest of the project keeps a score that is read as a work list ([README](../README.md#critical-regions)).
 
 ## Pitfalls seen in practice
 

@@ -2,6 +2,7 @@ import { relative } from 'node:path';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { reported, scoreLevel } from './gate.ts';
 import { ACCEPTED_FILE } from './accepted.ts';
+import { criticalSummary } from './critical.ts';
 import { CHILD_PROCESS_WARNING, POSSIBLY_IN_CHILD_PROCESS } from './child-process.ts';
 import type { Report, ReportEntry } from './run.ts';
 
@@ -71,10 +72,27 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   if (equivalent > 0) lines.push(`equivalent by types: ${equivalent}`);
   const accepted = main.filter((e) => e.accepted !== undefined).length;
   if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
+  const critical = criticalSummary(report);
+  if (critical) {
+    const { detected, undetected, accepted } = critical;
+    const run = detected.length + undetected.length;
+    const score = run === 0 ? '-' : `${((detected.length / run) * 100).toFixed(1)}%`;
+    lines.push(`critical regions: ${score} (${detected.length} detected, ${undetected.length} undetected, ${accepted.length} accepted)`);
+  }
+  // Undetected critical mutants fail the gate on their own: listed first, and only there.
+  const listedCritical = new Set(critical?.undetected.map((e) => e.mutant.key));
+  const rest = (entries: readonly ReportEntry[]) => entries.filter((e) => !listedCritical.has(e.mutant.key));
   const childProcess = new Set(report.childProcessMutants);
-  for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap && !childProcess.has(e.mutant.key)), root);
-  list(lines, `${POSSIBLY_IN_CHILD_PROCESS} - no in-process test detects it:`, main.filter((e) => gapOf(e) && childProcess.has(e.mutant.key)), root);
-  list(lines, 'killed before, undetected now (their killing test is gone):', rechecked.filter((e) => gapOf(e)), root);
+  list(lines, 'undetected in critical regions - kill or accept each:', critical?.undetected ?? [], root);
+  const spawned = critical?.undetected.filter((e) => childProcess.has(e.mutant.key)).length ?? 0;
+  if (spawned > 0) lines.push(`  (${spawned} ${POSSIBLY_IN_CHILD_PROCESS}: they still count, critical code must be tested in process)`);
+  for (const { gap, heading } of GAPS) list(lines, heading, rest(main).filter((e) => gapOf(e) === gap && !childProcess.has(e.mutant.key)), root);
+  list(lines, `${POSSIBLY_IN_CHILD_PROCESS} - no in-process test detects it:`, rest(main).filter((e) => gapOf(e) && childProcess.has(e.mutant.key)), root);
+  list(lines, 'killed before, undetected now (their killing test is gone):', rest(rechecked).filter((e) => gapOf(e)), root);
+  if (critical?.accepted.length) {
+    lines.push('', 'accepted in critical regions:');
+    for (const e of critical.accepted) lines.push(`  ${location(e, root)}  ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)}  (${e.accepted})`);
+  }
   const { killed = [], stale = [] } = report.acceptance ?? {};
   const detected = new Set(killed);
   list(lines, `accepted, but detected now - remove from ${ACCEPTED_FILE}:`, report.entries.filter((e) => detected.has(e.mutant.key)), root, true);

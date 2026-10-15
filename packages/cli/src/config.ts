@@ -47,6 +47,8 @@ export interface MutatorConfig {
   mutantsPerLine?: number;
   /** Seconds from the start of the run after which no new mutant run starts; default unlimited. */
   timeBudget?: number;
+  /** Globs (relative to the root) of critical sources: every mutant there must be killed or accepted. */
+  critical?: string[];
 }
 
 /** Typing helper for mutator.config.ts. */
@@ -113,6 +115,7 @@ const properties = {
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
   mutantsPerLine: { description: 'Run at most this many mutants per source line, most productive mutators first (default: unlimited).', type: 'integer', minimum: 1 },
   timeBudget: { description: 'Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).', type: 'number', minimum: 0 },
+  critical: strings('Globs (relative to the root) of critical sources: any undetected mutant there that is not accepted fails the run (exit 2), whatever the thresholds.'),
 } satisfies Record<keyof MutatorConfig, Schema>;
 
 export const CONFIG_KEYS = Object.keys(properties) as (keyof MutatorConfig)[];

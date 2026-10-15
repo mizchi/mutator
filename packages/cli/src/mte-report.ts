@@ -36,12 +36,15 @@ export interface MteReport {
   warnings?: ({ kind: 'uncollectedTest'; file: string; message: string } | { kind: 'childProcessTest'; test: string; command: string; message: string })[];
 }
 
+const CRITICAL_REASON = 'critical region: must be killed or accepted';
+
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 
 export function formatMutationTestingJson(report: Report, root: string, thresholds: Thresholds = DEFAULT_THRESHOLDS): MteReport {
   const files: MteReport['files'] = {};
   const tests = new Set<string>();
   const childProcess = new Set(report.childProcessMutants);
+  const critical = new Set(report.criticalMutants);
   for (const { mutant, status, killedBy, coveredBy, reason, accepted } of report.entries) {
     const path = relative(root, mutant.file);
     files[path] ??= {
@@ -50,6 +53,17 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       mutants: [],
     };
     const { start, end } = mutant.location;
+    const statusReason =
+      accepted !== undefined
+        ? `accepted: ${accepted}`
+        : childProcess.has(mutant.key)
+          ? `${POSSIBLY_IN_CHILD_PROCESS}: a test runs the file in a child process, where mutator cannot observe mutants`
+          : reason === 'notInfected'
+            ? 'not infected: no covering test reaches it with a value it changes'
+            : (reason ?? mutant.ignored);
+    // An undetected mutant in a critical region fails the run (accepted ones are Ignored).
+    const undetectedCritical = critical.has(mutant.key) && (status === 'Survived' || status === 'NoCoverage');
+    const reasons = [undetectedCritical ? CRITICAL_REASON : undefined, statusReason].filter(Boolean).join('; ');
     files[path].mutants.push({
       id: mutant.key,
       mutatorName: mutant.mutator,
@@ -58,10 +72,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       status,
       killedBy,
       coveredBy,
-      ...(mutant.ignored ? { statusReason: mutant.ignored } : {}),
-      ...(reason === 'notInfected' ? { statusReason: 'not infected: no covering test reaches it with a value it changes' } : reason ? { statusReason: reason } : {}),
-      ...(childProcess.has(mutant.key) ? { statusReason: `${POSSIBLY_IN_CHILD_PROCESS}: a test runs the file in a child process, where mutator cannot observe mutants` } : {}),
-      ...(accepted !== undefined ? { statusReason: `accepted: ${accepted}` } : {}),
+      ...(reasons ? { statusReason: reasons } : {}),
     });
     for (const id of [...coveredBy, ...killedBy]) tests.add(id);
   }

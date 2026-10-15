@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
+import { criticalMutants } from './critical.ts';
 import { qualityGate } from './gate.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseAcceptCli, parseCli, parseSelectCli, resolveValues } from './options.ts';
@@ -45,6 +46,8 @@ const USAGE = `usage: mutator [options]
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)
   --threshold-break <n>  exit 2 when the mutation score (%) is below n
   --fail-on-survived   exit 2 when a mutant survives
+  --critical <glob>    critical sources, repeatable: exit 2 on any undetected mutant there
+                       that is not accepted (also \`// mutator-critical\` before a function)
   -h, --help
   -v, --version
 
@@ -53,7 +56,7 @@ Boolean flags can be negated (--no-fail-on-survived) to override the config file
 exit codes:
   0  ok
   1  invalid options or config file
-  2  quality gate failed (score below --threshold-break, or a survivor with --fail-on-survived)
+  2  quality gate failed (score below --threshold-break, a survivor with --fail-on-survived, or an undetected critical mutant)
   4  tests fail without mutants (baseline)`;
 
 try {
@@ -84,6 +87,8 @@ try {
     ...(accepted.size > 0 ? { accepted } : {}),
     log: (message) => console.error(message),
   });
+  const critical = criticalMutants(report.entries, root, options.critical);
+  if (critical.length > 0) report.criticalMutants = critical;
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));
   if (reporters.has('agent')) console.log(JSON.stringify(formatAgentReport(report, root), null, 2));
   if (reporters.has('json') || reporters.has('html')) {

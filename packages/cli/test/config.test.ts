@@ -35,6 +35,7 @@ const full = {
   typecheck: 'auto',
   mutantsPerLine: 1,
   timeBudget: 600,
+  critical: ['src/auth/**'],
 };
 
 describe('validateConfig', () => {
@@ -57,6 +58,7 @@ describe('validateConfig', () => {
     [{ thresholds: { medium: 1 } }, 'unknown key "thresholds.medium"'],
     [{ arid: { callee: [] } }, 'unknown key "arid.callee"'],
     [{ arid: 'off' }, 'arid must be boolean | object'],
+    [{ critical: 'src/auth/**' }, 'critical must be array'],
     [{ typecheck: 'yes' }, 'typecheck must be one of true, false, "auto"'],
     [[], 'config must be object'],
   ])('rejects %j', (input, message) => {

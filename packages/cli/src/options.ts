@@ -13,6 +13,8 @@ export interface ResolvedOptions {
   reportDir: string;
   thresholds: Thresholds;
   failOnSurvived: boolean;
+  /** Globs (relative to the root) of critical sources. */
+  critical: string[];
 }
 
 const OPTIONS = {
@@ -41,6 +43,7 @@ const OPTIONS = {
   'threshold-break': { type: 'string' },
   'mutants-per-line': { type: 'string' },
   'time-budget': { type: 'string' },
+  critical: { type: 'string', multiple: true },
   help: { type: 'boolean', short: 'h' },
   version: { type: 'boolean', short: 'v' },
 } as const;
@@ -62,6 +65,7 @@ const FLAGS: Record<string, string> = {
   excludedMutators: '--exclude-mutator',
   mutantsPerLine: '--mutants-per-line',
   timeBudget: '--time-budget',
+  critical: '--critical',
 };
 
 export type CliValues = ReturnType<typeof parseCli>;
@@ -102,6 +106,7 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     reportDir: values['report-dir'] && resolve(cwd, values['report-dir']),
     thresholds: values['threshold-break'] === undefined ? undefined : { break: numeric(values['threshold-break']) },
     failOnSurvived: values['fail-on-survived'],
+    critical: values.critical,
   };
   const config = Object.fromEntries(Object.entries(entries).filter(([, v]) => v !== undefined));
   fail(
@@ -178,5 +183,6 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
     reportDir: resolve(root, config.reportDir ?? join('.mutator', 'report')),
     thresholds,
     failOnSurvived: config.failOnSurvived ?? false,
+    critical: config.critical ?? [],
   };
 }

@@ -26,6 +26,8 @@ export interface AgentGap {
   gap: Gap;
   /** Outside the diff, but killed before by tests that are gone now. */
   recheck?: true;
+  /** In a critical region: it fails the run until it is killed or accepted. */
+  critical?: true;
   /** In a file a test's child process may load: possibly reached there, where mutants are not observed. */
   childProcess?: true;
   /** Relative to the project root; line and column are 1-based. */
@@ -62,6 +64,7 @@ export interface AgentReport {
 export function formatAgentReport(report: Report, root: string): AgentReport {
   const entries = reported(report);
   const childProcess = new Set(report.childProcessMutants);
+  const critical = new Set(report.criticalMutants);
   const counts: Record<string, number> = {};
   for (const e of entries) counts[e.status] = (counts[e.status] ?? 0) + 1;
   const lines = new Map<string, string[]>();
@@ -86,6 +89,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
         key: mutant.key,
         gap,
         ...(e.focus === 'recheck' ? { recheck: true as const } : {}),
+        ...(critical.has(mutant.key) ? { critical: true as const } : {}),
         ...(childProcess.has(mutant.key) ? { childProcess: true as const } : {}),
         file: relative(root, mutant.file),
         line,

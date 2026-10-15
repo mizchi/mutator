@@ -149,6 +149,8 @@ export interface Report {
   childProcessTests?: { test: string; command: string }[];
   /** Undetected mutants in files those child processes may load: possibly reached there, not counted by --fail-on-survived. */
   childProcessMutants?: string[];
+  /** Mutants in critical regions (config globs or `// mutator-critical`): each must be killed or accepted. Set by the CLI. */
+  criticalMutants?: string[];
 }
 
 export class BaselineError extends Error {}

@@ -3,7 +3,7 @@ import { type ParserOptions, parseSync } from 'oxc-parser';
 import { type Node, isFunction, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
 import { adaptMutator, createIgnoreCheck } from './plugin.ts';
-import { disabledBy } from './disable.ts';
+import { criticalLines, disabledBy } from './disable.ts';
 import { emitPlacement, headerInsertion } from './emit.ts';
 import { RAW_TRANSFER, calleeName, importBindings, isReference, reexportBindings, topLevelInfo } from './facts.ts';
 import { hash } from './hash.ts';
@@ -35,6 +35,9 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const excluded = new Set<string>(options.excludedMutators ?? []);
   const active = [...mutators, ...(options.mutators ?? []).map((definition) => adaptMutator(definition, file))];
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
+  // The first function or class starting on a line after `// mutator-critical`.
+  const pendingCritical = criticalLines(parsed.comments, (offset) => position(lines, offset).line);
+  const critical: Range[] = [];
   const ignoredBy = createIgnoreCheck(options.ignorers ?? [], file, source);
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
@@ -50,6 +53,11 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     program,
     (frame) => {
       path.push(frame.index === undefined ? frame.key : `${frame.key}.${frame.index}`);
+      const { node } = frame;
+      if (pendingCritical.size > 0 && (isFunction(node) || node.type === 'ClassDeclaration' || node.type === 'ClassExpression')) {
+        const line = position(lines, node.start).line;
+        if (pendingCritical.delete(line)) critical.push({ start: node.start, end: node.end });
+      }
       if (tracker.enter(frame, path.length)) {
         const info = tracker.current!;
         const scope: Scope = { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) };
@@ -108,6 +116,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       original: ctx.slice(candidate.range),
       replacement: candidate.replacement,
       scope,
+      ...(critical.some((r) => r.start <= candidate.range.start && candidate.range.end <= r.end) ? { critical: true as const } : {}),
     };
     const reason = disabled(candidate.mutator, candidate.range.start) ?? ignoredBy(candidate.anchor) ?? (isArid(candidate.anchor) ? 'arid: logging' : undefined);
     const placement = reason ? undefined : findPlacement(candidate.anchor);

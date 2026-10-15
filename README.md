@@ -78,8 +78,25 @@ npx mutator select-tests --since main --format json
 |---|---|
 | `0` | ok |
 | `1` | invalid options or config file |
-| `2` | quality gate failed: score below `thresholds.break`, or a survived mutant with `--fail-on-survived` |
+| `2` | quality gate failed: score below `thresholds.break`, a survived mutant with `--fail-on-survived`, or an undetected mutant in a critical region |
 | `4` | tests fail without mutants (baseline) |
+
+### Critical regions
+
+Some code (authentication, permission checks, money calculations) can reasonably require that every mutant be killed or explicitly accepted. Mark it with globs, relative to the root, in the config (`critical: ['src/auth/**']`, or `--critical <glob>`, repeatable), or put `// mutator-critical` on the line before a function or class declaration:
+
+```ts
+// mutator-critical
+export function canRefund(user: User, order: Order): boolean {
+  // every mutant in here, nested functions included, must be killed or accepted
+}
+```
+
+The comment marks the first function or class that starts on the next line (a declaration, an arrow function assigned to a variable, a method, or a class); a comment followed by anything else marks nothing.
+
+In a critical region, any undetected mutant (not detected, not infected or not reached) fails the run with exit 2, whatever `thresholds` and `--fail-on-survived` say. Accepted mutants (`mutator accept`) are allowed, and the summary lists them with their reasons. Mutants *possibly reached in a child process* still count: critical code should be tested in process, where mutants are observed. `Pending` (sampled out or over the time budget), `CompileError` and `Ignored` mutants do not count, and with `--since` only the mutants the run reports (in the diff, or rechecked) do. The summary adds a `critical regions:` line with its own score and counts, and lists the undetected critical mutants first, under their own heading. The agent reporter marks their gaps `critical: true`, and `mutation.json` prefixes their `statusReason` with `critical region: must be killed or accepted`.
+
+This is not the same as a global threshold. A project-wide score should not be a KPI, because equivalent mutants cap it below 100%, and raising `thresholds.break` to 100 would force a decision on every equivalent mutant in code nobody worries about. A critical region asks for that decision only where a missed fault is expensive, and an equivalent mutant there is settled once with `mutator accept`, which records the reason for review instead of hiding it in a lower number.
 
 ### Config file
 
@@ -106,6 +123,7 @@ export default defineConfig({
   typecheck: 'auto',                      // boolean | 'auto'
   mutantsPerLine: 1,                      // default: unlimited
   timeBudget: 600,                        // seconds; default: unlimited
+  critical: ['src/auth/**'],              // every mutant here must be killed or accepted
 });
 ```
 

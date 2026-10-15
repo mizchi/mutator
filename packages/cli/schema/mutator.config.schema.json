@@ -89,7 +89,8 @@
         "enum": [
           "text",
           "json",
-          "html"
+          "html",
+          "agent"
         ]
       }
     },

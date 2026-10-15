@@ -68,6 +68,12 @@ describe('resolveOptions', () => {
     });
   });
 
+  test('--only selects mutant keys; agent is a reporter', async () => {
+    const options = await resolve(project(), '--only', 'a', '--only', 'b', '--reporter', 'agent');
+    expect(options.run.only).toEqual(new Set(['a', 'b']));
+    expect(options.reporters).toEqual(new Set(['agent']));
+  });
+
   test('typecheck: config value, overridden by --no-typecheck', async () => {
     const root = project({ typecheck: true });
     expect((await resolve(root)).run.typecheck).toBe(true);

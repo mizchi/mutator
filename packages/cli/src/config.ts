@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export type Reporter = 'text' | 'json' | 'html';
+export type Reporter = 'text' | 'json' | 'html' | 'agent';
 
 export interface Thresholds {
   /** Score (%) at or above which the result is "high". */
@@ -94,7 +94,7 @@ const properties = {
   },
   experimentalCallgraph: { description: 'Re-run only survivors connected to changed code in the static call graph.', type: 'boolean' },
   fullDryRun: { description: 'Collect coverage from every test file.', type: 'boolean' },
-  reporters: { description: 'Reporters to run.', type: 'array', items: { enum: ['text', 'json', 'html'] } },
+  reporters: { description: 'Reporters to run.', type: 'array', items: { enum: ['text', 'json', 'html', 'agent'] } },
   reportDir: { description: 'Where json/html reports go, relative to the root.', type: 'string' },
   thresholds: {
     description: 'Mutation score thresholds in percent.',

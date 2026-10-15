@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { qualityGate } from './gate.ts';
@@ -36,7 +37,8 @@ const USAGE = `usage: mutator [options]
   --mutants-per-line <n>  run at most n mutants per source line, most productive
                        mutators first (the rest stay pending; default: unlimited)
   --time-budget <s>    start no new mutant run after s seconds (default: unlimited)
-  --reporter <name>    text (default), json, html; repeatable
+  --only <key>         run and report only this mutant (key: the id in mutation.json), repeatable
+  --reporter <name>    text (default), json, html, agent (JSON for coding agents, on stdout); repeatable
   --report-dir <dir>   where json/html reports go (default: <root>/.mutator/report)
   --threshold-break <n>  exit 2 when the mutation score (%) is below n
   --fail-on-survived   exit 2 when a mutant survives
@@ -76,6 +78,7 @@ try {
     log: (message) => console.error(message),
   });
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));
+  if (reporters.has('agent')) console.log(JSON.stringify(formatAgentReport(report, root), null, 2));
   if (reporters.has('json') || reporters.has('html')) {
     mkdirSync(options.reportDir, { recursive: true });
     const json = formatMutationTestingJson(report, root, options.thresholds);

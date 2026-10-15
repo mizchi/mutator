@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -71,6 +71,18 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(again.executed).toBe(0);
     expect(again.entries.find((e) => e.mutant.key === survivor.mutant.key)!.status).toBe('Survived');
     expect(again.acceptance).toBeUndefined();
+  });
+
+  test('--only runs and reports just the given mutants', async () => {
+    const first = await runMutation({ root });
+    const boundary = first.entries.find((e) => `${e.mutant.original} -> ${e.mutant.replacement}` === 'age >= 18 -> age > 18')!;
+    expect(boundary.status).toBe('Survived');
+    const testFile = join(root, 'test', readdirSync(join(root, 'test'))[0]!);
+    writeFileSync(testFile, `${readFileSync(testFile, 'utf8')}\ntest('boundary', () => {\n  expect(isAdult(18)).toBe(true);\n});\n`);
+    const only = await runMutation({ root, only: new Set([boundary.mutant.key, 'unknown']) });
+    expect(only.entries.filter((e) => e.focus).map((e) => [e.mutant.key, e.status])).toEqual([[boundary.mutant.key, 'Killed']]);
+    expect(only.executed).toBe(1);
+    expect(only.selection).toBe('only');
   });
 
   test('second run reuses everything from the snapshot', async () => {

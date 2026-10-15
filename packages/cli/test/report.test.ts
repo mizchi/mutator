@@ -48,6 +48,11 @@ describe('formatSummary', () => {
     expect(text).toMatch(/\naccepted, but the mutant no longer exists - remove from mutator\.accepted\.json:\n  gone/);
   });
 
+  test('with --only, says the mutants were selected', () => {
+    const report: Report = { entries: [{ ...entry(0, 'Killed'), focus: 'diff' }, entry(1, 'Pending')], executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 }, selection: 'only' };
+    expect(formatSummary(report, '/p')).toContain('mutants: 1 selected with --only (2 in total');
+  });
+
   test('says how many mutants were not run because of sampling or the time budget', () => {
     const entries = [entry(0, 'Killed'), entry(1, 'Pending'), entry(2, 'Pending'), entry(3, 'Pending')];
     const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 2, budget: 1 } };

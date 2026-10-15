@@ -82,6 +82,8 @@ export interface RunOptions {
   weakMutation?: boolean;
   /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
   accepted?: ReadonlyMap<string, string>;
+  /** Run and report only these mutant keys (within --since, if given), e.g. to re-check survivors after adding a test. */
+  only?: ReadonlySet<string>;
   /** Arid node suppression (logging-only code); `false` disables it. */
   arid?: InstrumentOptions['arid'];
   /** Collect coverage from every test file even when the snapshot could be reused. */
@@ -133,6 +135,8 @@ export interface Report {
   uncollectedTests?: string[];
   /** With accepted mutants: those detected now (their entry can go), and entries whose mutant no longer exists. */
   acceptance?: { killed: string[]; stale: string[] };
+  /** `only`: the reported mutants were selected with `only` (`scope` is then `diff`). */
+  selection?: 'only';
 }
 
 export class BaselineError extends Error {}
@@ -240,7 +244,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
     });
 
-    const inScope = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
+    const since = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
+    const inScope = options.only ? selectOnly(options.only, since, mutants, log) : since;
     const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
     const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
@@ -266,6 +271,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
       notRun,
+      ...(options.only ? { selection: 'only' as const } : {}),
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
     };
@@ -275,6 +281,20 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     unguard();
     restorePath();
   }
+}
+
+/** The `only` keys as a focus map, kept within the --since focus when there is one; unknown keys are logged. */
+function selectOnly(only: ReadonlySet<string>, since: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, mutants: readonly Mutant[], log: (message: string) => void): Map<string, 'diff' | 'recheck'> {
+  const known = new Set(mutants.map((m) => m.key));
+  const unknown = [...only].filter((k) => !known.has(k));
+  if (unknown.length > 0) log(`--only: no mutant with key ${unknown.join(', ')}`);
+  const out = new Map<string, 'diff' | 'recheck'>();
+  for (const key of only) {
+    if (!known.has(key)) continue;
+    if (!since) out.set(key, 'diff');
+    else if (since.has(key)) out.set(key, since.get(key)!);
+  }
+  return out;
 }
 
 /** Target files, plugins, and the runner with the options its sessions are created with. */

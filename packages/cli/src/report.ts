@@ -12,7 +12,7 @@ const MAX_LISTED = 20;
  * Where the tests stopped short of an undetected mutant, in the order a fault must pass
  * (reach, infect, reveal); each calls for a different fix.
  */
-type Gap = 'notDetected' | 'notInfected' | 'notReached';
+export type Gap = 'notDetected' | 'notInfected' | 'notReached';
 
 const GAPS: readonly { gap: Gap; heading: string; title: string }[] = [
   // Its value changes (or could not be checked) and no assertion notices: strengthen an assertion.
@@ -28,7 +28,7 @@ export function uncollectedMessage(file: string): string {
   return `${file} changed, but the test runner does not collect it: it kills nothing, so mutants only it would kill are reported as undetected (check the runner's include patterns, projects or env-based filters)`;
 }
 
-function gapOf(e: ReportEntry): Gap | undefined {
+export function gapOf(e: ReportEntry): Gap | undefined {
   if (e.status === 'NoCoverage') return 'notReached';
   if (e.status === 'Survived') return e.reason === 'notInfected' ? 'notInfected' : 'notDetected';
   return undefined;
@@ -45,12 +45,12 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   const total = `executed ${report.executed}, reused ${reused}`;
   const lines = [
     diff
-      ? `mutants: ${main.length} in the diff${rechecked.length ? `, ${rechecked.length} rechecked` : ''} (${report.entries.length} in total; ${total})`
+      ? `mutants: ${main.length} ${report.selection === 'only' ? 'selected with --only' : 'in the diff'}${rechecked.length ? `, ${rechecked.length} rechecked` : ''} (${report.entries.length} in total; ${total})`
       : `mutants: ${report.entries.length} (${total})`,
     ORDER.filter((s) => counts.has(s))
       .map((s) => `${s} ${counts.get(s)}${s === 'Survived' && notInfected ? ` (${notInfected} not infected)` : ''}`)
       .join(' · '),
-    `score${report.scope === 'diff' ? ' (changed code)' : ''}: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
+    `score${report.selection === 'only' ? ' (selected)' : report.scope === 'diff' ? ' (changed code)' : ''}: ${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
   const notRun = [
     ...(report.notRun.sampled ? [`${report.notRun.sampled} sampled out (--mutants-per-line)`] : []),

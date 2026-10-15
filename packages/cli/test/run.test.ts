@@ -83,6 +83,7 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(only.entries.filter((e) => e.focus).map((e) => [e.mutant.key, e.status])).toEqual([[boundary.mutant.key, 'Killed']]);
     expect(only.executed).toBe(1);
     expect(only.selection).toBe('only');
+    expect(only.unknownKeys).toEqual(['unknown']);
   });
 
   test('second run reuses everything from the snapshot', async () => {

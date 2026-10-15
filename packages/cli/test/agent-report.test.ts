@@ -27,6 +27,7 @@ test('one record per undetected mutant, with the gap, the code around it and how
     entries: [entry('Survived', { reason: 'notInfected', focus: 'diff' }), entry('Killed', { focus: 'diff', mutant: { ...mutant, key: 'k2' } }), entry('Survived', { mutant: { ...mutant, key: 'k3' } })],
     executed: 1, dryRunFiles: [], scope: 'diff', score: 0.5, durationMs: 1, notRun: { sampled: 0, budget: 0 },
     uncollectedTests: ['x.test.ts'],
+    skippedTests: [{ file: 'x.test.ts', line: 2, text: 'it.skip(' }],
   };
   const out = formatAgentReport(report, root);
   expect(out).toMatchObject({ version: 1, scope: 'diff', score: 0.5, counts: { Survived: 1, Killed: 1 } });
@@ -42,10 +43,14 @@ test('one record per undetected mutant, with the gap, the code around it and how
       replacement: 'age > 18',
       scope: { id: 'isAdult', startLine: 1, endLine: 3, source: source.trimEnd() },
       coveredBy: ['a.test.ts#adult'],
+      coveredByCount: 1,
       fix: expect.stringContaining('input'),
     },
   ]);
-  expect(out.warnings).toEqual([{ kind: 'uncollectedTest', file: 'x.test.ts', message: expect.any(String) }]);
+  expect(out.warnings).toEqual([
+    { kind: 'uncollectedTest', file: 'x.test.ts', message: expect.any(String) },
+    { kind: 'skippedTest', file: 'x.test.ts', line: 2, message: expect.stringContaining('it.skip(') },
+  ]);
 });
 
 test('long scopes are cut to the lines around the mutant', () => {
@@ -55,4 +60,13 @@ test('long scopes are cut to the lines around the mutant', () => {
   const { scope } = formatAgentReport(report, root).gaps[0]!;
   expect([scope.startLine, scope.endLine]).toEqual([210, 290]);
   expect(scope.source.split('\n')[0]).toBe('line 210');
+});
+
+test('covering tests are capped, those naming the function first', () => {
+  const coveredBy = [...Array.from({ length: 20 }, (_, i) => `other.test.ts#case ${i}`), 'a.test.ts#isAdult > boundary'];
+  const report: Report = { entries: [entry('Survived', { coveredBy })], executed: 1, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+  const gap = formatAgentReport(report, root).gaps[0]!;
+  expect(gap.coveredBy).toHaveLength(10);
+  expect(gap.coveredBy[0]).toBe('a.test.ts#isAdult > boundary');
+  expect(gap.coveredByCount).toBe(21);
 });

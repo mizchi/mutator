@@ -179,8 +179,10 @@ describe('--since runs the diff only', { timeout: 60_000 }, () => {
       expect(first.uncollectedTests).toBeUndefined();
       writeFileSync(join(root, 'test/extra.spec.ts'), "import { test } from 'vitest';\ntest('x', () => {});\n");
       edit(root, 'test/helper.ts', 'export', '// edited\nexport');
+      edit(root, 'test/a.test.ts', "test('combo'", "test.skip('later', () => {});\n\ntest('combo'");
       const since = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
       expect(since.uncollectedTests).toEqual(['test/extra.spec.ts']);
+      expect(since.skippedTests).toEqual([{ file: 'test/a.test.ts', line: expect.any(Number), text: "test.skip('later', () => {});" }]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

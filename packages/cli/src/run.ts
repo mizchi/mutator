@@ -30,9 +30,8 @@ import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, plan
 import { oneLine } from './report.ts';
 import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
-import { diffTouched, sinceFocus, uncollectedTests } from './since.ts';
+import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { applyAcceptance } from './accepted.ts';
-import { changedFiles } from './git.ts';
 import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
@@ -133,10 +132,14 @@ export interface Report {
   notRun: { sampled: number; budget: number };
   /** With --since: changed test files (relative) the runner does not collect. */
   uncollectedTests?: string[];
+  /** With --since: skipped or todo tests on the changed lines of test files (they check nothing). */
+  skippedTests?: { file: string; line: number; text: string }[];
   /** With accepted mutants: those detected now (their entry can go), and entries whose mutant no longer exists. */
   acceptance?: { killed: string[]; stale: string[] };
   /** `only`: the reported mutants were selected with `only` (`scope` is then `diff`). */
   selection?: 'only';
+  /** `only` keys that match no mutant (a typo, or code that changed). */
+  unknownKeys?: string[];
 }
 
 export class BaselineError extends Error {}
@@ -210,8 +213,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
     // off this thread, so it overlaps the dry run.
-    const touched = options.since ? diffTouched(root, options.since, mutants, options.scope ?? 'node') : undefined;
-    const uncollected = options.since ? uncollectedTests(changedFiles(root, options.since, { untracked: true }).filter((f) => existsSync(join(root, f))), new Set(testFileList)) : undefined;
+    const lines = options.since ? diffLines(root, options.since) : undefined;
+    const touched = lines && diffTouched(root, lines, mutants, options.scope ?? 'node');
+    const uncollected = lines && uncollectedTests([...lines.keys()], new Set(testFileList));
+    const skipped = lines && skippedInDiff(root, lines);
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
     early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
@@ -245,7 +250,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     });
 
     const since = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
-    const inScope = options.only ? selectOnly(options.only, since, mutants, log) : since;
+    const unknownKeys = options.only ? [...options.only].filter((k) => !mutants.some((m) => m.key === k)) : [];
+    const inScope = options.only ? selectOnly(options.only, since, mutants) : since;
     const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
     const uncompilable = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
@@ -272,7 +278,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       durationMs: performance.now() - started,
       notRun,
       ...(options.only ? { selection: 'only' as const } : {}),
+      ...(unknownKeys.length ? { unknownKeys } : {}),
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
+      ...(skipped?.length ? { skippedTests: skipped } : {}),
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
     };
   } finally {
@@ -283,11 +291,16 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   }
 }
 
-/** The `only` keys as a focus map, kept within the --since focus when there is one; unknown keys are logged. */
-function selectOnly(only: ReadonlySet<string>, since: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, mutants: readonly Mutant[], log: (message: string) => void): Map<string, 'diff' | 'recheck'> {
+/** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
+export async function listMutants(options: RunOptions): Promise<Mutant[]> {
+  const root = resolve(options.root);
+  const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
+  return collectSources(root, files, instrumentOptions).mutants;
+}
+
+/** The `only` keys as a focus map, kept within the --since focus when there is one. */
+function selectOnly(only: ReadonlySet<string>, since: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, mutants: readonly Mutant[]): Map<string, 'diff' | 'recheck'> {
   const known = new Set(mutants.map((m) => m.key));
-  const unknown = [...only].filter((k) => !known.has(k));
-  if (unknown.length > 0) log(`--only: no mutant with key ${unknown.join(', ')}`);
   const out = new Map<string, 'diff' | 'recheck'>();
   for (const key of only) {
     if (!known.has(key)) continue;

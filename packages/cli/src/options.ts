@@ -111,6 +111,17 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
   return config as MutatorConfig;
 }
 
+/** `mutator accept <key>... --reason <text> [options]`: the keys, the reason, and the usual options. */
+export function parseAcceptCli(argv: string[]) {
+  try {
+    const { values, positionals } = parseArgs({ args: argv, options: { ...OPTIONS, reason: { type: 'string' } }, allowPositionals: true, allowNegative: true });
+    const { reason, ...rest } = values;
+    return { keys: positionals, reason, values: rest as CliValues };
+  } catch (error) {
+    throw new ConfigError(`accept: ${(error as Error).message}`);
+  }
+}
+
 export async function resolveOptions(argv: string[], cwd: string): Promise<ResolvedOptions> {
   return resolveValues(parseCli(argv), cwd);
 }

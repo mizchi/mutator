@@ -28,6 +28,11 @@ export function uncollectedMessage(file: string): string {
   return `${file} changed, but the test runner does not collect it: it kills nothing, so mutants only it would kill are reported as undetected (check the runner's include patterns, projects or env-based filters)`;
 }
 
+/** Why a skipped test in the change matters. */
+export function skippedMessage(s: { file: string; line: number; text: string }): string {
+  return `${s.file}:${s.line} skips a test in the change, so it checks nothing: ${oneLine(s.text)}`;
+}
+
 export function gapOf(e: ReportEntry): Gap | undefined {
   if (e.status === 'NoCoverage') return 'notReached';
   if (e.status === 'Survived') return e.reason === 'notInfected' ? 'notInfected' : 'notDetected';
@@ -58,6 +63,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
+  for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
   const accepted = main.filter((e) => e.accepted !== undefined).length;
   if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
   for (const { gap, heading } of GAPS) list(lines, heading, main.filter((e) => gapOf(e) === gap), root);
@@ -85,6 +91,7 @@ function list(lines: string[], heading: string, entries: readonly ReportEntry[],
 export function formatAnnotations(report: Report, root: string): string {
   const titles = new Map(GAPS.map((g) => [g.gap, g.title]));
   const uncollected = (report.uncollectedTests ?? []).map((file) => `::warning file=${file},title=Test file not collected::${uncollectedMessage(file)}`);
+  const skipped = (report.skippedTests ?? []).map((s) => `::warning file=${s.file},line=${s.line},title=Skipped test::${skippedMessage(s)}`);
   const mutants = reported(report)
     .flatMap((e) => {
       const gap = gapOf(e);
@@ -93,7 +100,7 @@ export function formatAnnotations(report: Report, root: string): string {
       const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
       return [`::warning file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${titles.get(gap)}::${message}`];
     });
-  return [...uncollected, ...mutants].join('\n');
+  return [...uncollected, ...skipped, ...mutants].join('\n');
 }
 
 function location(e: ReportEntry, root: string): string {

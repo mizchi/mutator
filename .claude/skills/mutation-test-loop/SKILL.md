@@ -7,6 +7,11 @@ description: Close the test gaps that mutation testing finds in a change, using 
 
 mutator reports each mutant the tests miss, together with where the tests stopped short. This skill works through those gaps for the current change: write a test, re-check that mutant, and repeat. The target is detected mutants, not coverage: a test that runs code without asserting anything kills nothing.
 
+## 0. Setup (once per project)
+
+- mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
+- If `.mutator/` is not in `.gitignore`, add it. It holds the cache and the reports. `mutator.accepted.json` at the root is meant to be committed.
+
 ## 1. Find the gaps
 
 ```sh
@@ -18,9 +23,11 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
   - `gap`, the kind of gap
   - the mutant (`original` → `replacement` at `file:line`)
   - the enclosing function as `scope.source`
-  - `coveredBy`, the tests that run the mutated code
-  - `fix`, the kind of fix it needs
-- Check `warnings` before anything else. An `uncollectedTest` warning means a changed test file is not run, so the gaps it would close are false. Fix the runner config first (include globs, projects, env filters).
+  - `coveredBy`, up to 10 of the tests that run the mutated code, those naming the function first (`coveredByCount` is the total)
+  - `fix`, a generic hint for the kind of gap (the table below says the same)
+- Check `warnings` before anything else:
+  - `uncollectedTest`: a changed test file is not run, so the gaps it would close are false. Fix the runner config first (include globs, projects, env filters).
+  - `skippedTest`: the change adds or edits a skipped or todo test. It checks nothing. Find out why it is skipped. Re-enable it if it passes; otherwise say so to the user rather than deleting it.
 - Stop if the run exits 4: the tests fail without any mutant, so fix them first.
 
 ## 2. Close each gap
@@ -43,10 +50,13 @@ Rules for every test you write:
 
 ```sh
 npx mutator --only <key> --only <key> --reporter agent
+# or every gap of the last run:
+jq -r '.gaps[].key | "--only=" + .' .mutator/agent.json | xargs npx mutator --reporter agent
 ```
 
 - `--only` runs only the listed mutants and reuses everything else from the cache, so this takes seconds.
 - A mutant that now shows up as `Killed` in `counts` and is gone from `gaps` is done.
+- A key that matches no mutant exits 1 with an `unknownKey` warning. The code changed since the key was taken, so run step 1 again.
 - If it is still listed, the test does not separate the two versions. Look again at the input or the assertion, instead of adding more tests of the same kind.
 
 ## 4. Mutants no test can detect
@@ -57,7 +67,7 @@ Some mutants are equivalent: no input can tell the mutated code from the origina
 npx mutator accept <key> --reason "equivalent: <why no input can observe it>"
 ```
 
-This writes to `mutator.accepted.json`, which is committed and reviewed like code. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
+This writes to `mutator.accepted.json`, together with where the mutant is (`file:line:col original -> replacement`). The file is committed and reviewed like code. Later runs list in `acceptance.killed` the accepted mutants that a test detects now, and in `acceptance.stale` the entries whose mutant no longer exists. Remove both kinds from the file. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
 
 ## 5. Finish
 

@@ -39,6 +39,12 @@ describe('formatSummary', () => {
     expect(formatSummary({ ...report, uncollectedTests: [] }, '/p')).not.toContain('warning:');
   });
 
+  test('warns about skipped tests in the change', () => {
+    const report: Report = { entries: [], executed: 0, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 }, skippedTests: [{ file: 'test/x.test.ts', line: 3, text: "it.skip('b', () => {" }] };
+    expect(formatSummary(report, '/p')).toContain("warning: test/x.test.ts:3 skips a test in the change, so it checks nothing: it.skip('b', () => {");
+    expect(formatAnnotations(report, '/p')).toContain('::warning file=test/x.test.ts,line=3,title=Skipped test::');
+  });
+
   test('counts accepted mutants and lists accepted entries that are killed now or gone', () => {
     const entries = [{ ...entry(0, 'Ignored'), accepted: 'equivalent' }, entry(1, 'Killed')];
     const report: Report = { entries, executed: 1, dryRunFiles: [], scope: 'all', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 }, acceptance: { killed: ['k1'], stale: ['gone'] } };

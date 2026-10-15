@@ -1,15 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { parseArgs } from 'node:util';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { qualityGate } from './gate.ts';
-import { type MteReport, formatHtml, formatMutationTestingJson } from './mte-report.ts';
-import { parseCli, resolveValues } from './options.ts';
+import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
+import { parseAcceptCli, parseCli, resolveValues } from './options.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
-import { BaselineError, runMutation } from './run.ts';
+import { BaselineError, listMutants, runMutation } from './run.ts';
 import { VERSION } from './version.ts';
 
 const USAGE = `usage: mutator [options]
@@ -55,7 +54,7 @@ exit codes:
 
 try {
   if (process.argv[2] === 'accept') {
-    accept(process.argv.slice(3));
+    await accept(process.argv.slice(3));
     process.exit(0);
   }
   const values = parseCli(process.argv.slice(2));
@@ -90,6 +89,10 @@ try {
     const annotations = formatAnnotations(report, root);
     if (annotations) console.log(annotations);
   }
+  if (report.unknownKeys) {
+    console.error(`--only: no mutant with key ${report.unknownKeys.join(', ')}`);
+    process.exit(1);
+  }
   const failures = qualityGate(report, options);
   for (const failure of failures) console.error(`quality gate failed: ${failure}`);
   process.exit(failures.length > 0 ? 2 : 0);
@@ -105,20 +108,20 @@ try {
   throw error;
 }
 
-/** `mutator accept <key>... --reason <text>`: records undetected mutants as accepted. */
-function accept(argv: string[]): void {
-  const { values, positionals } = parseArgs({ args: argv, options: { reason: { type: 'string' }, root: { type: 'string' }, 'report-dir': { type: 'string' } }, allowPositionals: true });
-  if (positionals.length === 0 || !values.reason) throw new ConfigError('accept: give the mutant keys (the `id`s in mutation.json) and --reason <text>');
-  const root = resolve(values.root ?? '.');
-  // Describe each mutant from the last JSON report, when there is one.
-  const where = new Map<string, string>();
-  const reportFile = join(resolve(root, values['report-dir'] ?? join('.mutator', 'report')), 'mutation.json');
-  if (existsSync(reportFile)) {
-    const json = JSON.parse(readFileSync(reportFile, 'utf8')) as MteReport;
-    for (const [file, { mutants }] of Object.entries(json.files)) {
-      for (const m of mutants) where.set(m.id, `${file}:${m.location.start.line}:${m.location.start.column} ${m.mutatorName}: ${oneLine(m.replacement)}`);
-    }
-  }
-  acceptMutants(join(root, ACCEPTED_FILE), positionals, values.reason, where);
-  console.error(`accepted ${positionals.length} mutant(s) in ${ACCEPTED_FILE}`);
+/** `mutator accept <key>... --reason <text>`: records undetected mutants as accepted, with where they are. */
+async function accept(argv: string[]): Promise<void> {
+  const { keys, reason, values } = parseAcceptCli(argv);
+  if (keys.length === 0 || !reason) throw new ConfigError('accept: give the mutant keys (from --reporter agent, or the `id`s in mutation.json) and --reason <text>');
+  const { root, run } = await resolveValues(values, process.cwd());
+  const byKey = new Map((await listMutants({ root, ...run })).map((m) => [m.key, m]));
+  const unknown = keys.filter((k) => !byKey.has(k));
+  if (unknown.length > 0) throw new ConfigError(`accept: no mutant with key ${unknown.join(', ')}`);
+  const where = new Map(
+    keys.map((k) => {
+      const m = byKey.get(k)!;
+      return [k, `${relative(root, m.file)}:${m.location.start.line}:${m.location.start.column + 1} ${oneLine(m.original)} -> ${oneLine(m.replacement)}`];
+    }),
+  );
+  acceptMutants(join(root, ACCEPTED_FILE), keys, reason, where);
+  console.error(`accepted ${keys.length} mutant(s) in ${ACCEPTED_FILE}`);
 }

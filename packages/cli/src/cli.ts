@@ -104,7 +104,8 @@ try {
     if (reporters.has('html')) writeFileSync(join(options.reportDir, 'index.html'), formatHtml(json));
     console.error(`report written to ${options.reportDir}`);
   }
-  if (process.env.GITHUB_ACTIONS) {
+  // The agent reporter's stdout must stay one JSON document.
+  if (process.env.GITHUB_ACTIONS && !reporters.has('agent')) {
     const annotations = formatAnnotations(report, root);
     if (annotations) console.log(annotations);
   }

@@ -56,6 +56,18 @@ test('--only with a key no mutant has exits 1', () => {
   }
 }, 60_000);
 
+test('on GitHub Actions, --reporter agent keeps stdout pure JSON (no annotations)', () => {
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-agent-gha-${process.pid}`);
+  cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });
+  try {
+    const { status, stdout, stderr } = spawnSync(process.execPath, [cli, '--root', root, '--reporter', 'agent'], { encoding: 'utf8', env: { ...process.env, GITHUB_ACTIONS: 'true' } });
+    expect(status, stderr).toBe(0);
+    expect(JSON.parse(stdout).gaps.length).toBeGreaterThan(0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));
   writeFileSync(join(root, 'mutator.config.json'), '{"concurency": 2}');

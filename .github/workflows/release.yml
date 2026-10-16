@@ -39,7 +39,14 @@ jobs:
           for p in core vitest jest typecheck cli; do
             (cd "packages/$p" && pnpm pack --pack-destination "$RUNNER_TEMP/pack")
           done
-          for t in "$RUNNER_TEMP"/pack/*.tgz; do npm publish "$t" --access public; done
+          # Versions already on npm (published by hand, or by an earlier attempt of this
+          # run) are skipped, so a re-run or a tag for such a version still gets its release.
+          for p in core vitest jest typecheck cli; do
+            name=$(node -p "require('./packages/$p/package.json').name")
+            version=$(node -p "require('./packages/$p/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then echo "$name@$version is published, skipping"; continue; fi
+            npm publish "$RUNNER_TEMP/pack/$(echo "${name#@}" | tr / -)-$version.tgz" --access public
+          done
       - name: GitHub release from the changelog
         run: |
           version=${GITHUB_REF_NAME#v}

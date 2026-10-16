@@ -312,4 +312,6 @@ node scripts/robustness.ts <dir>...   # instrument every file and check the outp
 
 Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
+The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
+
 Design notes and the survey of StrykerJS / cargo-mutants / PIT live in [`docs/`](./docs).

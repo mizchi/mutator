@@ -1,26 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Reporting
-
-- With `--since`, mutator warns about changed test files that the runner does not collect (#1) and about skipped or todo tests on changed lines.
-- `mutator accept <key> --reason ...` records equivalent survivors in `mutator.accepted.json`. They are reported as `Ignored`, and the summary lists entries that are killed now or stale (#2).
-- Tests that run the sources in a child process are reported. Undetected mutants in the code those processes load are labelled "possibly reached in a child process" and are not counted by `--fail-on-survived` (#4).
-- Critical regions (`critical` globs, `--critical` or `// mutator-critical`): every mutant in them must be killed or accepted, otherwise the run exits 2 (#8).
-- `--reporter simplify` lists removals that no test observes, as code that may be unnecessary (#9).
-
-### Agents and test selection
-
-- `--reporter agent` prints JSON on stdout for coding agents. `--only <key>` re-checks just the given mutants. The `mutation-test-loop` skill runs the loop with Claude Code (#3).
-- `mutator select-tests --since <ref>` ranks the tests a change can break, from a warm snapshot (#6).
-- `--kill-matrix` runs every covering test for every mutant. It reports tests that detect nothing, tests that are subsumed by another test, and tests with duplicate kill sets (#7).
-
-### Mutants
-
-- With `strictNullChecks` and `noUncheckedIndexedAccess`, `?.` mutants on values that are never nullish are proven equivalent by types and are not run (#5).
-
-## 0.1.0 - 2026-10-12
+## 0.1.0 - 2026-10-16
 
 First release.
 
@@ -41,9 +21,21 @@ First release.
 - Logging-only code is suppressed under Google's arid-node rule.
 - Plugins can add custom mutators and ignorers.
 - `--experimental-callgraph` narrows re-runs after an edit using a static call graph.
+- With `strictNullChecks` and `noUncheckedIndexedAccess`, `?.` mutants on values that are never nullish are proven equivalent by types and are not run (#5).
 
 ### Reporting
 
 - Undetected mutants are listed in three groups, each with its own fix: not detected, not infected and not reached. See [docs/coverage-and-mutation.md](docs/coverage-and-mutation.md).
 - Text summary, GitHub annotations, and the mutation-testing-elements JSON and HTML reporters.
 - Config file (`mutator.config.*`), score thresholds, `--fail-on-survived`, and documented exit codes.
+- With `--since`, mutator warns about changed test files that the runner does not collect (#1) and about skipped or todo tests on changed lines.
+- `mutator accept <key> --reason ...` records equivalent survivors in `mutator.accepted.json`. They are reported as `Ignored`, and the summary lists entries that are killed now or stale (#2).
+- Tests that run the sources in a child process are reported. Undetected mutants in the code those processes load are labelled "possibly reached in a child process" and are not counted by `--fail-on-survived` (#4).
+- Critical regions (`critical` globs, `--critical` or `// mutator-critical`): every mutant in them must be killed or accepted, otherwise the run exits 2 (#8).
+- `--reporter simplify` lists removals that no test observes, as code that may be unnecessary (#9).
+
+### Agents and test selection
+
+- `--reporter agent` prints JSON on stdout for coding agents. `--only <key>` re-checks just the given mutants. The `mutation-test-loop` skill runs the loop with Claude Code (#3).
+- `mutator select-tests --since <ref>` ranks the tests a change can break, from a warm snapshot (#6).
+- `--kill-matrix` runs every covering test for every mutant. It reports tests that detect nothing, tests that are subsumed by another test, and tests with duplicate kill sets (#7).

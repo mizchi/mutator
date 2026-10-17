@@ -274,12 +274,42 @@ The same pass drops mutants the types prove equivalent, on both backends: `a?.b`
 
 ## CI (pull requests)
 
-Cache the snapshot per base branch so a PR only runs mutants its diff can affect:
+The action in this repository runs mutator on the pull request's diff and keeps `.mutator/` in the GitHub Actions cache, so a pull request only runs the mutants its diff can affect:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - uses: mizchi/mutator@v0
+        with:
+          args: --time-budget 600 --fail-on-survived
+```
+
+| input | default | |
+|---|---|---|
+| `since` | the pull request's base commit | `--since` ref. Outside pull requests the default is a full run; pass `${{ github.event.before }}` on pushes to run only the pushed commits. |
+| `args` | | extra command-line arguments |
+| `working-directory` | `.` | project root |
+| `cache` | `true` | restore and save `.mutator/` (this ref first, then the base branch) |
+| `command` | `node_modules/.bin/mutator`, else `npx @mizchi/mutator@<version>` | how to run the CLI |
+| `version` | `latest` | version for the `npx` fallback |
+
+The base commit is fetched when the checkout is shallow. The snapshot is saved even when the run fails the gate, since its verdicts stay valid. Runs on the default branch fill the cache that pull requests restore. Without the action:
 
 ```yaml
 - uses: actions/checkout@v4
   with:
-    fetch-depth: 0            # --since needs the merge base
+    fetch-depth: 0            # --since needs the base commit
 - uses: actions/cache@v4
   with:
     path: .mutator
@@ -331,7 +361,7 @@ pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exe
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), creates the GitHub release from the changelog section, and moves the major tag (`v0`) that `uses: mizchi/mutator@v0` follows.
 
 The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
 

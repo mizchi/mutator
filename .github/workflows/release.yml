@@ -2,7 +2,8 @@ name: release
 
 on:
   push:
-    tags: ['v*']
+    # Full versions only: the moving major tag (v0) must not start a release.
+    tags: ['v*.*.*']
 
 jobs:
   publish:
@@ -54,3 +55,9 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
+      # `uses: mizchi/mutator@v<major>` follows the latest release of that major version.
+      - name: Move the major tag
+        run: |
+          major=${GITHUB_REF_NAME%%.*}
+          git tag -f "$major" "$GITHUB_SHA"
+          git push -f origin "refs/tags/$major"

@@ -1,0 +1,90 @@
+name: mutator
+description: Diff-driven mutation testing for Vitest and Jest, with the snapshot cached between runs.
+branding:
+  icon: check-circle
+  color: green
+
+inputs:
+  since:
+    description: >-
+      Git ref to diff against (--since). Defaults to the base commit of the pull request;
+      outside pull requests the default is a full run, which keeps the cache warm.
+    default: ''
+  args:
+    description: Extra command-line arguments, e.g. "--time-budget 300 --fail-on-survived".
+    default: ''
+  working-directory:
+    description: Project root (where mutator runs and .mutator/ lives).
+    default: .
+  cache:
+    description: Restore and save .mutator/ with the GitHub Actions cache.
+    default: 'true'
+  version:
+    description: Version of @mizchi/mutator to run when the project does not install it.
+    default: latest
+  command:
+    description: >-
+      Command that runs the CLI. Defaults to the project's own node_modules/.bin/mutator,
+      falling back to npx @mizchi/mutator@<version>.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve inputs
+      id: resolve
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SINCE: ${{ inputs.since || github.event.pull_request.base.sha }}
+        COMMAND: ${{ inputs.command }}
+        VERSION: ${{ inputs.version }}
+        DIR: ${{ inputs.working-directory }}
+        # The base branch for a pull request, the branch itself otherwise.
+        BRANCH: ${{ github.base_ref || github.ref_name }}
+      run: |
+        # --since diffs against a commit, which a shallow checkout may lack.
+        if [ -n "$SINCE" ] && ! git cat-file -e "$SINCE^{commit}" 2>/dev/null; then
+          git fetch --no-tags --depth=1 origin "$SINCE"
+        fi
+        if [ -z "$COMMAND" ]; then
+          if [ -x node_modules/.bin/mutator ]; then COMMAND=node_modules/.bin/mutator
+          else COMMAND="npx --yes @mizchi/mutator@$VERSION"; fi
+        fi
+        # One cache entry per run; restore from this ref first, then from the base branch.
+        prefix="mutator-$RUNNER_OS-$(printf '%s' "$DIR" | tr -c 'A-Za-z0-9._-' _)"
+        {
+          echo "since=$SINCE"
+          echo "command=$COMMAND"
+          echo "path=$DIR/.mutator"
+          echo "key=$prefix-$GITHUB_REF-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT"
+          echo "restore-ref=$prefix-$GITHUB_REF-"
+          echo "restore-base=$prefix-refs/heads/$BRANCH-"
+        } >> "$GITHUB_OUTPUT"
+    - name: Restore the snapshot
+      if: inputs.cache == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.resolve.outputs.path }}
+        key: ${{ steps.resolve.outputs.key }}
+        restore-keys: |
+          ${{ steps.resolve.outputs.restore-ref }}
+          ${{ steps.resolve.outputs.restore-base }}
+    - name: Run mutator
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        COMMAND: ${{ steps.resolve.outputs.command }}
+        SINCE: ${{ steps.resolve.outputs.since }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        set -- $ARGS
+        if [ -n "$SINCE" ]; then set -- --since "$SINCE" "$@"; fi
+        $COMMAND "$@"
+    # Saved even when the run fails the gate: the verdicts are still valid for the next run.
+    - name: Save the snapshot
+      if: always() && inputs.cache == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.resolve.outputs.path }}
+        key: ${{ steps.resolve.outputs.key }}

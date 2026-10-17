@@ -243,7 +243,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
         timeoutMs + startupMs,
       );
       const durationMs = outcome.wallMs;
-      if (outcome.timedOut) return { status: 'Timeout', killedBy: [], durationMs };
+      if (outcome.timedOut) return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
       const report = outcome.report ?? bailedReport(outcome.partial);
       if (!report) return { status: 'RuntimeError', killedBy: [], durationMs };
       if (outcome.report) measure(outcome);
@@ -363,7 +363,7 @@ function classify(report: JsonReport, root: string, selected: ReadonlySet<string
   }
   if (killedBy.length === 0) return { status: 'Survived', killedBy };
   // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (messages.every((m) => m.includes(HIT_LIMIT_MESSAGE))) return { status: 'Timeout', killedBy: [] };
+  if (messages.every((m) => m.includes(HIT_LIMIT_MESSAGE))) return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
   if (suiteError && killedBy.every((k) => !k.includes('#'))) return { status: 'RuntimeError', killedBy };
   return { status: 'Killed', killedBy };
 }

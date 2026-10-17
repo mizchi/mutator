@@ -61,6 +61,11 @@ export interface MutantRunResult {
   status: Extract<MutantStatus, 'Killed' | 'Survived' | 'Timeout' | 'RuntimeError'>;
   killedBy: string[];
   durationMs: number;
+  /**
+   * Why a run is a Timeout. `hitLimit`: instrumented code exceeded its hit limit, which proves
+   * a loop. `time`: the wall-clock or stall budget ran out, which a slow (busy) machine can also cause.
+   */
+  timeoutCause?: 'hitLimit' | 'time';
 }
 
 /** A test-runner session: what the CLI drives. Implemented by @mizchi/mutator-vitest and @mizchi/mutator-jest. */

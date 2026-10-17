@@ -175,13 +175,13 @@ describe('edge cases', () => {
 
   test('hitting the hit limit is a timeout', async () => {
     const result = await session.runMutant(find('spin.ts', 'i--', 'i++').key, ['test/spin.test.ts#countdown'], { timeoutMs: 10_000, hitLimit: 1000 });
-    expect(result.status).toBe('Timeout');
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit' });
   });
 
   test('verdicts after a timeout are not affected by the stuck run', async () => {
     const spin = find('spin.ts', 'i--', 'i++').key;
     const timedOut = await session.runMutant(spin, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
-    expect(timedOut.status).toBe('Timeout');
+    expect(timedOut).toMatchObject({ status: 'Timeout', timeoutCause: 'time' });
     const boundary = find('sign.ts', 'x > 0', 'x >= 0').key;
     const survived = await session.runMutant(boundary, dry.coverage.get(boundary)!, { timeoutMs: 10_000 });
     expect(survived.status).toBe('Survived');

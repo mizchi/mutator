@@ -36,6 +36,7 @@ import { applyAcceptance } from './accepted.ts';
 import { type SpawningTest, childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
 import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
+import { RETRY_FACTOR, runWithTimeoutRetry } from './timeout-retry.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
@@ -141,6 +142,11 @@ export interface Report {
   /** `diff`: with --since the score covers only mutants inside the diff (`focus: 'diff'`). */
   scope: 'all' | 'diff';
   durationMs: number;
+  /**
+   * Runs (or shards) that ran out of time and were re-run once with a longer budget;
+   * `confirmed`: those that timed out again. Absent when none was re-run.
+   */
+  timeoutRetries?: TimeoutRetries;
   /** Mutants that needed a run but were left Pending: sampled out (mutantsPerLine) or over the time budget. */
   notRun: { sampled: number; budget: number };
   /** With --since: changed test files (relative) the runner does not collect. */
@@ -278,7 +284,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     applyTypecheck(tally, jobs, notInfected, typecheck, merged.coverage);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
-    const executed = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
+    const { executed, timeoutRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     writeSnapshot(snapshotPath, snapshot, root);
@@ -299,6 +305,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
       notRun,
+      ...(timeoutRetries.retried ? { timeoutRetries } : {}),
       ...(options.only ? { selection: 'only' as const } : {}),
       ...(unknownKeys.length ? { unknownKeys } : {}),
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
@@ -403,6 +410,11 @@ async function resolveSetup(root: string, options: RunOptions, log: (message: st
 }
 
 /** Report entries in plan order, and the results the snapshot records. */
+export interface TimeoutRetries {
+  retried: number;
+  confirmed: number;
+}
+
 interface Tally {
   report: ReportEntry[];
   results: MutantResult[];
@@ -517,8 +529,11 @@ interface ExecuteContext {
   killMatrix: boolean;
 }
 
-/** Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many ran. */
-async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<number> {
+/**
+ * Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many
+ * ran, and how many runs timed out and were re-run with a longer budget (`confirmed`: timed out again).
+ */
+async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries }> {
   const { root, log, merged, timeBudget } = ctx;
   const { report, results, notRun } = tally;
   const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
@@ -536,6 +551,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
   for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
+  const timeoutRetries: TimeoutRetries = { retried: 0, confirmed: 0 };
   const neverStarted = await runSharded({
     workers: workers.length,
     jobs: sharded,
@@ -543,14 +559,22 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
     allShards: ctx.killMatrix,
     // A shard keeps its job's timeout: test durations leave out module loading, so a
     // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
-    run: (worker, { entry }, tests) =>
-      workers[worker]!.runMutant(entry.mutant.key, [...tests], {
+    run: async (worker, { entry }, tests) => {
+      const options = {
         timeoutMs: entry.timeoutMs,
         stallMs: stallBudget(tests, testDurations),
         isStatic: entry.isStatic,
         hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
         ...(ctx.killMatrix ? { earlyExit: false } : {}),
-      }),
+      };
+      const { outcome, retried } = await runWithTimeoutRetry((o) => workers[worker]!.runMutant(entry.mutant.key, [...tests], o), options);
+      if (retried) {
+        timeoutRetries.retried++;
+        if (outcome.status === 'Timeout') timeoutRetries.confirmed++;
+        log(`timed out, re-ran with ${RETRY_FACTOR}x the budget: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
+      }
+      return outcome;
+    },
     onDone: ({ index, entry }, outcome) => {
       const { mutant } = entry;
       executed++;
@@ -567,7 +591,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
     skip(tally, index, entry.mutant, report[index]!.coveredBy);
   }
   if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
-  return executed;
+  return { executed, timeoutRetries };
 }
 
 /** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */

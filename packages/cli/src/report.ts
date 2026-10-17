@@ -65,6 +65,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
     ...(report.notRun.budget ? [`${report.notRun.budget} over the time budget (--time-budget)`] : []),
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
+  if (report.timeoutRetries) lines.push(`timeouts re-run with a longer budget: ${report.timeoutRetries.retried} (${report.timeoutRetries.confirmed} timed out again)`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
   for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
   const spawning = report.childProcessTests ?? [];

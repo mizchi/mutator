@@ -303,6 +303,16 @@ npx mutator --since origin/main --mutants-per-line 1 --time-budget 600
 
 Mutants left out by either option are reported as `Pending` (excluded from the score, never cached as a verdict) and the text summary says how many, e.g. `not run: 63 sampled out (--mutants-per-line), 12 over the time budget (--time-budget)`. A later run without the options executes them.
 
+### Timeouts
+
+A mutant run that does not finish is reported as `Timeout` (counted as detected). Three limits stop it:
+
+- a hit limit, derived from the dry run's hit counts (100x, at least 10,000): instrumented code that exceeds it throws, which stops loops in the code under test right away;
+- a stall timeout: no test starts or finishes within 3x the slowest selected test plus 10 s;
+- a total timeout: 1.5x the summed dry-run duration of the selected tests plus 5 s.
+
+The two timeouts are derived from the dry run, so a machine that is busier during the mutant runs (CI neighbours, parallel jobs) can push a correct but slow run past them. A run that ran out of time is therefore re-run once with 3x both budgets, and only a second timeout is reported as `Timeout`. A run stopped by the hit limit has proved a loop and is not re-run. The text summary says how many runs were re-run, e.g. `timeouts re-run with a longer budget: 2 (1 timed out again)`.
+
 ## Packages
 
 | package | role |

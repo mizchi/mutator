@@ -169,7 +169,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
         await closeQuietly(vitest);
         ({ vitest, watch } = await start(options, registry));
         await vitest.globTestSpecifications();
-        return { status: 'Timeout', killedBy: [], durationMs };
+        return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
       }
       return { ...classify(outcome, options.root, new Set(testIds), observed, idOf), durationMs };
     },
@@ -330,7 +330,7 @@ function classify(
     }
   }
   // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (!moduleError && failures.length > 0 && failures.every(hitLimitOnly)) return { status: 'Timeout', killedBy: [] };
+  if (!moduleError && failures.length > 0 && failures.every(hitLimitOnly)) return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
   if (result.unhandledErrors.length > 0 && killedBy.length === 0) return { status: 'RuntimeError', killedBy: [] };
   if (killedBy.length > 0) return { status: moduleError && killedBy.every((k) => !k.includes('#')) ? 'RuntimeError' : 'Killed', killedBy };
   return { status: 'Survived', killedBy };

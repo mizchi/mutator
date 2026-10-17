@@ -133,14 +133,14 @@ describe('jest session (ESM fixture)', { timeout: 60_000 }, () => {
 
   test('an endless loop stops at the hit limit and is a timeout', async () => {
     const result = await session.runMutant(find('i--', 'i++').key, [`${T}#countdown`], { timeoutMs: 20_000, hitLimit: 1000 });
-    expect(result.status).toBe('Timeout');
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit' });
   });
 
   test('a run exceeding the time limit is killed and reported as a timeout', async () => {
     const started = performance.now();
     // No hit limit: only the wall-clock timeout can stop it.
     const result = await session.runMutant(find('i--', 'i++').key, [`${T}#countdown`], { timeoutMs: 1000, hitLimit: Number.MAX_SAFE_INTEGER });
-    expect(result.status).toBe('Timeout');
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'time' });
     expect(performance.now() - started).toBeLessThan(20_000);
   });
 });

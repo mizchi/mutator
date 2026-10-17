@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-bail",
+  "private": true,
+  "type": "module"
+}

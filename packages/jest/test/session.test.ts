@@ -57,6 +57,39 @@ describe('jest session: a mutant failing several test files', { timeout: 60_000 
   });
 });
 
+describe('jest session: a run that ends before the --json report', { timeout: 60_000 }, () => {
+  // a.test.js is the slowest file, so Jest runs it first and it has passed before b or c ends
+  // the run; b and c each have a test that passes besides the one the mutant breaks.
+  const bailRoot = fileURLToPath(new URL('./fixtures/bail', import.meta.url));
+  const A = '__tests__/a.test.js#a';
+  const file = (name: string) => [`__tests__/${name}.test.js#${name} ok`, `__tests__/${name}.test.js#${name} add`, `__tests__/${name}.test.js#${name} exit`];
+  let session: Session;
+  const find = (original: string, replacement: string) => session.mutants().find((m) => m.original === original && m.replacement === replacement)!;
+  beforeAll(async () => {
+    session = await createJestSession({ root: bailRoot, targets: [join(bailRoot, 'src/app.js')] });
+    expect((await session.dryRun()).failed).toEqual([]);
+  });
+  afterAll(async () => {
+    await session?.close();
+  });
+
+  test('the failure that made Jest bail kills the mutant, next to passed tests and files', async () => {
+    const result = await session.runMutant(find('a + b', 'a - b').key, [A, ...file('b'), ...file('c')], { timeoutMs: 10_000 });
+    expect(result.status).toBe('Killed');
+    expect(result.killedBy).toHaveLength(1);
+    expect(['__tests__/b.test.js#b add', '__tests__/c.test.js#c add']).toContain(result.killedBy[0]);
+  });
+
+  test('a run that exits without a failed test is a runtime error', async () => {
+    const started = performance.now();
+    const result = await session.runMutant(find('code !== 0', 'code === 0').key, [A, ...file('b'), ...file('c')], { timeoutMs: 10_000 });
+    const elapsed = performance.now() - started;
+    expect(result).toEqual({ status: 'RuntimeError', killedBy: [], durationMs: expect.any(Number) });
+    expect(result.durationMs).toBeGreaterThan(0);
+    expect(result.durationMs).toBeLessThanOrEqual(elapsed);
+  });
+});
+
 test('a mutant that breaks loading several test files is a runtime error', { timeout: 60_000 }, async () => {
   const loadRoot = fileURLToPath(new URL('./fixtures/loaderror', import.meta.url));
   const session = await createJestSession({ root: loadRoot, targets: [join(loadRoot, 'src/config.js')] });

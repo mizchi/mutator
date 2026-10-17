@@ -33,7 +33,7 @@ import { runSharded, splitByFile } from './shard.ts';
 import { readSnapshot, writeSnapshot } from './snapshot.ts';
 import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { applyAcceptance } from './accepted.ts';
-import { childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
+import { type SpawningTest, childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
 import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
 
@@ -154,7 +154,7 @@ export interface Report {
   /** `only` keys that match no mutant (a typo, or code that changed). */
   unknownKeys?: string[];
   /** Tests whose child process runs a project file (spawned in the dry run), with the command. */
-  childProcessTests?: { test: string; command: string }[];
+  childProcessTests?: SpawningTest[];
   /** Undetected mutants in files those child processes may load: possibly reached there, not counted by --fail-on-survived. */
   childProcessMutants?: string[];
   /** Mutants in critical regions (config globs or `// mutator-critical`): each must be killed or accepted. Set by the CLI. */

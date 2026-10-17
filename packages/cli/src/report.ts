@@ -3,7 +3,7 @@ import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { reported, scoreLevel } from './gate.ts';
 import { ACCEPTED_FILE } from './accepted.ts';
 import { criticalSummary } from './critical.ts';
-import { CHILD_PROCESS_WARNING, POSSIBLY_IN_CHILD_PROCESS } from './child-process.ts';
+import { CHILD_PROCESS_WARNING, POSSIBLY_IN_CHILD_PROCESS, spawningSummary } from './child-process.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report, ReportEntry } from './run.ts';
 
@@ -68,7 +68,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
   for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
   const spawning = report.childProcessTests ?? [];
-  if (spawning.length > 0) lines.push(`warning: ${CHILD_PROCESS_WARNING}:`, ...spawning.map(({ test, command }) => `  ${test}  ${command}`));
+  if (spawning.length > 0) lines.push(`warning: ${CHILD_PROCESS_WARNING}:`, ...spawningSummary(spawning).map((line) => `  ${line}`));
   const equivalent = main.filter((e) => e.reason?.startsWith('equivalent:')).length;
   if (equivalent > 0) lines.push(`equivalent by types: ${equivalent}`);
   const accepted = main.filter((e) => e.accepted !== undefined).length;

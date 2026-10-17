@@ -40,7 +40,7 @@ describe('childProcessReach', () => {
       ]),
       resolve: importResolver([], true),
     });
-    expect(reach.tests).toEqual([{ test: 'test/cli.test.ts#runs', command: 'node bin/run.js' }]);
+    expect(reach.tests).toEqual([{ test: 'test/cli.test.ts#runs', command: 'node bin/run.js', entries: ['bin/run.js'] }]);
     expect([...reach.files].sort()).toEqual(['bin/run.js', 'src/cli.js', 'src/greet.js', 'src/name.js']);
   });
 });
@@ -62,7 +62,7 @@ describe('runMutation with a test running the sources in a child process', { tim
   test('labels the mutants the spawned entry loads, also when the dry run is reused', async () => {
     const labelled = (report: Report) => report.entries.filter((e) => report.childProcessMutants?.includes(e.mutant.key)).map((e) => relative(project, e.mutant.file));
     const first = await runMutation({ root: project, concurrency: 1 });
-    expect(first.childProcessTests).toEqual([{ test: 'test/cli.test.ts#greets', command: 'node src/cli.js x' }]);
+    expect(first.childProcessTests).toEqual([{ test: 'test/cli.test.ts#greets', command: 'node src/cli.js x', entries: ['src/cli.js'] }]);
     expect(new Set(labelled(first))).toEqual(new Set(['src/greet.js']));
     const sub = first.entries.find((e) => e.mutant.original === 'a - b')!;
     expect(sub.status).toBe('NoCoverage');

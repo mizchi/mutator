@@ -111,7 +111,7 @@ describe('formatMutationTestingJson', () => {
   });
 
   test('mutants possibly reached in a child process say so, and the spawning tests are warnings', () => {
-    const spawned = formatMutationTestingJson({ ...report, childProcessTests: [{ test: 'cli.test.ts#runs', command: 'node util.js' }], childProcessMutants: ['k5'] }, root);
+    const spawned = formatMutationTestingJson({ ...report, childProcessTests: [{ test: 'cli.test.ts#runs', command: 'node util.js', entries: ['util.js'] }], childProcessMutants: ['k5'] }, root);
     expect(spawned.files['util.js']!.mutants[0]).toMatchObject({ status: 'NoCoverage', statusReason: expect.stringContaining('possibly reached in a child process') });
     expect(spawned.warnings).toEqual([{ kind: 'childProcessTest', test: 'cli.test.ts#runs', command: 'node util.js', message: expect.stringContaining('child process') }]);
   });

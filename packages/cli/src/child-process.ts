@@ -15,6 +15,26 @@ export function childProcessMessage(command: string): string {
   return `this test runs \`${command}\` in a child process, where mutator cannot observe mutants: undetected mutants in the files it loads are ${POSSIBLY_IN_CHILD_PROCESS} and do not fail --fail-on-survived`;
 }
 
+/** A test whose child process runs project files (`entries`, relative). */
+export interface SpawningTest {
+  test: string;
+  command: string;
+  entries: string[];
+}
+
+/** One line per test file: how many of its tests spawn, and the project files they run. */
+export function spawningSummary(tests: readonly SpawningTest[]): string[] {
+  const byFile = new Map<string, { tests: Set<string>; entries: Set<string> }>();
+  for (const { test, entries } of tests) {
+    const file = test.split('#')[0]!;
+    let group = byFile.get(file);
+    if (!group) byFile.set(file, (group = { tests: new Set(), entries: new Set() }));
+    group.tests.add(test);
+    entries.forEach((e) => group.entries.add(e));
+  }
+  return [...byFile].map(([file, g]) => `${file} (${g.tests.size} test${g.tests.size === 1 ? '' : 's'})  ${[...g.entries].sort().join(', ')}`);
+}
+
 const SCRIPT = /\.[cm]?[jt]sx?$/;
 
 /** Project files (relative) a command runs: arguments naming files inside the root, outside node_modules. */
@@ -38,9 +58,9 @@ export function childProcessReach(input: {
   spawns: ReadonlyMap<string, readonly SpawnedCommand[]>;
   /** Relative import specifier -> local file (absolute). */
   resolve: (from: string, specifier: string) => string | undefined;
-}): { tests: { test: string; command: string }[]; files: Set<string> } {
+}): { tests: SpawningTest[]; files: Set<string> } {
   const { root, resolve } = input;
-  const tests: { test: string; command: string }[] = [];
+  const tests: SpawningTest[] = [];
   const files = new Set<string>();
   const pending: string[] = [];
   const add = (rel: string) => {
@@ -50,7 +70,7 @@ export function childProcessReach(input: {
     for (const command of commands) {
       const entries = spawnedEntries(root, command);
       if (entries.length === 0) continue;
-      tests.push({ test, command: command.argv.join(' ') });
+      tests.push({ test, command: command.argv.join(' '), entries });
       entries.forEach(add);
     }
   }

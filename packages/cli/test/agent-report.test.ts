@@ -57,7 +57,7 @@ test('flags gaps possibly reached in a child process, and warns about the spawni
   const report: Report = {
     entries: [entry('NoCoverage'), entry('Survived', { mutant: { ...mutant, key: 'k2' } })],
     executed: 1, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 },
-    childProcessTests: [{ test: 'cli.test.ts#runs', command: 'node a.js' }],
+    childProcessTests: [{ test: 'cli.test.ts#runs', command: 'node a.js', entries: ['a.js'] }],
     childProcessMutants: ['k1'],
   };
   const out = formatAgentReport(report, root);

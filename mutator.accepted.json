@@ -1,0 +1,10 @@
+{
+  "1rkxp39vmqt": {
+    "reason": "equivalent: runs only makes the temp file names unique per run; counting down keeps them unique",
+    "where": "packages/jest/src/session.ts:105:46 runs++ -> runs--"
+  },
+  "no2n16j9lw": {
+    "reason": "equivalent: with earlyExit false an extra argument becomes a test path that does not exist, which Jest ignores; the verdicts do not change",
+    "where": "packages/jest/src/session.ts:236:73 [] -> [\"Stryker was here!\"]"
+  }
+}

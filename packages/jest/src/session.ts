@@ -153,7 +153,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
         .filter((line) => line.length > 0)
         .map((line) => JSON.parse(line) as SuiteResult);
     } catch {
-      partial = [];
+      // No partial report (no early exit, or nothing finished): none is used.
     }
     rmSync(outputFile, { force: true });
     rmSync(partialFile, { force: true });

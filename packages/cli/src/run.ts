@@ -240,7 +240,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // off this thread, so it overlaps the dry run.
     const lines = options.since ? diffLines(root, options.since) : undefined;
     const touched = lines && diffTouched(root, lines, mutants, options.scope ?? 'node');
-    const uncollected = lines && uncollectedTests([...lines.keys()], new Set(testFileList));
+    const uncollected = lines && uncollectedTests([...lines.keys()], new Set(testFileList), (f) => session.excludesTestFile?.(join(root, f)) ?? false);
     const skipped = lines && skippedInDiff(root, lines);
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;

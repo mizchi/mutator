@@ -1,0 +1,4 @@
+{
+  "$schema": "./packages/cli/schema/mutator.config.schema.json",
+  "include": ["packages/*/src/**/*.ts"]
+}

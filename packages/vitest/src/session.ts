@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, matchesGlob, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_HIT_LIMIT,
@@ -111,6 +111,13 @@ export async function createSession(options: SessionOptions): Promise<Session> {
 
     async testFiles() {
       return [...new Set((await vitest.globTestSpecifications()).map((s) => s.moduleId))].sort();
+    },
+
+    excludesTestFile(file) {
+      return vitest.projects.some((project) => {
+        const rel = relative(project.config.root, file);
+        return !rel.startsWith('..') && project.config.exclude.some((pattern) => matchesGlob(rel, pattern));
+      });
     },
 
     async dryRun(files) {

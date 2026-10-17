@@ -47,8 +47,8 @@ export const TEST_FILE = /(^|\/)__tests__\/|\.(test|spec)\.[cm]?[jt]sx?$/;
  * Changed files that look like tests (`*.test.*`, `*.spec.*`, `__tests__/`) but are not among
  * the runner's test files: they kill nothing, so the mutants only they would kill look undetected.
  */
-export function uncollectedTests(changed: readonly string[], collected: ReadonlySet<string>): string[] {
-  return changed.filter((f) => TEST_FILE.test(f) && !collected.has(f)).sort();
+export function uncollectedTests(changed: readonly string[], collected: ReadonlySet<string>, excluded: (file: string) => boolean = () => false): string[] {
+  return changed.filter((f) => TEST_FILE.test(f) && !collected.has(f) && !excluded(f)).sort();
 }
 
 const SKIP = /\b(?:it|test|describe|suite)\.(?:skip|todo)\b|\bx(?:it|test|describe)\s*\(/;

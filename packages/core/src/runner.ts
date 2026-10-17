@@ -73,6 +73,11 @@ export interface Session {
   mutants(): Mutant[];
   /** Absolute paths of the project's test files. */
   testFiles(): Promise<string[]>;
+  /**
+   * Whether the runner's config excludes this test file (absolute) on purpose, so not collecting
+   * it is no mistake. Optional: without it every uncollected test file is reported.
+   */
+  excludesTestFile?(file: string): boolean;
   /** Files every test depends on: resolved config files, setupFiles and globalSetup (absolute). */
   configFiles(): string[];
   /** Run tests without mutants (optionally only the given test files) and collect coverage. */

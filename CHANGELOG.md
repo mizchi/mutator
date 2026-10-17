@@ -6,6 +6,8 @@
 - The child-process warning lists one line per test file, with the number of its spawning tests and the project files they run, instead of every command (#10).
 - Jest runner: a mutant whose failing tests span several test files is now `Killed` with its killing test recorded, instead of `RuntimeError` with none. Jest's `--bail` exited before writing its JSON report; each finished test file is now recorded as it completes. A test file that fails to load is still a `RuntimeError` (#13).
 - A mutant run that runs out of time is re-run once with 3x the budget before it is reported as `Timeout`, so a machine that is busier than during the dry run no longer turns slow kills and survivors into timeouts (or drops them from `--kill-matrix`). Runs stopped by the hit limit are not re-run. The summary reports how many runs were re-run (#14).
+- A GitHub Action (`uses: mizchi/mutator@v0`) runs mutator on the pull request's diff and keeps `.mutator/` in the Actions cache (#11).
+- A changed test file that the runner's config excludes on purpose (Vitest `exclude`) is no longer reported as not collected (#10).
 
 ## 0.1.0 - 2026-10-16
 

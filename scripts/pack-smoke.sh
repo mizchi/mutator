@@ -35,7 +35,8 @@ pnpm install --prefer-offline >/dev/null
 grep -q 'age >= 18 -> age > 18' "$work/out.txt"
 
 # The agent skill ships in the CLI tarball and init-skill installs it.
-tar -tzf "$work/pack/mizchi-mutator-$version.tgz" | grep -qx 'package/skills/mutation-test-loop/SKILL.md'
+# grep without -q reads the whole listing: an early exit would fail tar with SIGPIPE under pipefail.
+tar -tzf "$work/pack/mizchi-mutator-$version.tgz" | grep -x 'package/skills/mutation-test-loop/SKILL.md' >/dev/null
 ./node_modules/.bin/mutator init-skill
 cmp -s .claude/skills/mutation-test-loop/SKILL.md "$repo/packages/cli/skills/mutation-test-loop/SKILL.md"
 ./node_modules/.bin/mutator init-skill | grep -q 'is up to date'

@@ -21,7 +21,7 @@ import {
   instrument,
   numberDuplicates,
 } from '@mizchi/mutator-core';
-import { type JestProject, mutatorJestConfig, readJestProject } from './config.ts';
+import { type JestProject, PARTIAL_REPORTER, mutatorJestConfig, readJestProject } from './config.ts';
 
 export interface JestSessionOptions {
   root: string;
@@ -71,6 +71,8 @@ interface FileCoverage {
 
 interface RunOutcome {
   report: JsonReport | undefined;
+  /** Suites PARTIAL_REPORTER recorded as they finished (only when it was enabled). */
+  partial: SuiteResult[];
   timedOut: boolean;
   stderr: string;
   wallMs: number;
@@ -99,7 +101,8 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
   let runs = 0;
 
   const jest = async (args: readonly string[], env: Record<string, string>, timeoutMs = Infinity): Promise<RunOutcome> => {
-    const outputFile = join(dir, `report-${runs++}.json`);
+    const outputFile = join(dir, `report-${runs}.json`);
+    const partialFile = join(dir, `partial-${runs++}.jsonl`);
     const argv = [
       '--experimental-vm-modules',
       '--disable-warning=ExperimentalWarning',
@@ -120,7 +123,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
       cwd: root,
       detached: true,
       stdio: ['ignore', 'ignore', 'pipe'],
-      env: { ...process.env, ...env },
+      env: { ...process.env, MUTATOR_PARTIAL_REPORT: partialFile, ...env },
     });
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
@@ -143,8 +146,18 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
     } catch {
       report = undefined;
     }
+    let partial: SuiteResult[] = [];
+    try {
+      partial = readFileSync(partialFile, 'utf8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => JSON.parse(line) as SuiteResult);
+    } catch {
+      partial = [];
+    }
     rmSync(outputFile, { force: true });
-    return { report, timedOut, stderr, wallMs: performance.now() - started };
+    rmSync(partialFile, { force: true });
+    return { report, partial, timedOut, stderr, wallMs: performance.now() - started };
   };
 
   const measure = (outcome: RunOutcome) => {
@@ -216,15 +229,25 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
       const pattern = `^(?:${names.map(escapeRegExp).join('|')})$`;
       const outcome = await jest(
         // --bail stops after the first failing test file; without it every file runs (--kill-matrix).
-        ['--runInBand', ...(earlyExit ? ['--bail'] : []), '--testNamePattern', pattern, '--runTestsByPath', ...byFile.keys()],
+        // Bailing exits Jest before it writes the --json report, so the partial reporter records
+        // each file as it finishes.
+        [
+          '--runInBand',
+          ...(earlyExit ? ['--bail', '--reporters', PARTIAL_REPORTER] : []),
+          '--testNamePattern',
+          pattern,
+          '--runTestsByPath',
+          ...byFile.keys(),
+        ],
         { MUTATOR_ACTIVE: key, MUTATOR_HIT_LIMIT: String(hitLimit) },
         timeoutMs + startupMs,
       );
       const durationMs = outcome.wallMs;
       if (outcome.timedOut) return { status: 'Timeout', killedBy: [], durationMs };
-      if (!outcome.report) return { status: 'RuntimeError', killedBy: [], durationMs };
-      measure(outcome);
-      return { ...classify(outcome.report, root, new Set(testIds)), durationMs };
+      const report = outcome.report ?? bailedReport(outcome.partial);
+      if (!report) return { status: 'RuntimeError', killedBy: [], durationMs };
+      if (outcome.report) measure(outcome);
+      return { ...classify(report, root, new Set(testIds)), durationMs };
     },
 
     async close() {
@@ -259,6 +282,15 @@ async function listTests(project: JestProject, configPath: string, root: string)
   } catch {
     throw new Error(`mutator: jest --listTests failed (exit ${code})\n${stderr}`);
   }
+}
+
+/**
+ * The results of a run Jest ended through --bail. Jest bails only once a test has failed,
+ * so without a failed test the missing --json report means Jest itself broke.
+ */
+function bailedReport(partial: readonly SuiteResult[]): JsonReport | undefined {
+  const bailed = partial.some((suite) => suite.assertionResults.some((a) => a.status === 'failed'));
+  return bailed ? { testResults: [...partial] } : undefined;
 }
 
 function escapeRegExp(s: string): string {

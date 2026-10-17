@@ -21,21 +21,58 @@ describe('jest session: child processes', { timeout: 60_000 }, () => {
   });
 });
 
-describe('jest session: kill matrix', { timeout: 60_000 }, () => {
-  test('without early exit every failing test file runs', async () => {
-    const matrixRoot = fileURLToPath(new URL('./fixtures/matrix', import.meta.url));
-    const session = await createJestSession({ root: matrixRoot, targets: [join(matrixRoot, 'src/add.js')] });
-    try {
-      const dry = await session.dryRun();
-      const key = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
-      const tests = dry.coverage.get(key)!;
-      expect(tests.sort()).toEqual(['__tests__/a.test.js#a', '__tests__/b.test.js#b']);
-      const all = await session.runMutant(key, tests, { timeoutMs: 10_000, earlyExit: false });
-      expect(all.killedBy.sort()).toEqual(['__tests__/a.test.js#a', '__tests__/b.test.js#b']);
-    } finally {
-      await session.close();
-    }
+describe('jest session: a mutant failing several test files', { timeout: 60_000 }, () => {
+  const matrixRoot = fileURLToPath(new URL('./fixtures/matrix', import.meta.url));
+  const A = '__tests__/a.test.js#a';
+  const B = '__tests__/b.test.js#b';
+  let session: Session;
+  let key: string;
+  let tests: string[];
+  beforeAll(async () => {
+    session = await createJestSession({ root: matrixRoot, targets: [join(matrixRoot, 'src/add.js')] });
+    const dry = await session.dryRun();
+    key = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
+    tests = dry.coverage.get(key)!;
   });
+  afterAll(async () => {
+    await session?.close();
+  });
+
+  test('both test files cover it', () => {
+    expect([...tests].sort()).toEqual([A, B]);
+  });
+
+  test('with early exit it is killed by the first failing test (#13)', async () => {
+    // Jest's --bail exits the process before writing the --json report when a file is left.
+    const result = await session.runMutant(key, tests, { timeoutMs: 10_000 });
+    expect(result.status).toBe('Killed');
+    expect(result.killedBy).toHaveLength(1);
+    expect([A, B]).toContain(result.killedBy[0]);
+  });
+
+  test('without early exit every failing test file runs (kill matrix)', async () => {
+    const all = await session.runMutant(key, tests, { timeoutMs: 10_000, earlyExit: false });
+    expect(all.status).toBe('Killed');
+    expect([...all.killedBy].sort()).toEqual([A, B]);
+  });
+});
+
+test('a mutant that breaks loading several test files is a runtime error', { timeout: 60_000 }, async () => {
+  const loadRoot = fileURLToPath(new URL('./fixtures/loaderror', import.meta.url));
+  const session = await createJestSession({ root: loadRoot, targets: [join(loadRoot, 'src/config.js')] });
+  try {
+    const dry = await session.dryRun();
+    expect(dry.failed).toEqual([]);
+    const mutant = session.mutants().find((m) => m.original === '2 + 1' && m.replacement === '2 - 1')!;
+    const tests = ['__tests__/a.test.js#a', '__tests__/b.test.js#b'];
+    for (const earlyExit of [true, false]) {
+      const result = await session.runMutant(mutant.key, tests, { timeoutMs: 10_000, isStatic: true, earlyExit });
+      expect(result.status).toBe('RuntimeError');
+      expect([...result.killedBy].sort()).toEqual(['__tests__/a.test.js', '__tests__/b.test.js']);
+    }
+  } finally {
+    await session.close();
+  }
 });
 
 describe('jest session (ESM fixture)', { timeout: 60_000 }, () => {

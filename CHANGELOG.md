@@ -4,6 +4,7 @@
 
 - The `mutation-test-loop` agent skill ships with `@mizchi/mutator`, and `mutator init-skill [--dir <dir>] [--force]` copies it into the project (default `.claude/skills`). It refuses to overwrite an edited copy unless `--force` (#12).
 - The child-process warning lists one line per test file, with the number of its spawning tests and the project files they run, instead of every command (#10).
+- Jest runner: a mutant whose failing tests span several test files is now `Killed` with its killing test recorded, instead of `RuntimeError` with none. Jest's `--bail` exited before writing its JSON report; each finished test file is now recorded as it completes. A test file that fails to load is still a `RuntimeError` (#13).
 
 ## 0.1.0 - 2026-10-16
 

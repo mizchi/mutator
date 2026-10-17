@@ -11,6 +11,8 @@ const own = (name: string) => fileURLToPath(new URL(import.meta.url.endsWith('.t
 const TRANSFORMER = own('transformer.cjs');
 export const SETUP_FILE = own('setup.cjs');
 const HOOKS_FILE = own('hooks.cjs');
+/** Reporter recording each finished test file, so results outlive Jest's --bail exit. */
+export const PARTIAL_REPORTER = own('reporter.cjs');
 
 /** Jest's own default pattern for JavaScript / TypeScript. */
 const SOURCE_PATTERN = '\\.[cm]?[jt]sx?$';

@@ -8,7 +8,7 @@
 - A mutant run that runs out of time is re-run once with 3x the budget before it is reported as `Timeout`, so a machine that is busier than during the dry run no longer turns slow kills and survivors into timeouts (or drops them from `--kill-matrix`). Runs stopped by the hit limit are not re-run. The summary reports how many runs were re-run (#14).
 - A GitHub Action (`uses: mizchi/mutator@v0`) runs mutator on the pull request's diff and keeps `.mutator/` in the Actions cache (#11).
 - A changed test file that the runner's config excludes on purpose (Vitest `exclude`) is no longer reported as not collected (#10).
-- Playwright runner (experimental): `--runner playwright` mutates browser code that Playwright Test drives through a Vite dev server, with `@mizchi/mutator-playwright` (a Vite plugin and a test fixture) (#15).
+- Playwright runner (experimental): `--runner playwright` mutates browser code that Playwright Test drives through a Vite dev server, with `@mizchi/mutator-playwright` (a Vite plugin and a test fixture). Playwright's artifacts go to mutator's temporary directory, not the project (#15).
 
 ## 0.1.0 - 2026-10-16
 

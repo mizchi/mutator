@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Mutant, Session } from '@mizchi/mutator-core';
@@ -8,6 +8,7 @@ import { createPlaywrightSession } from '../src/session.ts';
 const fixture = fileURLToPath(new URL('./fixtures/app', import.meta.url));
 // Inside this package, so the copy resolves @playwright/test, vite and this package itself.
 const tmpRoot = fileURLToPath(new URL('../.tmp', import.meta.url));
+const packageDir = fileURLToPath(new URL('..', import.meta.url));
 
 describe('playwright session', { timeout: 120_000 }, () => {
   let root: string;
@@ -93,6 +94,8 @@ describe('playwright session cleanup', { timeout: 120_000 }, () => {
       await session.close();
       await expect(fetch(`http://localhost:${port}/`)).rejects.toThrow();
       expect(readdirSync(root).filter((f) => f.includes('mutator'))).toEqual([]);
+      // Playwright's output (test-results/, next to the nearest package.json) goes to mutator's own directory.
+      expect(existsSync(join(packageDir, 'test-results'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

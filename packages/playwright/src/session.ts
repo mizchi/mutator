@@ -158,7 +158,8 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     await serve();
     const outputFile = join(dir, `report-${runs++}.json`);
     const started = performance.now();
-    const child = spawn(process.execPath, [cli, 'test', '--config', wrapper, '--reporter=json', '--retries=0', ...args], {
+    // --output: Playwright's artifacts (by default test-results/ next to the project's package.json) stay out of the project.
+    const child = spawn(process.execPath, [cli, 'test', '--config', wrapper, '--reporter=json', '--retries=0', '--output', join(dir, 'results'), ...args], {
       cwd: root,
       detached: true,
       stdio: ['ignore', 'ignore', 'pipe'],

@@ -93,7 +93,7 @@ describe('child processes', () => {
     childProcessTests: [
       { test: 'test/cli.test.ts#runs', command: 'node src/cli.js', entries: ['src/cli.js'] },
       { test: 'test/cli.test.ts#runs', command: 'node src/cli.js --help', entries: ['src/cli.js'] },
-      { test: 'test/cli.test.ts#fails', command: 'node src/cli.js x', entries: ['src/cli.js'] },
+      { test: 'test/cli.test.ts#fails', command: 'node lib/util.js', entries: ['lib/util.js'] },
       { test: 'test/tool.test.ts#tool', command: 'node bin/tool.js', entries: ['bin/tool.js', 'data/a.txt'] },
     ],
     childProcessMutants: ['k0', 'k1'],
@@ -102,7 +102,7 @@ describe('child processes', () => {
   test('warns once per spawning test file with what it runs, and lists their undetected mutants apart', () => {
     const text = formatSummary(report, '/p');
     expect(text).toContain(
-      'warning: these tests run code in a child process; mutator cannot observe mutants there:\n  test/cli.test.ts (2 tests)  src/cli.js\n  test/tool.test.ts (1 test)  bin/tool.js, data/a.txt\n',
+      'warning: these tests run code in a child process; mutator cannot observe mutants there:\n  test/cli.test.ts (2 tests)  lib/util.js, src/cli.js\n  test/tool.test.ts (1 test)  bin/tool.js, data/a.txt\n',
     );
     expect(text).toMatch(/\nnot reached - no test runs it:\n  src\/a\.ts:3:1 [^\n]*\n\npossibly reached in a child process - no in-process test detects it:\n  src\/a\.ts:1:1 [^\n]*\n  src\/a\.ts:2:1 /);
     expect(text).not.toMatch(/not detected/);

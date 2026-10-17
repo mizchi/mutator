@@ -114,10 +114,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
     },
 
     excludesTestFile(file) {
-      return vitest.projects.some((project) => {
-        const rel = relative(project.config.root, file);
-        return !rel.startsWith('..') && project.config.exclude.some((pattern) => matchesGlob(rel, pattern));
-      });
+      return vitest.projects.some((project) => project.config.exclude.some((pattern) => matchesGlob(relative(project.config.root, file), pattern)));
     },
 
     async dryRun(files) {

@@ -48,6 +48,15 @@ describe('runMutation with Jest (ESM)', { timeout: 120_000 }, () => {
     expect(byStatus(second)).toEqual(statuses);
   });
 
+  test('with --since, a changed test file Jest does not collect is reported', async () => {
+    writeFileSync(join(root, 'jest.config.js'), "export default { testEnvironment: 'node', transform: {}, testMatch: ['**/__tests__/**/*.test.js'] };\n");
+    git(root, 'commit', '-qam', 'only __tests__');
+    mkdirSync(join(root, 'test'));
+    writeFileSync(join(root, 'test/extra.test.js'), "test('x', () => {});\n");
+    const report = await runMutation({ root, runner: 'jest', since: 'HEAD' });
+    expect(report.uncollectedTests).toEqual(['test/extra.test.js']);
+  });
+
   test('plugin modules reach the Jest transformer', async () => {
     writeFileSync(
       join(root, 'plugin.js'),

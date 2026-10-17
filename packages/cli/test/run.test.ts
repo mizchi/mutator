@@ -41,6 +41,8 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(statuses.NoCoverage).toContain('x * 3 -> x / 3');
     expect(report.executed).toBe(report.entries.filter((e) => e.source === 'run').length);
     expect(report.score).toBeGreaterThan(0);
+    // Nothing ran out of time, so nothing was re-run.
+    expect(report.timeoutRetries).toBeUndefined();
   });
 
   test('parallel execution gives the same verdicts as sequential', async () => {

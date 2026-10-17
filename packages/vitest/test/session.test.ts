@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { type Session, createSession } from '../src/session.ts';
@@ -175,13 +176,14 @@ describe('edge cases', () => {
 
   test('hitting the hit limit is a timeout', async () => {
     const result = await session.runMutant(find('spin.ts', 'i--', 'i++').key, ['test/spin.test.ts#countdown'], { timeoutMs: 10_000, hitLimit: 1000 });
-    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit' });
+    // No test failed on its own: a timeout names no killing test.
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] });
   });
 
   test('verdicts after a timeout are not affected by the stuck run', async () => {
     const spin = find('spin.ts', 'i--', 'i++').key;
     const timedOut = await session.runMutant(spin, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
-    expect(timedOut).toMatchObject({ status: 'Timeout', timeoutCause: 'time' });
+    expect(timedOut).toMatchObject({ status: 'Timeout', timeoutCause: 'time', killedBy: [] });
     const boundary = find('sign.ts', 'x > 0', 'x >= 0').key;
     const survived = await session.runMutant(boundary, dry.coverage.get(boundary)!, { timeoutMs: 10_000 });
     expect(survived.status).toBe('Survived');
@@ -254,3 +256,20 @@ describe('process hygiene', () => {
   });
 });
 
+describe('excludesTestFile', () => {
+  const projects = fileURLToPath(new URL('./fixtures/projects', import.meta.url));
+  let session: Session;
+  beforeAll(async () => {
+    session = await createSession({ root: projects, include: () => false });
+  });
+  afterAll(async () => {
+    await session.close();
+  });
+
+  test('a file one project excludes on purpose is excluded, judged against that project root', async () => {
+    expect((await session.testFiles()).map((f) => f.slice(projects.length + 1))).toEqual(['a/ok.test.ts', 'b/ok.test.ts']);
+    expect(session.excludesTestFile!(join(projects, 'a/skipped/x.test.ts'))).toBe(true);
+    // Not collected by b (outside its include), but b does not exclude it, and a's `**/skipped/**` does not reach outside a.
+    expect(session.excludesTestFile!(join(projects, 'b/skipped/x.test.ts'))).toBe(false);
+  });
+});

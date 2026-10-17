@@ -69,6 +69,7 @@ describe('a mutant run slowed down once', { timeout: 120_000 }, () => {
   });
   afterEach(() => {
     delete process.env.MUTATOR_SLOW_ONCE;
+    delete process.env.MUTATOR_SLOW_ALWAYS;
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -82,5 +83,14 @@ describe('a mutant run slowed down once', { timeout: 120_000 }, () => {
     expect(report.entries.filter((e) => e.status === 'Timeout')).toEqual([]);
     expect(report.timeoutRetries).toEqual({ retried: 1, confirmed: 0 });
     expect(formatSummary(report, root)).toContain('timeouts re-run with a longer budget: 1 (0 timed out again)');
+  });
+
+  test('a run that times out again is a Timeout, counted as confirmed', async () => {
+    process.env.MUTATOR_SLOW_ALWAYS = '1';
+    const report = await runMutation({ root, concurrency: 1, timeoutFactor: 1, timeoutMs: 1000, typecheck: false });
+    const run = report.entries.filter((e) => e.source === 'run');
+    expect(run.length).toBeGreaterThan(0);
+    expect(run.every((e) => e.status === 'Timeout')).toBe(true);
+    expect(report.timeoutRetries).toEqual({ retried: run.length, confirmed: run.length });
   });
 });

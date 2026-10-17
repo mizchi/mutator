@@ -28,9 +28,11 @@ const USAGE = `usage: mutator [options]
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
   --include <glob>     sources to mutate, repeatable (default: src/**/*.{ts,tsx,js,...})
   --exclude <glob>     sources to skip, repeatable
-  --runner <name>      vitest, jest (experimental, native ESM only) or auto (default)
+  --runner <name>      vitest, jest (experimental, native ESM only), playwright (experimental,
+                       browser code served by Vite) or auto (default)
   --config <file>      test runner config file (vitest or jest)
   --jest-config <file>  jest config file (implies --runner jest)
+  --playwright-config <file>  playwright config file (implies --runner playwright)
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)

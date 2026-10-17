@@ -132,7 +132,7 @@ describe('runner options', () => {
   });
 
   test('an unknown runner is a ConfigError', async () => {
-    await expect(resolve(project(), '--runner', 'mocha')).rejects.toThrow('--runner must be one of "vitest", "jest", "auto"');
+    await expect(resolve(project(), '--runner', 'mocha')).rejects.toThrow('--runner must be one of "vitest", "jest", "playwright", "auto"');
   });
 });
 
@@ -187,6 +187,13 @@ describe('runner config files', () => {
     const root = project();
     const options = await resolve(root, '--config', 'vitest.unit.ts', '--jest-config', 'jest.unit.mjs');
     expect(options.run).toMatchObject({ configFile: `${root}/vitest.unit.ts`, jestConfigFile: `${root}/jest.unit.mjs` });
+  });
+
+  test('--playwright-config (or playwrightConfig) is the playwright config', async () => {
+    const root = project({ playwrightConfig: 'e2e/playwright.config.ts' });
+    expect((await resolve(root)).run).toMatchObject({ playwrightConfigFile: `${root}/e2e/playwright.config.ts` });
+    expect((await resolve(root, '--playwright-config', 'pw.config.ts')).run).toMatchObject({ playwrightConfigFile: `${root}/pw.config.ts` });
+    expect((await resolve(root, '--runner', 'playwright')).run.runner).toBe('playwright');
   });
 });
 

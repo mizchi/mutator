@@ -22,12 +22,14 @@ export interface MutatorConfig {
   since?: string;
   scope?: 'node' | 'scope';
   concurrency?: number;
-  /** Test runner (default 'auto': vitest or jest, from the project's config files / dependencies). */
-  runner?: 'vitest' | 'jest' | 'auto';
+  /** Test runner (default 'auto': vitest, jest or playwright, from the project's config files / dependencies). */
+  runner?: 'vitest' | 'jest' | 'playwright' | 'auto';
   /** Vitest config file, relative to the project root. */
   vitestConfig?: string;
   /** Jest config file, relative to the project root (experimental Jest support). */
   jestConfig?: string;
+  /** Playwright config file, relative to the root. */
+  playwrightConfig?: string;
   arid?: boolean | { callees?: string[] };
   experimentalCallgraph?: boolean;
   fullDryRun?: boolean;
@@ -89,9 +91,10 @@ const properties = {
   since: { description: 'Git ref: only run mutants inside `git diff <since>`.', type: 'string' },
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
-  runner: { description: 'Test runner; auto picks vitest or jest from config files and installed packages.', enum: ['vitest', 'jest', 'auto'] },
+  runner: { description: 'Test runner; auto picks vitest, jest or playwright from config files and installed packages.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },
   jestConfig: { description: 'Jest config file, relative to the root (experimental, native ESM only).', type: 'string' },
+  playwrightConfig: { description: 'Playwright config file, relative to the root (experimental: browser code served by a Vite dev server).', type: 'string' },
   arid: {
     description: 'Arid (logging-only) code suppression: false runs those mutants too; callees replaces the logging call patterns.',
     anyOf: [{ type: 'boolean' }, { type: 'object', additionalProperties: false, properties: { callees: strings('Logging call patterns, e.g. "metrics.*".') } }],

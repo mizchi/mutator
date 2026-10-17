@@ -16,6 +16,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Playwright adapter's tests drive Chromium.
+      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
       - run: pnpm exec tsc -p .
       - run: pnpm exec vitest run
       - run: ./scripts/pack-smoke.sh

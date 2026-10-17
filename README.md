@@ -1,6 +1,6 @@
 # mutator
 
-Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest (and, experimentally, Jest in native ESM mode).
+Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest (and, experimentally, Jest in native ESM mode, and browser code driven by Playwright Test through a Vite dev server).
 
 - **oxc-based instrumentation** – all mutants are compiled into the source once (mutation switching) by a pure function; formatting is preserved and a sourcemap is emitted.
 - **In-memory** – sources are instrumented by a Vite `transform` hook inside Vitest; no sandbox copy of the project.
@@ -25,7 +25,7 @@ npx mutator --since main   # PR mode
 npx mutator --root <dir>   # another project directory
 ```
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -164,7 +164,7 @@ export default defineConfig({
   exclude: ['src/generated/**'],
   scope: 'node',                          // 'node' | 'scope'
   concurrency: 4,
-  runner: 'auto',                         // 'vitest' | 'jest' | 'auto'
+  runner: 'auto',                         // 'vitest' | 'jest' | 'playwright' | 'auto'
   vitestConfig: 'vitest.config.ts',
   arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
   experimentalCallgraph: false,
@@ -272,6 +272,41 @@ The same pass drops mutants the types prove equivalent, on both backends: `a?.b`
 - No dependency tracking of test helpers: editing a helper a test file imports does not re-collect that file's coverage; use `--full-dry-run` after such edits.
 - Not supported: Jest `projects`, `test.concurrent` (hits are attributed to whichever test runs), retried tests, JS config files that contain functions (the config is re-serialized as JSON), `.tsx` without a project transformer, Jest's own coverage while mutating.
 
+## Playwright (experimental)
+
+`--runner playwright` mutates browser code that Playwright Test drives end to end, for an app served by a Vite dev server. Mutants are compiled into the served modules once (mutation switching), and the page decides which one is active, so one dev server serves every mutant.
+
+Setup, in the app:
+
+```ts
+// vite.config.ts: does nothing unless mutator starts the dev server
+import { mutatorVite } from '@mizchi/mutator-playwright/vite';
+export default defineConfig({ plugins: [mutatorVite()] });
+```
+
+```ts
+// in the tests: instead of '@playwright/test' (or `base.extend(mutatorFixtures)`)
+import { expect, test } from '@mizchi/mutator-playwright';
+```
+
+```sh
+pnpm add -D @mizchi/mutator @mizchi/mutator-playwright
+npx mutator --runner playwright --include 'src/**/*.ts'
+```
+
+An app with a `vite.config.*` makes `auto` pick Vitest, so pass `--runner playwright` (or set `runner` / `playwrightConfig` in the config file).
+
+**How it works**
+
+- mutator starts the config's `webServer` itself, once per run, with the instrumentation enabled, and runs Playwright through a generated config (next to the project's, removed afterwards) that extends the project's without its `webServer`. Nothing must already listen on the server's url.
+- The fixture adds an init script to each test's browser context: it activates the mutant and, in the dry run, records which mutants the test reaches. What a page records survives same-origin navigations (through `sessionStorage`), and every page and frame of the context is read when the test ends.
+- Every test file is treated as depending on every mutated file, since the browser loads the sources, not the tests.
+- Each dry run and mutant run is a `playwright test` process with one worker, `--retries=0`, and `--max-failures=1` unless `--kill-matrix`. Tests are selected by `file:line` and, with several projects, `--project` (test ids then start with `[project]`).
+- In mutant runs an `expect` waits at most three times as long as the slowest selected test took in the dry run (at least 2 s, never longer than the config's): a mutant that breaks the page would otherwise cost the full expect timeout per assertion.
+- Weak mutation, `--since`, result reuse, `-j`, `--kill-matrix` and `--typecheck` work as with Vitest. On the fixture app a mutant run takes about 2–3 s, most of it starting Playwright and the browser.
+
+**Not supported (yet)**: dev servers other than Vite, a server not started through `webServer`, Node-side code run by the tests (API tests, component testing), coverage of pages closed before the test ends, and plugin objects (plugin modules reach the dev server; plugin objects cannot).
+
 ## CI (pull requests)
 
 The action in this repository runs mutator on the pull request's diff and keeps `.mutator/` in the GitHub Actions cache, so a pull request only runs the mutants its diff can affect:
@@ -350,6 +385,7 @@ The two timeouts are derived from the dry run, so a machine that is busier durin
 | `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
 | `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
+| `@mizchi/mutator-playwright` | Playwright session (experimental): Vite plugin for the dev server, test fixture for the page, one Playwright process per run. |
 | `@mizchi/mutator-typecheck` | type-checks mutants with the project's own TypeScript (compiler API for 6, native API for 7) so that ill-typed ones are reported as `CompileError`, and those the types prove equivalent as `Ignored`, without running. |
 | `@mizchi/mutator` | CLI / orchestration: git, snapshot, report. |
 

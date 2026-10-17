@@ -1,23 +1,30 @@
 // Test-runner selection and session creation. Adapters are imported lazily so a
-// Vitest project never loads the Jest adapter (and vice versa).
+// Vitest project never loads the Jest or Playwright adapter (and so on).
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { InstrumentOptions, Session } from '@mizchi/mutator-core';
 
-export type Runner = 'vitest' | 'jest';
+export type Runner = 'vitest' | 'jest' | 'playwright';
 
 const EXTENSIONS = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'];
 const VITEST_CONFIGS = ['vitest', 'vite'].flatMap((name) => EXTENSIONS.map((ext) => `${name}.config.${ext}`));
 const JEST_CONFIGS = [...EXTENSIONS, 'json'].map((ext) => `jest.config.${ext}`);
+const PLAYWRIGHT_CONFIGS = EXTENSIONS.map((ext) => `playwright.config.${ext}`);
 
-/** vitest / jest config files in the root decide; otherwise whichever runner resolves from the root. */
+/**
+ * Config files in the root decide, vitest (or vite) first, then jest, then playwright; otherwise
+ * whichever runner resolves from the root. An app with a vite.config and Playwright tests
+ * therefore needs `--runner playwright`.
+ */
 export function detectRunner(root: string): Runner {
   if (VITEST_CONFIGS.some((f) => existsSync(join(root, f)))) return 'vitest';
   if (JEST_CONFIGS.some((f) => existsSync(join(root, f))) || hasJestField(root)) return 'jest';
+  if (PLAYWRIGHT_CONFIGS.some((f) => existsSync(join(root, f)))) return 'playwright';
   if (resolves(root, 'vitest/package.json')) return 'vitest';
   if (resolves(root, 'jest/package.json')) return 'jest';
-  throw new Error(`no test runner found: neither vitest nor jest resolves from ${root}`);
+  if (resolves(root, '@playwright/test/package.json')) return 'playwright';
+  throw new Error(`no test runner found: none of vitest, jest or @playwright/test resolves from ${root}`);
 }
 
 function hasJestField(root: string): boolean {
@@ -62,7 +69,17 @@ export async function createRunnerSession(runner: Runner, options: RunnerSession
       ...(maxWorkers ? { maxWorkers } : {}),
     });
   }
-  if (hasPluginObjects) throw new Error('jest: plugins must be modules (paths or package names); plugin objects cannot reach the Jest processes');
+  if (hasPluginObjects) throw new Error(`${runner}: plugins must be modules (paths or package names); plugin objects cannot reach the ${runner === 'jest' ? 'Jest processes' : 'dev server'}`);
+  if (runner === 'playwright') {
+    const { createPlaywrightSession } = await import('@mizchi/mutator-playwright/session');
+    return createPlaywrightSession({
+      root,
+      targets: [...targets],
+      ...instrument,
+      ...(pluginModules.length ? { pluginModules } : {}),
+      ...(configFile ? { configFile } : {}),
+    });
+  }
   const { createJestSession } = await import('@mizchi/mutator-jest');
   return createJestSession({
     root,

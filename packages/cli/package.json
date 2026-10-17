@@ -37,6 +37,7 @@
   "dependencies": {
     "@mizchi/mutator-core": "workspace:*",
     "@mizchi/mutator-jest": "workspace:*",
+    "@mizchi/mutator-playwright": "workspace:*",
     "@mizchi/mutator-typecheck": "workspace:*",
     "@mizchi/mutator-vitest": "workspace:*"
   },

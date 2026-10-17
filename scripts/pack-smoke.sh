@@ -8,7 +8,7 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/pack" "$work/app"
 # The packages are versioned in lockstep.
 version=$(node -p "require('$repo/packages/cli/package.json').version")
-for p in core vitest jest typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
+for p in core vitest jest playwright typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
 cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test,vitest.config.ts} "$work/app/"
 cat > "$work/app/package.json" <<JSON
 {
@@ -28,6 +28,7 @@ overrides:
   "@mizchi/mutator-vitest": "file:$work/pack/mizchi-mutator-vitest-$version.tgz"
   "@mizchi/mutator-typecheck": "file:$work/pack/mizchi-mutator-typecheck-$version.tgz"
   "@mizchi/mutator-jest": "file:$work/pack/mizchi-mutator-jest-$version.tgz"
+  "@mizchi/mutator-playwright": "file:$work/pack/mizchi-mutator-playwright-$version.tgz"
 YAML
 cd "$work/app"
 pnpm install --prefer-offline >/dev/null
@@ -61,4 +62,28 @@ cd "$work/jest-app"
 pnpm install --prefer-offline >/dev/null
 ./node_modules/.bin/mutator -j 2 | tee "$work/jest-out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/jest-out.txt"
+
+# Playwright (E2E through a Vite dev server): the fixture, the Vite plugin and the session from the tarballs
+mkdir -p "$work/pw-app"
+cp -r "$repo/packages/playwright/test/fixtures/app/"{src,tests,index.html,other.html,vite.config.ts,playwright.config.ts} "$work/pw-app/"
+pw=$(node -p "require('$repo/packages/playwright/package.json').devDependencies['@playwright/test']")
+vite=$(node -p "require('$repo/packages/playwright/package.json').devDependencies.vite")
+cat > "$work/pw-app/package.json" <<JSON
+{
+  "name": "pack-smoke-playwright",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
+    "@mizchi/mutator-playwright": "file:$work/pack/mizchi-mutator-playwright-$version.tgz",
+    "@playwright/test": "$pw",
+    "vite": "$vite"
+  }
+}
+JSON
+cp "$work/jest-app/pnpm-workspace.yaml" "$work/pw-app/"
+cd "$work/pw-app"
+pnpm install --prefer-offline >/dev/null
+MUTATOR_TEST_PORT=5391 ./node_modules/.bin/mutator --runner playwright -j 2 | tee "$work/pw-out.txt"
+grep -q 'n >= 10 -> n > 10' "$work/pw-out.txt"
 echo "pack-smoke: ok"

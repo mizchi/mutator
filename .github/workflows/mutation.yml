@@ -19,6 +19,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The Playwright adapter's tests drive Chromium.
+      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
       - uses: ./
         with:
           # The CLI from source: this repository does not depend on the published package.

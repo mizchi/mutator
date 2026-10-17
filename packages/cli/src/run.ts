@@ -60,6 +60,8 @@ export interface RunOptions {
   configFile?: string;
   /** Jest config file. */
   jestConfigFile?: string;
+  /** Playwright config file. */
+  playwrightConfigFile?: string;
   timeoutFactor?: number;
   timeoutMs?: number;
   /**
@@ -395,8 +397,16 @@ async function resolveSetup(root: string, options: RunOptions, log: (message: st
   };
   // An explicit runner config picks the runner; otherwise detect it from the project.
   const runner =
-    options.runner && options.runner !== 'auto' ? options.runner : options.jestConfigFile ? 'jest' : options.configFile ? 'vitest' : detectRunner(root);
-  const configFile = runner === 'jest' ? options.jestConfigFile : options.configFile;
+    options.runner && options.runner !== 'auto'
+      ? options.runner
+      : options.jestConfigFile
+        ? 'jest'
+        : options.playwrightConfigFile
+          ? 'playwright'
+          : options.configFile
+            ? 'vitest'
+            : detectRunner(root);
+  const configFile = { vitest: options.configFile, jest: options.jestConfigFile, playwright: options.playwrightConfigFile }[runner];
   log(`runner: ${runner}`);
   const sessionOptions: RunnerSessionOptions = {
     root,

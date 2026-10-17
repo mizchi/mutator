@@ -30,6 +30,11 @@ describe('detectRunner', () => {
   });
 
 
+  test('a playwright config selects playwright, unless a vitest or jest config is there too', () => {
+    expect(detectRunner(project({ 'playwright.config.ts': '' }))).toBe('playwright');
+    expect(detectRunner(project({ 'playwright.config.ts': '', 'vitest.config.ts': '' }))).toBe('vitest');
+  });
+
   test('without configs, the resolvable runner is used', () => {
     expect(detectRunner(project({}))).toBe('vitest');
   });

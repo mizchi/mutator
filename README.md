@@ -55,6 +55,17 @@ See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本
 
 `--reporter agent` prints JSON on stdout (logs go to stderr): one record per undetected mutant in scope, with its gap, the enclosing function's source, the covering tests and the kind of fix it needs. `--only <key>` (repeatable) runs and reports just those mutants and reuses the cache for the rest, so re-checking a survivor after adding a test takes about a second. The [`mutation-test-loop`](.claude/skills/mutation-test-loop/SKILL.md) skill runs the loop with Claude Code: find the gaps with `--since`, write a test per gap, re-check with `--only`, and accept the mutants no input can observe.
 
+#### Installing the skill
+
+The skill ships with `@mizchi/mutator`. Copy it into your project:
+
+```sh
+npx mutator init-skill                # writes .claude/skills/mutation-test-loop/SKILL.md
+npx mutator init-skill --dir <dir>    # writes <dir>/mutation-test-loop/SKILL.md
+```
+
+Running it again is a no-op when the copy is up to date. It refuses to overwrite a copy that differs from the shipped one (edited locally, or installed by an older mutator) unless you pass `--force`; after upgrading mutator, rerun with `--force` to pick up the new version.
+
 ### Code that may be unnecessary
 
 `--reporter simplify` prints a second text report on stdout: code whose removal no test observes. It lists the covered survivors (not `NoCoverage`) of the mutants that remove code rather than change a value, grouped by the enclosing function, with the removed code:

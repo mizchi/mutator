@@ -145,6 +145,16 @@ export function parseSelectCli(argv: string[]) {
   return { format: format as (typeof SELECT_FORMATS)[number], values: values as CliValues };
 }
 
+/** `mutator init-skill [--dir <dir>] [--force]`. */
+export function parseInitSkillCli(argv: string[]) {
+  try {
+    const { values } = parseArgs({ args: argv, options: { dir: { type: 'string' }, force: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+    return values;
+  } catch (error) {
+    throw new ConfigError(`init-skill: ${(error as Error).message}`);
+  }
+}
+
 export async function resolveOptions(argv: string[], cwd: string): Promise<ResolvedOptions> {
   return resolveValues(parseCli(argv), cwd);
 }

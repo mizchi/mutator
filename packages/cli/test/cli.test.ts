@@ -15,6 +15,7 @@ test('--help documents config files and exit codes', () => {
   expect(stdout).toContain('--threshold-break <n>');
   expect(stdout).toContain('simplify (code no test observes the removal of');
   expect(stdout).toContain('mutator select-tests --since <ref> [--format files|json]');
+  expect(stdout).toContain('mutator init-skill [--dir <dir>] [--force]');
   expect(stdout).toMatch(/exit codes:\s+0 [^\n]+\n\s+1 [^\n]+\n\s+2 [^\n]+\n\s+4 /);
 });
 

@@ -28,6 +28,7 @@
   "files": [
     "dist",
     "schema",
+    "skills",
     "src"
   ],
   "engines": {

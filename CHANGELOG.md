@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The `mutation-test-loop` agent skill ships with `@mizchi/mutator`, and `mutator init-skill [--dir <dir>] [--force]` copies it into the project (default `.claude/skills`). It refuses to overwrite an edited copy unless `--force` (#12).
+
 ## 0.1.0 - 2026-10-16
 
 First release.

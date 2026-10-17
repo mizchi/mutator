@@ -34,6 +34,12 @@ pnpm install --prefer-offline >/dev/null
 ./node_modules/.bin/mutator -j 1 | tee "$work/out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/out.txt"
 
+# The agent skill ships in the CLI tarball and init-skill installs it.
+tar -tzf "$work/pack/mizchi-mutator-$version.tgz" | grep -qx 'package/skills/mutation-test-loop/SKILL.md'
+./node_modules/.bin/mutator init-skill
+cmp -s .claude/skills/mutation-test-loop/SKILL.md "$repo/packages/cli/skills/mutation-test-loop/SKILL.md"
+./node_modules/.bin/mutator init-skill | grep -q 'is up to date'
+
 # Jest (native ESM) project
 mkdir -p "$work/jest-app"
 cp -r "$repo/packages/jest/test/fixtures/esm/"{src,__tests__,jest.config.js} "$work/jest-app/"

@@ -48,7 +48,8 @@ describe('process runner', { timeout: 60_000 }, () => {
       await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
       const pid = Number(readFileSync(marker, 'utf8'));
       expect(pid).toBeGreaterThan(0);
-      expect(() => process.kill(pid, 0)).toThrow();
+      // A killed process answers signal 0 until it is reaped, which a busy machine may delay.
+      await expect.poll(() => { try { process.kill(pid, 0); return 'alive'; } catch { return 'gone'; } }, { timeout: 5000 }).toBe('gone');
     } finally {
       rmSync(marker, { force: true });
     }

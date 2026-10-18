@@ -73,24 +73,24 @@ exit codes:
 try {
   if (process.argv[2] === 'accept') {
     await accept(process.argv.slice(3));
-    process.exit(0);
+    await exit(0);
   }
   if (process.argv[2] === 'select-tests') {
     await selectTestsCommand(process.argv.slice(3));
-    process.exit(0);
+    await exit(0);
   }
   if (process.argv[2] === 'init-skill') {
     initSkillCommand(process.argv.slice(3));
-    process.exit(0);
+    await exit(0);
   }
   const values = parseCli(process.argv.slice(2));
   if (values.help) {
     console.log(USAGE);
-    process.exit(0);
+    await exit(0);
   }
   if (values.version) {
     console.log(VERSION);
-    process.exit(0);
+    await exit(0);
   }
   const options = await resolveValues(values, process.cwd());
   const { root, reporters } = options;
@@ -121,25 +121,40 @@ try {
   }
   if (report.unknownKeys) {
     console.error(`--only: no mutant with key ${report.unknownKeys.join(', ')}`);
-    process.exit(1);
+    await exit(1);
   }
   const failures = qualityGate(report, options);
   for (const failure of failures) console.error(`quality gate failed: ${failure}`);
-  process.exit(failures.length > 0 ? 2 : 0);
+  await exit(failures.length > 0 ? 2 : 0);
 } catch (error) {
   if (error instanceof ConfigError) {
     console.error(`${error.message}\n\nrun \`mutator --help\` for usage`);
-    process.exit(1);
+    await exit(1);
   }
   if (error instanceof SnapshotError) {
     console.error(`select-tests: ${error.message}`);
-    process.exit(1);
+    await exit(1);
   }
   if (error instanceof BaselineError) {
     console.error(error.message);
-    process.exit(4);
+    await exit(4);
   }
   throw error;
+}
+
+/**
+ * process.exit once stdout and stderr are flushed: writes to a pipe are asynchronous, and
+ * exiting drops what is still queued (a large --reporter agent document piped to jq).
+ */
+async function exit(code: number): Promise<never> {
+  const flush = (stream: NodeJS.WriteStream) =>
+    new Promise<void>((done) => {
+      // A reader that went away (EPIPE, as after `grep -q`) needs nothing more.
+      stream.once('error', () => done());
+      stream.write('', () => done());
+    });
+  await Promise.all([flush(process.stdout), flush(process.stderr)]);
+  process.exit(code);
 }
 
 /** `mutator accept <key>... --reason <text>`: records undetected mutants as accepted, with where they are. */

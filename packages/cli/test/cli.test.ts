@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -68,6 +68,38 @@ test('on GitHub Actions, --reporter agent keeps stdout pure JSON (no annotations
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('--reporter agent writes all of a large report to a pipe before exiting', async () => {
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-agent-pipe-${process.pid}`);
+  cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });
+  // Untested functions: hundreds of gaps, each with its source, far beyond a pipe's 64 KB buffer.
+  writeFileSync(join(root, 'src/many.ts'), Array.from({ length: 300 }, (_, i) => `export function f${i}(x: number): number {\n  return x > ${i} ? x + ${i} : x - ${i};\n}\n`).join(''));
+  try {
+    const child = spawn(process.execPath, [cli, '--root', root, '--reporter', 'agent', '--no-typecheck'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    const status = await new Promise<number | null>((done) => child.on('close', done));
+    expect(status).toBe(0);
+    expect(stdout.length).toBeGreaterThan(64 * 1024);
+    expect(JSON.parse(stdout).gaps.filter((g: { file: string }) => g.file === 'src/many.ts').length).toBeGreaterThan(300);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test('a reader that closes the pipe early (grep -q) does not crash the exit', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mutator-cli-epipe-'));
+  try {
+    const command = `${JSON.stringify(process.execPath)} ${JSON.stringify(cli)} init-skill --dir ${JSON.stringify(dir)}`;
+    expect(spawnSync('sh', ['-c', command]).status).toBe(0);
+    for (let i = 0; i < 5; i++) {
+      const { stderr } = spawnSync('sh', ['-c', `${command} | grep -q 'is up to date'`], { encoding: 'utf8' });
+      expect(stderr).not.toContain('EPIPE');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));

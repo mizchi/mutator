@@ -133,7 +133,9 @@ export function plan(input: PlanInput): PlanEntry[] {
   };
 
   const selectTests = (m: Mutant, prev: MutantResult | undefined, isStatic: boolean): string[] => {
-    if (isStatic) return [...(input.staticTests?.get(m.key) ?? tests.map((t) => t.id))];
+    // A static mutant also keeps the tests that reached it while running (code a beforeAll hook
+    // of one file and a test of another both call): either may be the one that kills it.
+    if (isStatic) return [...new Set([...(input.staticTests?.get(m.key) ?? tests.map((t) => t.id)), ...(coverage?.get(m.key) ?? [])])];
     if (coverage) return [...new Set(coverage.get(m.key) ?? [])];
     if (previous) return prev ? prev.coveredBy.filter((t) => testById.has(t)) : [];
     return tests.map((t) => t.id);

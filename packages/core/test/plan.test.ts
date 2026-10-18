@@ -489,6 +489,15 @@ describe('staticTests', () => {
     expect(entry).toMatchObject({ kind: 'run', isStatic: true, tests: ['a#x'] });
   });
 
+  it('a mutant reached while one file loads and by tests of another file runs both', () => {
+    // e.g. code a beforeAll hook of a.test calls, and a test of b.test calls too: b's test may be the killer.
+    const m = mutant('s1');
+    const [t1, t2, t3] = [test('a#x', 5), test('b#y', 50), test('b#z', 50)];
+    const entry = only(plan(input({ mutants: [m], tests: [t1, t2, t3], coverage: cov({ s1: ['b#y'] }), staticKeys: new Set(['s1']), staticTests: new Map([['s1', ['a#x']]]) })));
+    expect(entry).toMatchObject({ kind: 'run', isStatic: true });
+    expect(runTests(entry).sort()).toEqual(['a#x', 'b#y']);
+  });
+
   it('falls back to all tests when unknown', () => {
     const m = mutant('s1');
     const [t1, t2] = [test('a#x'), test('b#y')];

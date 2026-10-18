@@ -42,15 +42,16 @@ describe('process runner', { timeout: 60_000 }, () => {
   });
 
   test('a process a test leaves behind does not outlive the run', async () => {
-    const pidFile = join(root, 'left.pid');
-    process.env.MUTATOR_TEST_LEAVE_PROCESS = pidFile;
+    const marker = join(root, 'leave-process');
+    writeFileSync(marker, '');
     try {
       await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
+      const pid = Number(readFileSync(marker, 'utf8'));
+      expect(pid).toBeGreaterThan(0);
+      expect(() => process.kill(pid, 0)).toThrow();
     } finally {
-      delete process.env.MUTATOR_TEST_LEAVE_PROCESS;
+      rmSync(marker, { force: true });
     }
-    const pid = Number(readFileSync(pidFile, 'utf8'));
-    expect(() => process.kill(pid, 0)).toThrow();
   });
 
   test('a run whose config breaks has no results, and says why on stderr', async () => {

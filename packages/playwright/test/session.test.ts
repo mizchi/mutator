@@ -224,11 +224,11 @@ describe('playwright session failures', { timeout: 120_000 }, () => {
 
   test('a dry run without results fails with what Playwright printed', async () => {
     const session = await createPlaywrightSession({ root, targets: [] });
-    process.env.MUTATOR_TEST_BREAK_DRY_RUN = '1';
+    writeFileSync(join(root, 'break-dry-run'), '');
     try {
       await expect(session.dryRun()).rejects.toThrow(/playwright produced no results[\s\S]*the config broke/);
     } finally {
-      delete process.env.MUTATOR_TEST_BREAK_DRY_RUN;
+      rmSync(join(root, 'break-dry-run'));
       await session.close();
     }
   });

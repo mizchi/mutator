@@ -35,12 +35,16 @@ pnpm install --prefer-offline >/dev/null
 ./node_modules/.bin/mutator -j 1 | tee "$work/out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/out.txt"
 
-# The agent skill ships in the CLI tarball and init-skill installs it.
+# The agent skills ship in the tarballs (skills-npm layout) and init-skill installs the CLI's.
 # grep without -q reads the whole listing: an early exit would fail tar with SIGPIPE under pipefail.
-tar -tzf "$work/pack/mizchi-mutator-$version.tgz" | grep -x 'package/skills/mutation-test-loop/SKILL.md' >/dev/null
+for skill in mutator/SKILL.md mutator/references/config.md mutation-test-loop/SKILL.md; do
+  tar -tzf "$work/pack/mizchi-mutator-$version.tgz" | grep -x "package/skills/$skill" >/dev/null
+done
+tar -tzf "$work/pack/mizchi-mutator-playwright-$version.tgz" | grep -x 'package/skills/mutator-playwright/SKILL.md' >/dev/null
 ./node_modules/.bin/mutator init-skill
-cmp -s .claude/skills/mutation-test-loop/SKILL.md "$repo/packages/cli/skills/mutation-test-loop/SKILL.md"
-./node_modules/.bin/mutator init-skill | grep -q 'is up to date'
+diff -r .claude/skills/mutator "$repo/packages/cli/skills/mutator"
+diff -r .claude/skills/mutation-test-loop "$repo/packages/cli/skills/mutation-test-loop"
+./node_modules/.bin/mutator init-skill | grep -q 'mutator is up to date'
 
 # Jest (native ESM) project
 mkdir -p "$work/jest-app"

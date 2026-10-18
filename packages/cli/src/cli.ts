@@ -6,7 +6,7 @@ import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { criticalMutants } from './critical.ts';
 import { qualityGate } from './gate.ts';
-import { DEFAULT_SKILL_DIR, SKILL_NAME, initSkill } from './init-skill.ts';
+import { DEFAULT_SKILL_DIR, initSkills, shippedSkills } from './init-skill.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveValues } from './options.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
@@ -20,9 +20,9 @@ const USAGE = `usage: mutator [options]
        mutator select-tests --since <ref> [--format files|json]   rank the tests a change can break,
                        from the last run's snapshot without running anything: killers of mutants in
                        the changed functions, other tests covering them, then changed test files
-       mutator init-skill [--dir <dir>] [--force]   copy the ${SKILL_NAME} agent skill into
-                       <dir>/${SKILL_NAME}/SKILL.md (default dir: ${DEFAULT_SKILL_DIR}); --force
-                       overwrites a copy that differs from the shipped one
+       mutator init-skill [--dir <dir>] [--force]   copy the agent skills shipped with mutator
+                       (${shippedSkills().join(', ')}) into <dir>/<skill>/ (default dir:
+                       ${DEFAULT_SKILL_DIR}); --force overwrites copies that differ from the shipped ones
 
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
@@ -191,13 +191,14 @@ async function selectTestsCommand(argv: string[]): Promise<void> {
   console.error(`select-tests: ${count(selection.killers.length, 'killer')}, ${count(selection.covering.length, 'other covering test')}, ${count(selection.changedTests.length, 'changed test file')} -> ${count(files.length, 'test file')}`);
 }
 
-/** `mutator init-skill [--dir <dir>] [--force]`: copies the shipped agent skill into the project. */
+/** `mutator init-skill [--dir <dir>] [--force]`: copies the shipped agent skills into the project. */
 function initSkillCommand(argv: string[]): void {
   const values = parseInitSkillCli(argv);
   if (values.help) {
     console.log(USAGE);
     return;
   }
-  const { path, status } = initSkill(values.dir ?? DEFAULT_SKILL_DIR, values.force ?? false);
-  console.log(status === 'written' ? `wrote ${path}` : `${path} is up to date`);
+  for (const { path, status } of initSkills(values.dir ?? DEFAULT_SKILL_DIR, values.force ?? false)) {
+    console.log(status === 'written' ? `wrote ${path}` : `${path} is up to date`);
+  }
 }

@@ -53,18 +53,32 @@ See [Code coverage and mutation testing](docs/coverage-and-mutation.md) ([日本
 
 ### Closing gaps with a coding agent
 
-`--reporter agent` prints JSON on stdout (logs go to stderr): one record per undetected mutant in scope, with its gap, the enclosing function's source, the covering tests and the kind of fix it needs. `--only <key>` (repeatable) runs and reports just those mutants and reuses the cache for the rest, so re-checking a survivor after adding a test takes about a second. The [`mutation-test-loop`](.claude/skills/mutation-test-loop/SKILL.md) skill runs the loop with Claude Code: find the gaps with `--since`, write a test per gap, re-check with `--only`, and accept the mutants no input can observe.
+`--reporter agent` prints JSON on stdout (logs go to stderr): one record per undetected mutant in scope, with its gap, the enclosing function's source, the covering tests and the kind of fix it needs. `--only <key>` (repeatable) runs and reports just those mutants and reuses the cache for the rest, so re-checking a survivor after adding a test takes about a second. The [`mutation-test-loop`](packages/cli/skills/mutation-test-loop/SKILL.md) skill runs the loop with a coding agent: find the gaps with `--since`, write a test per gap, re-check with `--only`, and accept the mutants no input can observe.
 
-#### Installing the skill
+#### Agent skills
 
-The skill ships with `@mizchi/mutator`. Copy it into your project:
+The packages ship [Agent Skills](https://agentskills.io) under `skills/`, following the [skills-npm](https://github.com/antfu/skills-npm) convention, so they install and update with the package:
+
+| skill | package | for |
+|---|---|---|
+| `mutator` | `@mizchi/mutator` | setting up and running mutator: runners, config, reports, CI ([SKILL.md](packages/cli/skills/mutator/SKILL.md)) |
+| `mutation-test-loop` | `@mizchi/mutator` | closing the gaps of a change: write a test per gap, re-check with `--only`, accept equivalents ([SKILL.md](packages/cli/skills/mutation-test-loop/SKILL.md)) |
+| `mutator-playwright` | `@mizchi/mutator-playwright` | E2E setup with Playwright and Vite, and troubleshooting ([SKILL.md](packages/playwright/skills/mutator-playwright/SKILL.md)) |
+
+With skills-npm (or `npx skills experimental_sync`), they are linked into your agent's skills directory on install:
 
 ```sh
-npx mutator init-skill                # writes .claude/skills/mutation-test-loop/SKILL.md
-npx mutator init-skill --dir <dir>    # writes <dir>/mutation-test-loop/SKILL.md
+npm i -D skills-npm && npx skills-npm setup
 ```
 
-Running it again is a no-op when the copy is up to date. It refuses to overwrite a copy that differs from the shipped one (edited locally, or installed by an older mutator) unless you pass `--force`; after upgrading mutator, rerun with `--force` to pick up the new version.
+Without it, copy the CLI's skills into the project:
+
+```sh
+npx mutator init-skill                # writes .claude/skills/mutator/ and .claude/skills/mutation-test-loop/
+npx mutator init-skill --dir <dir>    # writes <dir>/<skill>/
+```
+
+Running it again is a no-op when the copies are up to date. It refuses to overwrite a copy that differs from the shipped one (edited locally, or installed by an older mutator), writing nothing, unless you pass `--force`; after upgrading mutator, rerun with `--force` to pick up the new version.
 
 ### Code that may be unnecessary
 

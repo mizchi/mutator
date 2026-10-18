@@ -12,6 +12,7 @@
 - Playwright: mutant runs bound `expect` timeouts to at least 1 s (was 2 s), and results come from mutator's own reporter: the fixture app runs in 39.5 s instead of 59.4 s with the same verdicts (#16).
 - The CLI flushes stdout before it exits: a report larger than a pipe's buffer (64 KB), such as `--reporter agent` piped to `jq`, was cut off.
 - Playwright: a `webServer` with neither `url` nor `port` is reported as such (it was taken for a server already answering); Playwright's artifacts stay out of the project even when its config fails to load.
+- Agent skills for using mutator, shipped under `skills/` (skills-npm convention): `mutator` (setup, config, reports, CI) in `@mizchi/mutator` next to `mutation-test-loop`, and `mutator-playwright` in `@mizchi/mutator-playwright`. `mutator init-skill` now copies every skill the CLI ships, with its reference files.
 
 ## 0.1.0 - 2026-10-16
 

@@ -1,0 +1,60 @@
+# CI
+
+## GitHub Action
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - uses: mizchi/mutator@v0
+        with:
+          args: --time-budget 600
+```
+
+| input | default | |
+|---|---|---|
+| `since` | the pull request's base commit | `--since` ref; outside pull requests a full run. Pass `${{ github.event.before }}` on pushes to run only the pushed commits |
+| `args` | | extra arguments, e.g. `--time-budget 600 --fail-on-survived` |
+| `working-directory` | `.` | project root |
+| `cache` | `true` | restore and save `.mutator/` (this ref first, then the base branch) |
+| `command` | `node_modules/.bin/mutator`, else `npx @mizchi/mutator@<version>` | how to run the CLI |
+| `version` | `latest` | version for the `npx` fallback |
+
+- The base commit is fetched when the checkout is shallow.
+- The snapshot is saved even when the run fails the gate: its verdicts stay valid.
+- Runs on the default branch fill the cache that pull requests restore, so a pull request only runs the mutants its diff can affect.
+- On GitHub Actions undetected mutants are also printed as `::warning` annotations on the diff, each with the `mutator accept` command for its key (not with `--reporter agent`, whose stdout stays one JSON document).
+
+## Rolling it out
+
+1. Start with warnings only (no `--fail-on-survived`, no `thresholds.break`) and a `--time-budget`.
+2. Close or accept the gaps the first pull requests show.
+3. Then gate: `--fail-on-survived` on the diff, `thresholds.break` for the score, or `critical` for the code that must be fully tested.
+
+## Without the action
+
+For `pull_request` events only (`github.base_ref` is empty on pushes):
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0
+- uses: actions/cache@v4
+  with:
+    path: .mutator
+    key: mutator-${{ github.base_ref }}-${{ github.sha }}
+    restore-keys: mutator-${{ github.base_ref }}-
+- run: npx mutator --since origin/${{ github.base_ref }} --fail-on-survived
+```
+
+Snapshots store paths relative to the root, so a cache restored in another checkout directory is reused.

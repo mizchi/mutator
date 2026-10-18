@@ -9,6 +9,8 @@ mutator reports each mutant the tests miss, together with where the tests stoppe
 
 ## 0. Setup (once per project)
 
+To set mutator up from scratch (runner, config file, CI), use the `mutator` skill; this one assumes it runs.
+
 - mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
 - If `.mutator/` is not in `.gitignore`, add it. It holds the cache and the reports. `mutator.accepted.json` at the root is meant to be committed.
 
@@ -29,7 +31,7 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
   - `uncollectedTest`: a changed test file is not run, so the gaps it would close are false. Fix the runner config first (include globs, projects, env filters).
   - `skippedTest`: the change adds or edits a skipped or todo test. It checks nothing. Find out why it is skipped. Re-enable it if it passes; otherwise say so to the user rather than deleting it.
   - `childProcessTest`: a test runs the sources in a child process, where mutants are not observed. Gaps with `childProcess: true` may already be covered there: prefer an in-process test of the same behaviour, or leave them.
-- Stop if the run exits 4: the tests fail without any mutant, so fix them first.
+- Exit codes: 4 means the tests fail without any mutant: stop and fix them first. 2 (the project's quality gate: `thresholds.break`, `--fail-on-survived`, critical regions) is expected while gaps remain; the JSON is complete, carry on.
 
 ## 2. Close each gap
 
@@ -52,12 +54,13 @@ Rules for every test you write:
 ```sh
 npx mutator --only <key> --only <key> --reporter agent
 # or every gap of the last run:
-jq -r '.gaps[].key | "--only=" + .' .mutator/agent.json | xargs npx mutator --reporter agent
+npx mutator --reporter agent $(jq -r '.gaps[].key | "--only=" + .' .mutator/agent.json)
 ```
 
 - `--only` runs only the listed mutants and reuses everything else from the cache, so this takes seconds.
 - A mutant that now shows up as `Killed` in `counts` and is gone from `gaps` is done.
-- A key that matches no mutant exits 1 with an `unknownKey` warning. The code changed since the key was taken, so run step 1 again.
+- The score and the quality gate cover only the selected mutants: an exit code 2 here just means some of them are still undetected.
+- A key that matches no mutant gives an `unknownKey` warning (and exit 1). The code changed since the key was taken, so run step 1 again. Read `warnings`, not the exit code, when the command runs through `xargs` or a script that changes exit codes.
 - If it is still listed, the test does not separate the two versions. Look again at the input or the assertion, instead of adding more tests of the same kind.
 
 ## 4. Mutants no test can detect

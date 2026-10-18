@@ -6,7 +6,7 @@
 |---|---|---|
 | Killed | a covering test failed | detected |
 | Timeout | the run ran out of time (re-run once with a longer budget first) or hit the loop guard | detected |
-| RuntimeError | the run broke outside any test (a test file failing to load) | detected |
+| RuntimeError | the run broke outside any test (a test file failing to load, often code a `describe` body runs); re-run once to confirm it | detected |
 | Survived | the covering tests passed | undetected |
 | NoCoverage | no test runs the mutant | undetected |
 | CompileError | the mutant does not type-check; not run | excluded |

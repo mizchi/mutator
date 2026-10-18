@@ -392,6 +392,8 @@ A mutant run that does not finish is reported as `Timeout` (counted as detected)
 
 The two timeouts are derived from the dry run, so a machine that is busier during the mutant runs (CI neighbours, parallel jobs) can push a correct but slow run past them. A run that ran out of time is therefore re-run once with 3x both budgets, and only a second timeout is reported as `Timeout`. A run stopped by the hit limit has proved a loop and is not re-run. The text summary says how many runs were re-run, e.g. `timeouts re-run with a longer budget: 2 (1 timed out again)`.
 
+A `RuntimeError` (the run failed outside any test: a test file that fails to load, an unhandled error) is re-run once with the same budget, and counts only if it fails that way again. Without it, an error that a flaky test file raises under load is credited as a detection of whatever mutant was running. The summary reports these too: `runtime errors re-run to confirm them: 3 (1 failed again)`.
+
 ## Packages
 
 | package | role |

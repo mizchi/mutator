@@ -86,6 +86,13 @@ describe('formatSummary', () => {
   });
 });
 
+describe('runtime errors re-run', () => {
+  test('the summary says how many were re-run and how many failed the same way again', () => {
+    const report: Report = { entries: [entry(0, 'RuntimeError')], executed: 2, dryRunFiles: [], scope: 'all', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 }, runtimeErrorRetries: { retried: 3, confirmed: 1 } };
+    expect(formatSummary(report, '/p')).toContain('runtime errors re-run to confirm them: 3 (1 failed again)');
+  });
+});
+
 describe('no coverage at all', () => {
   test('warns that the setup, not the tests, is likely wrong', () => {
     const report: Report = { entries: [entry(0, 'NoCoverage')], executed: 0, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 }, noCoverage: true };

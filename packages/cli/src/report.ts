@@ -69,6 +69,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
     ...(report.notRun.budget ? [`${report.notRun.budget} over the time budget (--time-budget)`] : []),
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
+  if (report.runtimeErrorRetries) lines.push(`runtime errors re-run to confirm them: ${report.runtimeErrorRetries.retried} (${report.runtimeErrorRetries.confirmed} failed again)`);
   if (report.timeoutRetries) lines.push(`timeouts re-run with a longer budget: ${report.timeoutRetries.retried} (${report.timeoutRetries.confirmed} timed out again)`);
   if (report.noCoverage) lines.push(`warning: ${NO_COVERAGE_MESSAGE}`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);

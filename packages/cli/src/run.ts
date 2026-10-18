@@ -150,6 +150,8 @@ export interface Report {
    * `confirmed`: those that timed out again. Absent when none was re-run.
    */
   timeoutRetries?: TimeoutRetries;
+  /** RuntimeErrors re-run to confirm them; `confirmed`: failed the same way again. */
+  runtimeErrorRetries?: TimeoutRetries;
   /** Mutants that needed a run but were left Pending: sampled out (mutantsPerLine) or over the time budget. */
   notRun: { sampled: number; budget: number };
   /** With --since: changed test files (relative) the runner does not collect. */
@@ -289,7 +291,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     applyTypecheck(tally, jobs, notInfected, typecheck, merged.coverage);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
-    const { executed, timeoutRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
+    const { executed, timeoutRetries, runtimeErrorRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     writeSnapshot(snapshotPath, snapshot, root);
@@ -314,6 +316,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       durationMs: performance.now() - started,
       notRun,
       ...(timeoutRetries.retried ? { timeoutRetries } : {}),
+      ...(runtimeErrorRetries.retried ? { runtimeErrorRetries } : {}),
       ...(options.only ? { selection: 'only' as const } : {}),
       ...(unknownKeys.length ? { unknownKeys } : {}),
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
@@ -550,7 +553,7 @@ interface ExecuteContext {
  * Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many
  * ran, and how many runs timed out and were re-run with a longer budget (`confirmed`: timed out again).
  */
-async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries }> {
+async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries; runtimeErrorRetries: TimeoutRetries }> {
   const { root, log, merged, timeBudget } = ctx;
   const { report, results, notRun } = tally;
   const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
@@ -569,6 +572,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
   const timeoutRetries: TimeoutRetries = { retried: 0, confirmed: 0 };
+  const runtimeErrorRetries: TimeoutRetries = { retried: 0, confirmed: 0 };
   const neverStarted = await runSharded({
     workers: workers.length,
     jobs: sharded,
@@ -585,10 +589,15 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
         ...(ctx.killMatrix ? { earlyExit: false } : {}),
       };
       const { outcome, retried } = await runWithTimeoutRetry((o) => workers[worker]!.runMutant(entry.mutant.key, [...tests], o), options);
-      if (retried) {
+      const where = `${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`;
+      if (retried === 'timeout') {
         timeoutRetries.retried++;
         if (outcome.status === 'Timeout') timeoutRetries.confirmed++;
-        log(`timed out, re-ran with ${RETRY_FACTOR}x the budget: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
+        log(`timed out, re-ran with ${RETRY_FACTOR}x the budget: ${outcome.status} ${where}`);
+      } else if (retried === 'runtimeError') {
+        runtimeErrorRetries.retried++;
+        if (outcome.status === 'RuntimeError') runtimeErrorRetries.confirmed++;
+        log(`runtime error, re-ran to confirm it: ${outcome.status} ${where}`);
       }
       return outcome;
     },
@@ -608,7 +617,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
     skip(tally, index, entry.mutant, report[index]!.coveredBy);
   }
   if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
-  return { executed, timeoutRetries };
+  return { executed, timeoutRetries, runtimeErrorRetries };
 }
 
 /** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */

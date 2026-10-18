@@ -98,6 +98,7 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(report.score).toBeGreaterThan(0);
     // Nothing ran out of time, so nothing was re-run.
     expect(report.timeoutRetries).toBeUndefined();
+    expect(report.runtimeErrorRetries).toBeUndefined();
     // Tests reach the code: no setup warning.
     expect(report.noCoverage).toBeUndefined();
   });

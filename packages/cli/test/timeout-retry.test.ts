@@ -30,7 +30,7 @@ describe('runWithTimeoutRetry', () => {
   test('a wall-clock timeout is re-run once with a longer budget; the second verdict counts', async () => {
     const { calls, run } = recording([result('Timeout', { timeoutCause: 'time' }), result('Killed', { killedBy: ['t'], durationMs: 50 })]);
     const { outcome, retried } = await runWithTimeoutRetry(run, { timeoutMs: 1000, stallMs: 500, hitLimit: 10 });
-    expect(retried).toBe(true);
+    expect(retried).toBe('timeout');
     expect(outcome).toMatchObject({ status: 'Killed', killedBy: ['t'], durationMs: 150 });
     expect(calls).toEqual([
       { timeoutMs: 1000, stallMs: 500, hitLimit: 10 },
@@ -42,9 +42,28 @@ describe('runWithTimeoutRetry', () => {
     const { calls, run } = recording([result('Timeout', { timeoutCause: 'time' }), result('Timeout', { timeoutCause: 'time' })]);
     const { outcome, retried } = await runWithTimeoutRetry(run, { timeoutMs: 1000 });
     expect(outcome.status).toBe('Timeout');
-    expect(retried).toBe(true);
+    expect(retried).toBe('timeout');
     expect(calls).toHaveLength(2);
     expect(calls[1]).toEqual({ timeoutMs: 1000 * RETRY_FACTOR });
+  });
+
+  test('a runtime error is confirmed by a second run with the same budget: an error from elsewhere (a flaky test under load) does not count as a detection', async () => {
+    const { calls, run } = recording([result('RuntimeError'), result('Survived', { durationMs: 50 })]);
+    const { outcome, retried } = await runWithTimeoutRetry(run, { timeoutMs: 1000, stallMs: 500 });
+    expect(retried).toBe('runtimeError');
+    expect(outcome).toMatchObject({ status: 'Survived', durationMs: 150 });
+    expect(calls).toEqual([
+      { timeoutMs: 1000, stallMs: 500 },
+      { timeoutMs: 1000, stallMs: 500 },
+    ]);
+  });
+
+  test('a runtime error twice stays a runtime error', async () => {
+    const { calls, run } = recording([result('RuntimeError', { killedBy: ['a.test.ts'] }), result('RuntimeError', { killedBy: ['a.test.ts'] })]);
+    const { outcome, retried } = await runWithTimeoutRetry(run, { timeoutMs: 1000 });
+    expect(outcome).toMatchObject({ status: 'RuntimeError', killedBy: ['a.test.ts'] });
+    expect(retried).toBe('runtimeError');
+    expect(calls).toHaveLength(2);
   });
 
   test('a run stopped by the hit limit proved a loop and is not retried', async () => {

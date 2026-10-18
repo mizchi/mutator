@@ -37,6 +37,8 @@ export interface RunnerOptions {
   config: string;
   cwd: string;
   runFile: string;
+  /** Playwright's artifacts; also when the config fails to load (it then falls back to test-results/ next to the package.json). */
+  outputDir: string;
 }
 
 export function createProcessRunner(options: RunnerOptions): TestRunner {
@@ -49,6 +51,7 @@ export function createProcessRunner(options: RunnerOptions): TestRunner {
         options.config,
         `--reporter=${REPORTER}`,
         '--retries=0',
+        `--output=${options.outputDir}`,
         ...(request.workers ? [`--workers=${request.workers}`] : []),
         ...(request.maxFailures ? [`--max-failures=${request.maxFailures}`] : []),
         ...request.projects.map((p) => `--project=${p}`),
@@ -79,13 +82,14 @@ export function createProcessRunner(options: RunnerOptions): TestRunner {
 }
 
 function readResults(path: string): RunResults | undefined {
+  let results: RunResults | undefined;
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as RunResults;
+    results = JSON.parse(readFileSync(path, 'utf8')) as RunResults;
   } catch {
-    return undefined;
-  } finally {
-    rmSync(path, { force: true });
+    // The reporter wrote nothing: Playwright broke before the end of the run.
   }
+  rmSync(path, { force: true });
+  return results;
 }
 
 function collect(child: ChildProcess): () => string {

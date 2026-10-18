@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,7 @@ describe('process runner', { timeout: 60_000 }, () => {
     root = join(tmpRoot, `plain-${process.pid}-${Math.random().toString(36).slice(2)}`);
     cpSync(fixture, root, { recursive: true });
     const cli = createRequire(join(root, 'package.json')).resolve('@playwright/test/cli');
-    runner = createProcessRunner({ cli, config: join(root, 'playwright.config.ts'), cwd: root, runFile: join(root, 'run.json') });
+    runner = createProcessRunner({ cli, config: join(root, 'playwright.config.ts'), cwd: root, runFile: join(root, 'run.json'), outputDir: join(root, 'test-results') });
   });
   afterAll(() => {
     rmSync(root, { recursive: true, force: true });
@@ -34,14 +34,53 @@ describe('process runner', { timeout: 60_000 }, () => {
       expect(outcome.timedOut).toBe(false);
       const tests = outcome.results!.tests.map((t) => [t.titles.join(' > '), t.outcome, t.file, t.line]);
       expect(tests.sort()).toEqual([
-        ['fails', 'unexpected', join(root, 'tests/plain.spec.ts'), 7],
-        ['passes', 'expected', join(root, 'tests/plain.spec.ts'), 3],
+        ['fails', 'unexpected', join(root, 'tests/plain.spec.ts'), 16],
+        ['passes', 'expected', join(root, 'tests/plain.spec.ts'), 9],
+        ['waits', 'expected', join(root, 'tests/plain.spec.ts'), 22],
       ]);
     }
   });
 
+  test('a process a test leaves behind does not outlive the run', async () => {
+    const pidFile = join(root, 'left.pid');
+    process.env.MUTATOR_TEST_LEAVE_PROCESS = pidFile;
+    try {
+      await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
+    } finally {
+      delete process.env.MUTATOR_TEST_LEAVE_PROCESS;
+    }
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  test('a run whose config breaks has no results, and says why on stderr', async () => {
+    const results = join(root, 'results.json');
+    writeFileSync(join(root, 'run.json'), JSON.stringify({ active: 'break-config', hitLimit: 1, results }));
+    const outcome = await runner.run({ locations: [], projects: [], workers: 1, results }, 30_000);
+    expect(outcome.results).toBeUndefined();
+    expect(outcome.stderr).toContain('the config broke');
+  });
+
   test('runs only the tests at the given locations', async () => {
-    const outcome = await run([`${join(root, 'tests/plain.spec.ts')}:3`]);
+    const outcome = await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
     expect(outcome.results!.tests.map((t) => t.titles)).toEqual([['passes']]);
+  });
+});
+
+describe('process runner with several projects', { timeout: 60_000 }, () => {
+  test('runs only the tests of the given projects', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `plain-projects-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    try {
+      const cli = createRequire(join(root, 'package.json')).resolve('@playwright/test/cli');
+      const runner = createProcessRunner({ cli, config: join(root, 'playwright.projects.config.ts'), cwd: root, runFile: join(root, 'run.json'), outputDir: join(root, 'test-results') });
+      const results = join(root, 'results.json');
+      writeFileSync(join(root, 'run.json'), JSON.stringify({ active: null, hitLimit: 1, results }));
+      const outcome = await runner.run({ locations: [], projects: ['b'], workers: 1, results }, 30_000);
+      expect(outcome.results!.tests.map((t) => `${t.project} ${t.titles.join(' > ')}`).sort()).toEqual(['b fails', 'b passes', 'b waits']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

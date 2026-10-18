@@ -1,10 +1,78 @@
 {
+  "102oe8hoons": {
+    "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/server.ts:81:9 stderr.length < 16 * 1024 -> stderr.length <= 16 * 1024"
+  },
+  "170llzltqh0": {
+    "reason": "equivalent: only the selected tests run (file:line and --project filters), so every failing test is a selected one",
+    "where": "packages/playwright/src/session.ts:305:20 results.tests .filter((t) => t.outcome === 'unexpected') .m… -> results.tests .filter((t) => t.outcome === 'unexpected') .m…"
+  },
+  "17gwxl2kcri": {
+    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
+    "where": "packages/playwright/src/vite.ts:43:11 settings.arid !== undefined -> true"
+  },
+  "1i35w09ueaa": {
+    "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/runner.ts:98:23 64 * 1024 -> 64 / 1024"
+  },
+  "1imnuw00trt": {
+    "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/server.ts:81:9 stderr.length < 16 * 1024 -> true"
+  },
+  "1kvguyh1bb5": {
+    "reason": "not worth a test: only the built package resolves ../src/reporter.cjs from dist/; pack-smoke runs it",
+    "where": "packages/playwright/src/runner.ts:10:100 '../src/reporter.cjs' -> ''"
+  },
   "1rkxp39vmqt": {
     "reason": "equivalent: runs only makes the temp file names unique per run; counting down keeps them unique",
     "where": "packages/jest/src/session.ts:105:46 runs++ -> runs--"
   },
+  "28qkyz6x14e": {
+    "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> true"
+  },
+  "2elf0f0iahq": {
+    "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> text.length <= 64 * 1024"
+  },
+  "b8ktbbqkd9": {
+    "reason": "not worth a test: the kill fails only when the process exits between the exitCode check and the kill",
+    "where": "packages/playwright/src/server.ts:121:11 { return; } -> {}"
+  },
+  "j9t74o206v": {
+    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
+    "where": "packages/playwright/src/vite.ts:46:11 mutators.length -> true"
+  },
+  "jko1hend3u": {
+    "reason": "equivalent: Playwright kills its workers and browsers when it exits; this kill only guards against processes it leaves behind",
+    "where": "packages/playwright/src/runner.ts:72:13 killGroup(child); -> ;"
+  },
+  "lnizb49adl": {
+    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
+    "where": "packages/playwright/src/vite.ts:47:11 ignorers.length -> true"
+  },
   "no2n16j9lw": {
     "reason": "equivalent: with earlyExit false an extra argument becomes a test path that does not exist, which Jest ignores; the verdicts do not change",
     "where": "packages/jest/src/session.ts:236:73 [] -> [\"Stryker was here!\"]"
+  },
+  "pumzca8dgv": {
+    "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
+    "where": "packages/playwright/src/server.ts:81:25 16 * 1024 -> 16 / 1024"
+  },
+  "rp14w0kiyt": {
+    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
+    "where": "packages/playwright/src/vite.ts:45:11 settings.weak !== undefined -> true"
+  },
+  "th7u2y2jjk": {
+    "reason": "equivalent: the name only labels the plugin in Vite's errors and plugin list",
+    "where": "packages/playwright/src/vite.ts:23:11 'mutator:instrument' -> ''"
+  },
+  "w6nuogjq6l": {
+    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
+    "where": "packages/playwright/src/vite.ts:44:11 settings.excludedMutators -> true"
+  },
+  "yx4cfu19t1": {
+    "reason": "equivalent: net.connect with an empty host connects to localhost",
+    "where": "packages/playwright/src/server.ts:109:42 'localhost' -> ''"
   }
 }

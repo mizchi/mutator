@@ -10,6 +10,8 @@
 - A changed test file that the runner's config excludes on purpose (Vitest `exclude`) is no longer reported as not collected (#10).
 - Playwright runner (experimental): `--runner playwright` mutates browser code that Playwright Test drives through a Vite dev server, with `@mizchi/mutator-playwright` (a Vite plugin and a test fixture). Playwright's artifacts go to mutator's temporary directory, not the project (#15).
 - Playwright: mutant runs bound `expect` timeouts to at least 1 s (was 2 s), and results come from mutator's own reporter: the fixture app runs in 39.5 s instead of 59.4 s with the same verdicts (#16).
+- The CLI flushes stdout before it exits: a report larger than a pipe's buffer (64 KB), such as `--reporter agent` piped to `jq`, was cut off.
+- Playwright: a `webServer` with neither `url` nor `port` is reported as such (it was taken for a server already answering); Playwright's artifacts stay out of the project even when its config fails to load.
 
 ## 0.1.0 - 2026-10-16
 

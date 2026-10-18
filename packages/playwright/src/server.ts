@@ -63,6 +63,8 @@ async function startAll(servers: readonly WebServerConfig[], options: { configDi
 }
 
 async function start(server: WebServerConfig, options: { configDir: string; env: Record<string, string> }): Promise<ChildProcess> {
+  // Playwright requires one of them too: without either there is nothing to wait for.
+  if (server.url === undefined && server.port === undefined) throw new Error(`mutator: webServer \`${server.command}\` has neither url nor port`);
   const where = server.url ?? `port ${server.port}`;
   if (await answers(server)) {
     throw new Error(`mutator: ${where} already answers; stop that server, so mutator can start the dev server with the instrumentation`);
@@ -103,7 +105,6 @@ async function answers(server: WebServerConfig): Promise<boolean> {
       return false;
     }
   }
-  if (server.port === undefined) return true;
   return new Promise((done) => {
     const socket = connect(server.port!, 'localhost');
     socket.once('connect', () => (socket.destroy(), done(true)));

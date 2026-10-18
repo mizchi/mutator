@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { assignPort } from '../../playwright/test/port.ts';
 import { runMutation } from '../src/run.ts';
 
 const fixture = fileURLToPath(new URL('../../playwright/test/fixtures/app', import.meta.url));
@@ -10,11 +11,11 @@ const tmpRoot = fileURLToPath(new URL('../../playwright/.tmp', import.meta.url))
 
 describe('runMutation with Playwright (E2E through a Vite dev server)', { timeout: 300_000 }, () => {
   let root: string;
-  beforeEach(() => {
+  beforeEach(async () => {
     mkdirSync(tmpRoot, { recursive: true });
     root = join(tmpRoot, `cli-${process.pid}-${Math.random().toString(36).slice(2)}`);
     cpSync(fixture, root, { recursive: true });
-    process.env.MUTATOR_TEST_PORT = String(6100 + (process.pid % 400));
+    await assignPort(root);
   });
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });

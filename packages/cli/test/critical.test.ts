@@ -6,7 +6,7 @@ import { type AgentReport, formatAgentReport } from '../src/agent-report.ts';
 import { criticalMutants } from '../src/critical.ts';
 import { qualityGate } from '../src/gate.ts';
 import { formatMutationTestingJson } from '../src/mte-report.ts';
-import { formatSummary } from '../src/report.ts';
+import { formatAnnotations, formatSummary } from '../src/report.ts';
 import type { Report, ReportEntry } from '../src/run.ts';
 
 const thresholds = { high: 80, low: 60, break: null };
@@ -61,19 +61,26 @@ describe('qualityGate with critical regions', () => {
     expect(gate(r)).toEqual(['3 undetected mutant(s) in critical regions: each must be killed or accepted']);
   });
 
-  test('killed, accepted, pending, compile errors and ignored mutants pass', () => {
+  test('killed, accepted, compile errors and ignored mutants pass', () => {
     const r = report(
       [
         entry('a', '/p/a.ts', 'Killed'),
         entry('b', '/p/a.ts', 'Ignored', { accepted: 'equivalent' }),
-        entry('c', '/p/a.ts', 'Pending'),
         entry('d', '/p/a.ts', 'CompileError'),
         entry('e', '/p/a.ts', 'Ignored'),
         entry('f', '/p/a.ts', 'Timeout'),
       ],
-      { criticalMutants: ['a', 'b', 'c', 'd', 'e', 'f'] },
+      { criticalMutants: ['a', 'b', 'd', 'e', 'f'] },
     );
     expect(gate(r)).toEqual([]);
+  });
+
+  test('a critical mutant left pending (time budget, sampling) fails: every one must run', () => {
+    const r = report([entry('a', '/p/a.ts', 'Killed'), entry('c', '/p/a.ts', 'Pending')], { criticalMutants: ['a', 'c'] });
+    expect(gate(r)).toEqual(['1 mutant(s) in critical regions not run (--time-budget, --mutants-per-line): each must run']);
+    // Outside --since, a pending mutant is not reported, so it does not count.
+    const since = report([entry('a', '/p/a.ts', 'Killed', { focus: 'diff' }), entry('c', '/p/a.ts', 'Pending')], { scope: 'diff', criticalMutants: ['a', 'c'] });
+    expect(gate(since)).toEqual([]);
   });
 
   test('mutants possibly reached in a child process still count', () => {
@@ -118,6 +125,22 @@ describe('reports', () => {
     expect(lines[notDetected + 2]).toBe('');
     expect(summary).toContain('accepted in critical regions:');
     expect(summary).toContain('(log message only)');
+  });
+
+  test('the critical line counts the mutants left pending', () => {
+    const pending = report([entry('k', '/p/src/auth.ts', 'Killed'), entry('p', '/p/src/auth.ts', 'Pending')], { criticalMutants: ['k', 'p'] });
+    expect(formatSummary(pending, '/p', thresholds)).toContain('critical regions: 100.0% (1 detected, 0 undetected, 0 accepted, 1 not run)');
+  });
+
+  test('on GitHub, undetected critical mutants are errors, the others stay warnings', () => {
+    const annotations = formatAnnotations(r, '/p').split('\n');
+    expect(annotations.filter((a) => a.startsWith('::error ')).map((a) => /file=([^,]+).*title=([^:]+)::/.exec(a)?.slice(1))).toEqual([['src/auth.ts', 'Critical mutant not detected']]);
+    expect(annotations.filter((a) => a.startsWith('::warning ')).map((a) => /file=([^,]+).*title=([^:]+)::/.exec(a)?.slice(1))).toEqual([['src/util.ts', 'Mutant not detected']]);
+  });
+
+  test('an unreached critical mutant is annotated even in a full run, where unreached code is not', () => {
+    const full = report([entry('n', '/p/src/auth.ts', 'NoCoverage'), entry('m', '/p/src/util.ts', 'NoCoverage')], { criticalMutants: ['n'] });
+    expect(formatAnnotations(full, '/p').split('\n').map((a) => /title=([^:]+)::/.exec(a)?.[1])).toEqual(['Critical mutant not reached']);
   });
 
   test('no critical line without critical mutants', () => {

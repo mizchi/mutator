@@ -1,10 +1,13 @@
-import { cpSync, mkdirSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { assignPort } from '../../playwright/test/port.ts';
 import { runMutation } from '../src/run.ts';
 
+const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const fixture = fileURLToPath(new URL('../../playwright/test/fixtures/app', import.meta.url));
 // Inside packages/playwright, so the copy resolves @playwright/test, vite and the adapter.
 const tmpRoot = fileURLToPath(new URL('../../playwright/.tmp', import.meta.url));
@@ -35,5 +38,23 @@ describe('runMutation with Playwright (E2E through a Vite dev server)', { timeou
     expect(second.executed).toBe(0);
     expect(second.dryRunFiles).toEqual([]);
     expect(second.entries.map((e) => e.status)).toEqual(first.entries.map((e) => e.status));
+  });
+
+  test('a dev server port already in use is an error message with exit 1, not a crash', async () => {
+    const port = Number(readFileSync(join(root, 'port'), 'utf8'));
+    const other = createServer((_, res) => res.end('not mutator'));
+    await new Promise<void>((done) => other.listen(port, 'localhost', done));
+    try {
+      // Not spawnSync: the server above must keep answering while mutator runs.
+      const child = spawn(process.execPath, [cli, '--root', root, '--runner', 'playwright', '--no-typecheck'], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+      const status = await new Promise<number | null>((done) => child.on('close', done));
+      expect(stderr).toContain(`mutator: http://localhost:${port} already answers; stop that server`);
+      expect(stderr).not.toMatch(/\n\s+at /);
+      expect(status).toBe(1);
+    } finally {
+      other.close();
+    }
   });
 });

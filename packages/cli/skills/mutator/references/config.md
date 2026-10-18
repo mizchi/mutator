@@ -47,7 +47,7 @@ export default defineConfig({
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |
 | `mutantsPerLine` | `--mutants-per-line <n>` | run at most n mutants per line, most productive first; the rest stay `Pending` |
 | `timeBudget` | `--time-budget <s>` | start no new mutant run after s seconds; the rest stay `Pending` and run next time |
-| `critical` | `--critical <glob>` | every mutant in these files must be killed or accepted, otherwise exit 2; also `// mutator-critical` before a function |
+| `critical` | `--critical <glob>` | every mutant in these files must run and be killed or accepted, otherwise exit 2 (also when `--time-budget` leaves one unrun); also `// mutator-critical` before a function |
 | `killMatrix` | `--kill-matrix` | run every covering test per mutant and report tests that kill nothing or are subsumed (slow, occasional) |
 
 Command-line only: `--root <dir>` (project root), `--only <key>` (run and report just this mutant; repeatable), `--config-file <file>`.

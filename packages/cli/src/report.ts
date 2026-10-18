@@ -76,10 +76,10 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   if (accepted > 0) lines.push(`accepted: ${accepted} undetected mutant${accepted === 1 ? '' : 's'} (${ACCEPTED_FILE})`);
   const critical = criticalSummary(report);
   if (critical) {
-    const { detected, undetected, accepted } = critical;
+    const { detected, undetected, accepted, notRun } = critical;
     const run = detected.length + undetected.length;
     const score = run === 0 ? '-' : `${((detected.length / run) * 100).toFixed(1)}%`;
-    lines.push(`critical regions: ${score} (${detected.length} detected, ${undetected.length} undetected, ${accepted.length} accepted)`);
+    lines.push(`critical regions: ${score} (${detected.length} detected, ${undetected.length} undetected, ${accepted.length} accepted${notRun.length ? `, ${notRun.length} not run` : ''})`);
   }
   // Undetected critical mutants fail the gate on their own: listed first, and only there.
   const listedCritical = new Set(critical?.undetected.map((e) => e.mutant.key));
@@ -132,21 +132,25 @@ function list(lines: string[], heading: string, entries: readonly ReportEntry[],
 }
 
 /**
- * GitHub Actions workflow commands for undetected mutants, titled by gap. Unreached code is
- * annotated only with --since: over a whole project it would bury the rest.
+ * GitHub Actions workflow commands for undetected mutants, titled by gap (errors in critical regions). Unreached code is
+ * annotated only with --since (critical ones always): over a whole project it would bury the rest.
  */
 export function formatAnnotations(report: Report, root: string): string {
   const titles = new Map(GAPS.map((g) => [g.gap, g.title]));
   const childProcess = new Set(report.childProcessMutants);
+  // Undetected critical mutants fail the run: errors, so the PR shows which ones.
+  const critical = new Set(report.criticalMutants);
   const uncollected = (report.uncollectedTests ?? []).map((file) => `::warning file=${file},title=Test file not collected::${uncollectedMessage(file)}`);
   const skipped = (report.skippedTests ?? []).map((s) => `::warning file=${s.file},line=${s.line},title=Skipped test::${skippedMessage(s)}`);
   const mutants = reported(report)
     .flatMap((e) => {
       const gap = gapOf(e);
-      if (!gap || (gap === 'notReached' && report.scope !== 'diff')) return [];
+      if (!gap || (gap === 'notReached' && report.scope !== 'diff' && !critical.has(e.mutant.key))) return [];
       const { start, end } = e.mutant.location;
       const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (${childProcess.has(e.mutant.key) ? `${POSSIBLY_IN_CHILD_PROCESS}; ` : ''}if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
-      return [`::warning file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${titles.get(gap)}::${message}`];
+      const level = critical.has(e.mutant.key) ? 'error' : 'warning';
+      const title = critical.has(e.mutant.key) ? `Critical ${titles.get(gap)!.replace(/^M/, 'm')}` : titles.get(gap);
+      return [`::${level} file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${title}::${message}`];
     });
   return [...uncollected, ...skipped, ...mutants].join('\n');
 }

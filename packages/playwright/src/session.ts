@@ -15,6 +15,7 @@ import {
   type Mutant,
   type MutantRunResult,
   type Session,
+  RunnerSetupError,
   type TestLocation,
   emptyDryRun,
   hash,
@@ -82,7 +83,7 @@ let generated = 0;
 export async function createPlaywrightSession(options: PlaywrightSessionOptions): Promise<Session> {
   const { root } = options;
   const configFile = options.configFile ?? CONFIG_NAMES.map((name) => join(root, name)).find((file) => existsSync(file));
-  if (!configFile) throw new Error(`mutator: no Playwright config (${CONFIG_NAMES.join(', ')}) in ${root}`);
+  if (!configFile) throw new RunnerSetupError(`mutator: no Playwright config (${CONFIG_NAMES.join(', ')}) in ${root}`);
   const cli = createRequire(join(root, 'package.json')).resolve('@playwright/test/cli');
   const configDir = dirname(configFile);
 
@@ -256,7 +257,7 @@ async function list(cli: string, configFile: string, root: string): Promise<List
   try {
     return JSON.parse(stdout.slice(stdout.indexOf('{'))) as Listing;
   } catch {
-    throw new Error(`mutator: playwright test --list failed (exit ${code})\n${stderr}${stdout}`);
+    throw new RunnerSetupError(`mutator: playwright test --list failed (exit ${code})\n${stderr}${stdout}`);
   }
 }
 

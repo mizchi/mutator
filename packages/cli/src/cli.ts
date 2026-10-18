@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { RunnerSetupError } from '@mizchi/mutator-core';
 import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
@@ -133,6 +134,10 @@ try {
   }
   if (error instanceof SnapshotError) {
     console.error(`select-tests: ${error.message}`);
+    await exit(1);
+  }
+  if (error instanceof RunnerSetupError) {
+    console.error(error.message);
     await exit(1);
   }
   if (error instanceof BaselineError) {

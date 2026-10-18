@@ -3,6 +3,7 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
+import { RunnerSetupError } from '@mizchi/mutator-core';
 
 /** `webServer` as the Playwright config gives it. */
 export interface WebServerConfig {
@@ -64,10 +65,10 @@ async function startAll(servers: readonly WebServerConfig[], options: { configDi
 
 async function start(server: WebServerConfig, options: { configDir: string; env: Record<string, string> }): Promise<ChildProcess> {
   // Playwright requires one of them too: without either there is nothing to wait for.
-  if (server.url === undefined && server.port === undefined) throw new Error(`mutator: webServer \`${server.command}\` has neither url nor port`);
+  if (server.url === undefined && server.port === undefined) throw new RunnerSetupError(`mutator: webServer \`${server.command}\` has neither url nor port`);
   const where = server.url ?? `port ${server.port}`;
   if (await answers(server)) {
-    throw new Error(`mutator: ${where} already answers; stop that server, so mutator can start the dev server with the instrumentation`);
+    throw new RunnerSetupError(`mutator: ${where} already answers; stop that server, so mutator can start the dev server with the instrumentation`);
   }
   const child = spawn(server.command, {
     shell: true,
@@ -84,10 +85,10 @@ async function start(server: WebServerConfig, options: { configDir: string; env:
   child.on('exit', () => (exited = true));
   const deadline = performance.now() + (server.timeout ?? DEFAULT_TIMEOUT_MS);
   while (!(await answers(server))) {
-    if (exited) throw new Error(`mutator: the dev server (${server.command}) exited before ${where} answered\n${stderr}`);
+    if (exited) throw new RunnerSetupError(`mutator: the dev server (${server.command}) exited before ${where} answered\n${stderr}`);
     if (performance.now() > deadline) {
       await stop(child);
-      throw new Error(`mutator: ${where} did not answer within ${server.timeout ?? DEFAULT_TIMEOUT_MS} ms (${server.command})\n${stderr}`);
+      throw new RunnerSetupError(`mutator: ${where} did not answer within ${server.timeout ?? DEFAULT_TIMEOUT_MS} ms (${server.command})\n${stderr}`);
     }
     await new Promise((r) => setTimeout(r, 100));
   }

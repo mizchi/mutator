@@ -25,7 +25,8 @@ export function qualityGate(report: Report, options: { thresholds: Thresholds; f
   const survived = reported(report).filter((e) => e.status === 'Survived' && !childProcess.has(e.mutant.key)).length;
   if (options.failOnSurvived && survived > 0) failures.push(`${survived} mutant(s) survived (--fail-on-survived)`);
   // Critical regions fail regardless of the thresholds and flags, child-process mutants included.
-  const critical = criticalSummary(report)?.undetected.length ?? 0;
-  if (critical > 0) failures.push(`${critical} undetected mutant(s) in critical regions: each must be killed or accepted`);
+  const critical = criticalSummary(report);
+  if (critical?.undetected.length) failures.push(`${critical.undetected.length} undetected mutant(s) in critical regions: each must be killed or accepted`);
+  if (critical?.notRun.length) failures.push(`${critical.notRun.length} mutant(s) in critical regions not run (--time-budget, --mutants-per-line): each must run`);
   return failures;
 }

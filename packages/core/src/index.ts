@@ -1,6 +1,6 @@
 export type * from './types.ts';
 export type * from './runner.ts';
-export { emptyDryRun, numberDuplicates, testFileOf } from './runner.ts';
+export { RunnerSetupError, emptyDryRun, numberDuplicates, testFileOf } from './runner.ts';
 export { applyMutant, instrument, scanImports } from './instrument.ts';
 export { hash } from './hash.ts';
 export { isTopLevelScope } from './scope.ts';

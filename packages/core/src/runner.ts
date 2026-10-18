@@ -88,6 +88,12 @@ export interface Session {
   close(): Promise<void>;
 }
 
+/**
+ * A session cannot start because of the project's setup (a config the runner cannot load, a dev
+ * server that fails or a port in use), not because of a bug: the CLI prints the message alone.
+ */
+export class RunnerSetupError extends Error {}
+
 /** Test ids are `<test file>#<full name>`: the test file part (relative to root). */
 export const testFileOf = (testId: string): string => testId.slice(0, testId.indexOf('#'));
 

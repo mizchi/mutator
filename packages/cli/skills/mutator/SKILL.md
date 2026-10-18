@@ -48,7 +48,9 @@ The text summary gives the score (detected / run, in %) and lists undetected mut
 | not reached | no test runs it | add a test case |
 | possibly reached in a child process | only a spawned process may run it | test it in process, or leave it |
 
-The label after the score is `[high]` (at or above `thresholds.high`, default 80), `[low]` (at or above `thresholds.low`, default 60) or `[danger]`. A `Survived` mutant may not have run: weak mutation decides a covered mutant that no test reaches with a different value without running it (it is listed as not infected).
+`dry run: 1/12 test files` is the coverage run: it re-collects only the test files a change can affect, so `0/12` on a later run is normal. With `--since`, check `mutants: N in the diff`: a diff with no mutant (only tests or docs changed) shows a score of 100% over nothing. `Timeout` counts as detected: the mutant made the tests hang or loop.
+
+The label after the score is `[high]` (at or above `thresholds.high`, default 80), `[low]` (at or above `thresholds.low`, default 60) or `[danger]`. A `Survived` mutant may not have run: weak mutation decides a covered mutant that no test reaches with a different value without running it (it is listed as not infected). Only Vitest and Playwright do this, and only for mutants of side-effect-free expressions (operators, comparisons, literals); the others are reported as not detected even when no test input tells them apart.
 
 A mutant no input can observe (an *equivalent* mutant, e.g. `?.` on a value that is never nullish) is recorded with `npx mutator accept <key> --reason "..."`. The text summary shows no keys: they are in the `--reporter agent` / `json` output and in the GitHub annotations, so re-run with `--reporter agent` to get them. Statuses, reporters and warnings: [references/reports.md](references/reports.md).
 
@@ -73,6 +75,6 @@ Gate with `--fail-on-survived` or `thresholds.break` once the baseline is known.
 | code | meaning |
 |---|---|
 | 0 | ok |
-| 1 | invalid options or config file, or an `--only` key that matches no mutant |
+| 1 | invalid options or config file, an `--only` key that matches no mutant, or a runner that cannot start (a config it cannot load, a dev server that fails, a port in use) |
 | 2 | quality gate failed: score below `thresholds.break`, a survivor with `--fail-on-survived`, or an undetected mutant in a critical region |
 | 4 | tests fail without mutants |

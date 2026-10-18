@@ -20,7 +20,7 @@ Score = detected / (detected + undetected). With `--since` it covers the mutants
 | group | means | fix |
 |---|---|---|
 | not detected | tests run it and the value changes, nothing fails | assert on the result that differs (`toBe` instead of `toBeTruthy`, an exact `toEqual`) |
-| not infected | tests run it, never with an input where original and mutant differ | add an input that separates them, e.g. the boundary value for `>=` → `>` |
+| not infected | tests run it, never with an input where original and mutant differ (Vitest and Playwright, for side-effect-free expression mutants only; elsewhere such gaps show as not detected) | add an input that separates them, e.g. the boundary value for `>=` → `>` |
 | not reached | no test runs it | add a test case reaching it |
 | possibly reached in a child process | only a process a test spawns (`node src/cli.js`) may run it; not counted by `--fail-on-survived` | test the behaviour in process, or leave it |
 | killed before, undetected now (`--since`) | outside the diff, its killing tests are gone | restore or replace the removed test |
@@ -36,7 +36,7 @@ Score = detected / (detected + undetected). With `--since` it covers the mutants
 - `text` (default): the summary on stdout.
 - `json`: `.mutator/report/mutation.json` in the mutation-testing-elements schema (StrykerJS format); the `id` of a mutant is its key.
 - `html`: `.mutator/report/index.html` (the report UI, loaded from unpkg).
-- `agent`: JSON on stdout for coding agents (logs on stderr): one record per undetected mutant with `key`, `gap`, location, `original` → `replacement`, the enclosing function's source, covering tests and a `fix` hint, plus `warnings` and `acceptance` (accepted entries that are killed now or stale). `scope` is `diff` when the run is narrowed (`--since`, or `--only`, which also sets `selection: "only"`) and `all` otherwise; `score` and `counts` cover that scope. Pipe it (`| jq`) or redirect it to a file.
+- `agent`: JSON on stdout for coding agents (logs on stderr): one record per undetected mutant with `key`, `gap`, location, `original` → `replacement`, the enclosing function's source, covering tests and a `fix` hint, plus flags on a gap (`critical: true` in a critical region, `childProcess: true` when only a spawned process may reach it, `recheck: true` for a mutant outside the diff whose killing tests are gone, `simplify` for a removal no test observes), `warnings` and `acceptance` (accepted entries that are killed now or stale). `scope` is `diff` when the run is narrowed (`--since`, or `--only`, which also sets `selection: "only"`) and `all` otherwise; `score` and `counts` cover that scope. Pipe it (`| jq`) or redirect it to a file.
 - `simplify`: covered survivors that remove code (a statement, a branch, a call): code no test observes the removal of, which may be unnecessary. No effect on the score or the gate.
 
 ## Other commands

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci
+      - run: npm ci                 # install as the project does (pnpm install --frozen-lockfile, ...)
       - uses: mizchi/mutator@v0
         with:
           args: --time-budget 600
@@ -33,13 +33,15 @@ jobs:
 - The base commit is fetched when the checkout is shallow.
 - The snapshot is saved even when the run fails the gate: its verdicts stay valid.
 - Runs on the default branch fill the cache that pull requests restore, so a pull request only runs the mutants its diff can affect.
-- On GitHub Actions undetected mutants are also printed as `::warning` annotations on the diff, each with the `mutator accept` command for its key (not with `--reporter agent`, whose stdout stays one JSON document).
+- On GitHub Actions undetected mutants are also printed as `::warning` annotations on the diff, each with the `mutator accept` command for its key (not with `--reporter agent`, whose stdout stays one JSON document). Those in critical regions are `::error` annotations titled `Critical mutant ...`, so the pull request shows which ones fail the check. Set `GITHUB_ACTIONS=true` to see the annotations locally.
 
 ## Rolling it out
 
 1. Start with warnings only (no `--fail-on-survived`, no `thresholds.break`) and a `--time-budget`.
 2. Close or accept the gaps the first pull requests show.
 3. Then gate: `--fail-on-survived` on the diff, `thresholds.break` for the score, or `critical` for the code that must be fully tested.
+
+`critical` alone gives "gate the critical code, warn about the rest". It applies on pushes to the default branch too. A critical mutant left unrun by `--time-budget` (or `--mutants-per-line`) also fails the run, so give the budget room for the critical files, or keep their mutants inside it with a warm cache.
 
 ## Without the action
 

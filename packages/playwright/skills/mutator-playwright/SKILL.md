@@ -45,6 +45,7 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
    import { mutatorFixtures } from '@mizchi/mutator-playwright';
 
    export const test = base.extend(mutatorFixtures).extend({ /* your fixtures */ });
+   export { expect } from '@playwright/test';  // the adapter re-exports this same expect
    ```
 
 4. Run with the runner named (the app's `vite.config.*` would make `auto` pick Vitest):
@@ -57,7 +58,7 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
 
 ## How a run works
 
-- mutator starts the `webServer` itself, once, and runs Playwright through a generated config next to the project's (removed when the run ends) that extends it without `webServer`. **Nothing may already listen on the server's url**: stop a dev server you started by hand.
+- When a run is needed (a run with nothing to re-run starts no server), mutator starts the `webServer` itself, once, and runs Playwright through a generated config next to the project's (removed when the run ends) that extends it without `webServer`. **Nothing may already listen on the server's url**: stop a dev server you started by hand.
 - In the dry run the fixture records which mutants each test reached in the page, also across same-origin navigations. Every test file counts as depending on every mutated file.
 - A mutant run uses one worker, `--retries=0` and `--max-failures=1` (all failing tests with `--kill-matrix`). Tests are selected by `file:line`, and by `--project` when the config has several projects; test ids then start with `[project]`.
 - In mutant runs `expect` waits at most three times as long as the slowest selected test took in the dry run (at least 1 s, never longer than the config's timeout). A killed mutant mostly waits for its failing assertion.
@@ -70,6 +71,7 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
 | `webServer ... has neither url nor port` | give the `webServer` a `url` or a `port`, as Playwright requires |
 | `the dev server (...) exited before ... answered` | the `webServer` command fails on its own: run it by hand to see why |
 | every mutant `NoCoverage` | the plugin is missing from the Vite config, the tests import `test` from `@playwright/test`, or `include` does not match the files the browser loads |
+| `Ignored` mutants | logging-only code (`console.log(...)`, arid) and accepted ones are not run |
 | exit 4, tests fail without mutants | the E2E tests fail without any mutant: fix them (or their flakiness) first |
 | many `Timeout`s | a mutant that hangs the page times out (it counts as detected). A run that only ran out of time is re-run once with three times the budget first; if that is not enough, the machine is overloaded: lower `-j` |
 | slow runs | about 1–2 s per mutant run on a small app: use `--since`, `--time-budget` and `-j` (parallel runs share the dev server) |

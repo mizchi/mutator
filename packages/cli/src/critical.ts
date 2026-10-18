@@ -27,8 +27,9 @@ const undetected = (e: ReportEntry) => e.status === 'Survived' || e.status === '
 /**
  * The reported critical mutants, split by verdict. Mutants possibly reached in a child process
  * count as undetected: critical code should be tested in process, where mutants are observed.
+ * `notRun`: reported but left pending (--time-budget, --mutants-per-line); every critical mutant must run.
  */
-export function criticalSummary(report: Report): { detected: ReportEntry[]; undetected: ReportEntry[]; accepted: ReportEntry[] } | undefined {
+export function criticalSummary(report: Report): { detected: ReportEntry[]; undetected: ReportEntry[]; accepted: ReportEntry[]; notRun: ReportEntry[] } | undefined {
   if (!report.criticalMutants?.length) return undefined;
   const keys = new Set(report.criticalMutants);
   const entries = reported(report).filter((e) => keys.has(e.mutant.key));
@@ -36,5 +37,6 @@ export function criticalSummary(report: Report): { detected: ReportEntry[]; unde
     detected: entries.filter((e) => DETECTED.has(e.status)),
     undetected: entries.filter(undetected),
     accepted: entries.filter((e) => e.accepted !== undefined),
+    notRun: entries.filter((e) => e.status === 'Pending'),
   };
 }

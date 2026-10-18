@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
 import { formatAgentReport } from '../src/agent-report.ts';
+import { NO_COVERAGE_MESSAGE } from '../src/report.ts';
 import type { Report, ReportEntry } from '../src/run.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'mutator-agent-'));
@@ -51,6 +52,12 @@ test('one record per undetected mutant, with the gap, the code around it and how
     { kind: 'uncollectedTest', file: 'x.test.ts', message: expect.any(String) },
     { kind: 'skippedTest', file: 'x.test.ts', line: 2, message: expect.stringContaining('it.skip(') },
   ]);
+});
+
+test('warns first when the tests reached no mutant at all', () => {
+  const report: Report = { entries: [entry('NoCoverage')], executed: 0, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 }, noCoverage: true, uncollectedTests: ['x.test.ts'] };
+  expect(formatAgentReport(report, root).warnings.map((w) => w.kind)).toEqual(['noCoverage', 'uncollectedTest']);
+  expect(formatAgentReport(report, root).warnings[0]).toEqual({ kind: 'noCoverage', message: NO_COVERAGE_MESSAGE });
 });
 
 test('flags gaps possibly reached in a child process, and warns about the spawning tests', () => {

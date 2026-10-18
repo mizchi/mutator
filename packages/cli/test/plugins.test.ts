@@ -106,6 +106,7 @@ export default defineIgnorer({
     const misnamedRun = runMutation({ root, concurrency: 1, plugins: ['./mutators/misnamed.ts'] });
     await expect(misnamedRun).rejects.toThrow(ConfigError);
     await expect(misnamedRun).rejects.toThrow('plugin ./mutators/misnamed.ts: Drop has no visit (a mutator), shouldIgnore (an ignorer), or mutators / ignorers / aridCallees (a plugin)');
+    await expect(runMutation({ root, concurrency: 1, plugins: ['no-such-mutator-plugin'] })).rejects.toThrow(new ConfigError(`plugin no-such-mutator-plugin: cannot resolve it from ${root}`));
     await expect(runMutation({ root, concurrency: 1, plugins: ['./mutators/nameless.ts'] })).rejects.toThrow(
       'plugin ./mutators/nameless.ts: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name',
     );

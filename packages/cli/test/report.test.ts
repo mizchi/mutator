@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
-import { formatAnnotations, formatSummary } from '../src/report.ts';
+import { formatAnnotations, formatSummary, NO_COVERAGE_MESSAGE } from '../src/report.ts';
 import type { Report, ReportEntry } from '../src/run.ts';
 
 const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
@@ -83,6 +83,15 @@ describe('formatSummary', () => {
     const listed = text.split('\n').filter((l) => l.startsWith('  src/'));
     expect(listed).toEqual([expect.stringMatching(/^  src\/a\.ts:1:1 +Survived/), expect.stringMatching(/^  src\/a\.ts:5:1 +Survived/)]);
     expect(text).toMatch(/not detected - tests run it, but none fails:\n  src\/a\.ts:1:1.*\n\nkilled before, undetected now \(their killing test is gone\):\n  src\/a\.ts:5:1/);
+  });
+});
+
+describe('no coverage at all', () => {
+  test('warns that the setup, not the tests, is likely wrong', () => {
+    const report: Report = { entries: [entry(0, 'NoCoverage')], executed: 0, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 }, noCoverage: true };
+    expect(formatSummary(report, '/p')).toContain(`warning: ${NO_COVERAGE_MESSAGE}`);
+    expect(NO_COVERAGE_MESSAGE).toContain('the tests ran but reached no mutant');
+    expect(formatSummary({ ...report, noCoverage: undefined } as unknown as Report, '/p')).not.toContain('reached no mutant');
   });
 });
 

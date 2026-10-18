@@ -32,6 +32,61 @@ describe('runMutation', { timeout: 60_000 }, () => {
     return out;
   };
 
+  test('tests that run but reach no mutant flag the setup', async () => {
+    rmSync(join(root, 'test'), { recursive: true, force: true });
+    mkdirSync(join(root, 'test'));
+    writeFileSync(join(root, 'test/other.test.ts'), "import { expect, test } from 'vitest';\ntest('other', () => { expect(1).toBe(1); });\n");
+    const report = await runMutation({ root, typecheck: false });
+    expect(report.noCoverage).toBe(true);
+    // Also from the cache, and after re-collecting a changed test file, where every mutant gets an
+    // (empty) coverage entry.
+    expect((await runMutation({ root, typecheck: false })).noCoverage).toBe(true);
+    writeFileSync(join(root, 'test/other.test.ts'), "import { expect, test } from 'vitest';\ntest('other', () => { expect(2).toBe(2); });\n");
+    const recollected = await runMutation({ root, typecheck: false });
+    expect(recollected.dryRunFiles).toEqual(['test/other.test.ts']);
+    expect(recollected.noCoverage).toBe(true);
+  });
+
+  test('coverage only inside tests, or only while modules load, counts as reaching mutants', async () => {
+    const only = (files: Record<string, string>) => {
+      rmSync(join(root, 'src'), { recursive: true, force: true });
+      rmSync(join(root, 'test'), { recursive: true, force: true });
+      for (const [file, content] of Object.entries(files)) {
+        mkdirSync(join(root, file, '..'), { recursive: true });
+        writeFileSync(join(root, file), content);
+      }
+    };
+    only({
+      'src/f.ts': 'export function f(x: number): number {\n  return x + 1;\n}\n',
+      'test/f.test.ts': "import { expect, test } from 'vitest';\nimport { f } from '../src/f.ts';\ntest('f', () => { expect(f(1)).toBe(2); });\n",
+    });
+    expect((await runMutation({ root, typecheck: false, snapshotPath: join(root, '.mutator/a.json') })).noCoverage).toBeUndefined();
+    only({
+      'src/c.ts': 'export const limit = 2 * 3;\n',
+      'test/c.test.ts': "import { test } from 'vitest';\nimport '../src/c.ts';\ntest('loads', () => {});\n",
+    });
+    const loaded = await runMutation({ root, typecheck: false, snapshotPath: join(root, '.mutator/b.json') });
+    expect(loaded.entries.length).toBeGreaterThan(0);
+    expect(loaded.noCoverage).toBeUndefined();
+  });
+
+  test('no mutant to reach (include matches nothing) is not this warning', async () => {
+    expect((await runMutation({ root, typecheck: false, include: ['nothing/**'] })).noCoverage).toBeUndefined();
+  });
+
+  test('reached mutants left pending (time budget) are coverage: no setup warning', async () => {
+    // No weak mutation either: every reached mutant waits for a run, so only unreached ones get a verdict.
+    const report = await runMutation({ root, typecheck: false, timeBudget: 0, weakMutation: false });
+    expect(report.entries.some((e) => e.status === 'Pending')).toBe(true);
+    expect(report.noCoverage).toBeUndefined();
+  });
+
+  test('a project without tests is not a setup problem of that kind', async () => {
+    rmSync(join(root, 'test'), { recursive: true, force: true });
+    const report = await runMutation({ root, typecheck: false });
+    expect(report.noCoverage).toBeUndefined();
+  });
+
   test('full run classifies every mutant', async () => {
     const report = await runMutation({ root });
     const statuses = byStatus(report);
@@ -43,6 +98,8 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(report.score).toBeGreaterThan(0);
     // Nothing ran out of time, so nothing was re-run.
     expect(report.timeoutRetries).toBeUndefined();
+    // Tests reach the code: no setup warning.
+    expect(report.noCoverage).toBeUndefined();
   });
 
   test('parallel execution gives the same verdicts as sequential', async () => {

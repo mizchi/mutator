@@ -3,9 +3,17 @@
     "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/server.ts:81:9 stderr.length < 16 * 1024 -> stderr.length <= 16 * 1024"
   },
+  "10eesz01w7y": {
+    "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
+    "where": "packages/cli/src/init-skill.ts:16:61 'SKILL.md' -> ''"
+  },
+  "152m0t2tltm": {
+    "reason": "equivalent: the cause only helps debugging; the message says what failed",
+    "where": "packages/cli/src/plugins.ts:85:77 { cause: error } -> {}"
+  },
   "170llzltqh0": {
     "reason": "equivalent: only the selected tests run (file:line and --project filters), so every failing test is a selected one",
-    "where": "packages/playwright/src/session.ts:305:20 results.tests .filter((t) => t.outcome === 'unexpected') .m… -> results.tests .filter((t) => t.outcome === 'unexpected') .m…"
+    "where": "packages/playwright/src/session.ts:305:20 results.tests .filter((t) => t.outcome === 'unexpected') .m\u2026 -> results.tests .filter((t) => t.outcome === 'unexpected') .m\u2026"
   },
   "17gwxl2kcri": {
     "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
@@ -27,6 +35,14 @@
     "reason": "equivalent: runs only makes the temp file names unique per run; counting down keeps them unique",
     "where": "packages/jest/src/session.ts:105:46 runs++ -> runs--"
   },
+  "1rmqq0b2tkx": {
+    "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
+    "where": "packages/cli/src/init-skill.ts:15:10 readdirSync(SHIPPED_SKILLS) .filter((name) => existsSync(jo\u2026 -> readdirSync(SHIPPED_SKILLS) .filter((name) => existsSync(jo\u2026"
+  },
+  "27uz9yxrhg4": {
+    "reason": "equivalent: the copied files are the same whatever the order they are listed in",
+    "where": "packages/cli/src/init-skill.ts:21:10 readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en\u2026 -> readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en\u2026"
+  },
   "28qkyz6x14e": {
     "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> true"
@@ -38,6 +54,10 @@
   "b8ktbbqkd9": {
     "reason": "not worth a test: the kill fails only when the process exits between the exitCode check and the kill",
     "where": "packages/playwright/src/server.ts:121:11 { return; } -> {}"
+  },
+  "fe20im5k9u": {
+    "reason": "equivalent: the sources are sorted and localImports adds files in a deterministic order, so the list is the same run to run",
+    "where": "packages/playwright/src/session.ts:286:39 [...new Set([...sources, ...localImports(file).map((f) => r\u2026 -> [...new Set([...sources, ...localImports(file).map((f) => r\u2026"
   },
   "j9t74o206v": {
     "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
@@ -51,9 +71,17 @@
     "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
     "where": "packages/playwright/src/vite.ts:47:11 ignorers.length -> true"
   },
+  "lnphk3ec8i": {
+    "reason": "equivalent: the test file itself is removed from the set at the end; seeding it only avoids visiting it twice in a cycle",
+    "where": "packages/playwright/src/session.ts:328:32 [file] -> []"
+  },
   "no2n16j9lw": {
     "reason": "equivalent: with earlyExit false an extra argument becomes a test path that does not exist, which Jest ignores; the verdicts do not change",
     "where": "packages/jest/src/session.ts:236:73 [] -> [\"Stryker was here!\"]"
+  },
+  "ofayjujas8": {
+    "reason": "not worth a test: only files that exist and are files are followed, and scanImports tolerates syntax errors, so the catch is not reached",
+    "where": "packages/playwright/src/session.ts:335:13 { continue; } -> {}"
   },
   "pumzca8dgv": {
     "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
@@ -70,6 +98,10 @@
   "w6nuogjq6l": {
     "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
     "where": "packages/playwright/src/vite.ts:44:11 settings.excludedMutators -> true"
+  },
+  "y67brib93y": {
+    "reason": "equivalent: the map only memoizes deps per test file; recomputing gives the same list",
+    "where": "packages/playwright/src/session.ts:286:9 !out -> true"
   },
   "yx4cfu19t1": {
     "reason": "equivalent: net.connect with an empty host connects to localhost",

@@ -132,6 +132,11 @@ describe('reports', () => {
     expect(formatSummary(pending, '/p', thresholds)).toContain('critical regions: 100.0% (1 detected, 0 undetected, 0 accepted, 1 not run)');
   });
 
+  test('with every critical mutant left pending, the critical score is unknown', () => {
+    const pending = report([entry('p', '/p/src/auth.ts', 'Pending')], { criticalMutants: ['p'] });
+    expect(formatSummary(pending, '/p', thresholds)).toContain('critical regions: - (0 detected, 0 undetected, 0 accepted, 1 not run)');
+  });
+
   test('on GitHub, undetected critical mutants are errors, the others stay warnings', () => {
     const annotations = formatAnnotations(r, '/p').split('\n');
     expect(annotations.filter((a) => a.startsWith('::error ')).map((a) => /file=([^,]+).*title=([^:]+)::/.exec(a)?.slice(1))).toEqual([['src/auth.ts', 'Critical mutant not detected']]);
@@ -141,6 +146,10 @@ describe('reports', () => {
   test('an unreached critical mutant is annotated even in a full run, where unreached code is not', () => {
     const full = report([entry('n', '/p/src/auth.ts', 'NoCoverage'), entry('m', '/p/src/util.ts', 'NoCoverage')], { criticalMutants: ['n'] });
     expect(formatAnnotations(full, '/p').split('\n').map((a) => /title=([^:]+)::/.exec(a)?.[1])).toEqual(['Critical mutant not reached']);
+    const infected = report([entry('i', '/p/src/auth.ts', 'Survived', { reason: 'notInfected' })], { criticalMutants: ['i'] });
+    expect(formatAnnotations(infected, '/p')).toContain('title=Critical mutant not infected::');
+    // 1-based columns, as GitHub expects (the mutant spans column 0 to 1).
+    expect(formatAnnotations(full, '/p')).toContain('::error file=src/auth.ts,line=1,col=1,endLine=1,endColumn=2,');
   });
 
   test('no critical line without critical mutants', () => {

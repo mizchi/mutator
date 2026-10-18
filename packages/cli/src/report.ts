@@ -17,13 +17,13 @@ const MAX_LISTED = 20;
  */
 export type Gap = 'notDetected' | 'notInfected' | 'notReached';
 
-const GAPS: readonly { gap: Gap; heading: string; title: string }[] = [
+const GAPS: readonly { gap: Gap; heading: string; title: string; criticalTitle: string }[] = [
   // Its value changes (or could not be checked) and no assertion notices: strengthen an assertion.
-  { gap: 'notDetected', heading: 'not detected - tests run it, but none fails:', title: 'Mutant not detected' },
+  { gap: 'notDetected', heading: 'not detected - tests run it, but none fails:', title: 'Mutant not detected', criticalTitle: 'Critical mutant not detected' },
   // Reached only with inputs it does not change: add an input (a boundary value, another case).
-  { gap: 'notInfected', heading: 'not infected - tests run it, but never with a value it changes:', title: 'Mutant not infected' },
+  { gap: 'notInfected', heading: 'not infected - tests run it, but never with a value it changes:', title: 'Mutant not infected', criticalTitle: 'Critical mutant not infected' },
   // No test runs it: add a test case.
-  { gap: 'notReached', heading: 'not reached - no test runs it:', title: 'Mutant not reached' },
+  { gap: 'notReached', heading: 'not reached - no test runs it:', title: 'Mutant not reached', criticalTitle: 'Critical mutant not reached' },
 ];
 
 /** Why a changed test file that the runner does not collect matters. */
@@ -141,7 +141,7 @@ function list(lines: string[], heading: string, entries: readonly ReportEntry[],
  * annotated only with --since (critical ones always): over a whole project it would bury the rest.
  */
 export function formatAnnotations(report: Report, root: string): string {
-  const titles = new Map(GAPS.map((g) => [g.gap, g.title]));
+  const titles = new Map(GAPS.map((g) => [g.gap, g]));
   const childProcess = new Set(report.childProcessMutants);
   // Undetected critical mutants fail the run: errors, so the PR shows which ones.
   const critical = new Set(report.criticalMutants);
@@ -154,7 +154,7 @@ export function formatAnnotations(report: Report, root: string): string {
       const { start, end } = e.mutant.location;
       const message = `${e.mutant.mutator}: ${oneLine(e.mutant.original)} -> ${oneLine(e.mutant.replacement)} (${childProcess.has(e.mutant.key) ? `${POSSIBLY_IN_CHILD_PROCESS}; ` : ''}if equivalent: mutator accept ${e.mutant.key} --reason ...)`;
       const level = critical.has(e.mutant.key) ? 'error' : 'warning';
-      const title = critical.has(e.mutant.key) ? `Critical ${titles.get(gap)!.replace(/^M/, 'm')}` : titles.get(gap);
+      const title = critical.has(e.mutant.key) ? titles.get(gap)!.criticalTitle : titles.get(gap)!.title;
       return [`::${level} file=${relative(root, e.mutant.file)},line=${start.line},col=${start.column + 1},endLine=${end.line},endColumn=${end.column + 1},title=${title}::${message}`];
     });
   return [...uncollected, ...skipped, ...mutants].join('\n');

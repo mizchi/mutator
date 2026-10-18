@@ -303,8 +303,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const final = acceptance?.entries ?? report;
     const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
-    const verdicts = final.filter((e) => e.status !== 'Pending' && e.status !== 'Ignored' && e.status !== 'CompileError');
-    const noCoverage = merged.tests.length > 0 && verdicts.length > 0 && verdicts.every((e) => e.status === 'NoCoverage');
+    // Coverage, not verdicts: a reached mutant may still be pending (time budget).
+    const reached = merged.staticKeys.size > 0 || [...merged.coverage.values()].some((tests) => tests.length > 0);
+    const noCoverage = merged.tests.length > 0 && mutants.length > 0 && !reached;
     return {
       entries: final,
       executed,       dryRunFiles: [...dryFiles].sort(),

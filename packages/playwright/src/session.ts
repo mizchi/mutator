@@ -324,7 +324,7 @@ function classify(results: RunResults, idOf: (t: TestKey) => string, selected: R
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '/index.ts', '/index.js'];
 
 /** Local files `file` imports through relative specifiers, transitively (absolute paths, `file` excluded). */
-function localImports(file: string): string[] {
+export function localImports(file: string): string[] {
   const seen = new Set<string>([file]);
   const pending = [file];
   while (pending.length > 0) {

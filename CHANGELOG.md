@@ -16,7 +16,7 @@
 - Critical regions: a critical mutant left unrun (`--time-budget`, `--mutants-per-line`) fails the gate, and on GitHub Actions undetected critical mutants are `::error` annotations titled `Critical mutant ...` (also unreached ones in full runs).
 - A runner that cannot start (a Playwright config it cannot list, a dev server that fails or a port in use) exits 1 with its message instead of a stack trace.
 - Playwright: a test file depends on the local files it imports (helpers, fixtures), so editing one re-collects its coverage.
-- A run whose tests reach no mutant at all warns that the setup (include, instrumentation) is likely wrong (`noCoverage` in the agent report).
+- A run whose tests reach no mutant at all warns that the setup (include, instrumentation) is likely wrong (`noCoverage` in the agent report). It is decided from coverage, so reached mutants left pending by `--time-budget` do not trigger it.
 - A plugin module that exports nothing usable (a misspelt `visit`, a missing name) is a config error saying what is missing.
 - A mutant reached while a test file loads (or in its `beforeAll`) ran only that file's tests, not the tests of other files that reach it while running, so it could be reported Survived although one of those kills it. Both run now; the snapshot version is bumped so such cached verdicts are not reused.
 

@@ -9,6 +9,7 @@
 - A GitHub Action (`uses: mizchi/mutator@v0`) runs mutator on the pull request's diff and keeps `.mutator/` in the Actions cache (#11).
 - A changed test file that the runner's config excludes on purpose (Vitest `exclude`) is no longer reported as not collected (#10).
 - Playwright runner (experimental): `--runner playwright` mutates browser code that Playwright Test drives through a Vite dev server, with `@mizchi/mutator-playwright` (a Vite plugin and a test fixture). Playwright's artifacts go to mutator's temporary directory, not the project (#15).
+- Playwright: mutant runs bound `expect` timeouts to at least 1 s (was 2 s), and results come from mutator's own reporter: the fixture app runs in 39.5 s instead of 59.4 s with the same verdicts (#16).
 
 ## 0.1.0 - 2026-10-16
 

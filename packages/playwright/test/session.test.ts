@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Mutant, Session } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { createPlaywrightSession } from '../src/session.ts';
+import { createPlaywrightSession, expectTimeoutFor } from '../src/session.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/app', import.meta.url));
 // Inside this package, so the copy resolves @playwright/test, vite and this package itself.
@@ -76,8 +76,10 @@ describe('playwright session', { timeout: 120_000 }, () => {
   test('a run past its budget is a timeout', async () => {
     const result = await session.runMutant(find('counter.ts', 'n + 1', 'n - 1').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 1 });
     expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'time', killedBy: [] });
+    // The stuck run was killed with its process group; the next run is not affected.
+    const next = await session.runMutant(find('counter.ts', 'n + 1', 'n - 1').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 30_000 });
+    expect(next).toMatchObject({ status: 'Killed', killedBy: ['tests/app.spec.ts#counter > increments'] });
   });
-
 });
 
 describe('playwright session cleanup', { timeout: 120_000 }, () => {
@@ -100,4 +102,10 @@ describe('playwright session cleanup', { timeout: 120_000 }, () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+});
+
+test('expect timeouts in mutant runs are bounded by three times the slowest selected test, at least 1 s', () => {
+  expect(expectTimeoutFor(0)).toBe(1000);
+  expect(expectTimeoutFor(200)).toBe(1000);
+  expect(expectTimeoutFor(1000)).toBe(3000);
 });

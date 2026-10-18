@@ -1,8 +1,8 @@
 // Playwright session: mutation testing of browser code that Playwright tests drive through a
 // Vite dev server. mutator starts the config's webServer itself, once, with the Vite plugin's
-// instrumentation enabled (every mutant compiled in); each dry run and mutant run is a separate
-// `playwright test` process, run through a generated config that extends the project's without
-// its webServer. The fixture activates the mutant in the page and records coverage there.
+// instrumentation enabled (every mutant compiled in), and runs a Playwright process per run
+// through a generated config that extends the project's without its webServer. The fixture
+// activates the mutant in the page and records coverage there.
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -20,7 +20,8 @@ import {
   hash,
   instrument,
 } from '@mizchi/mutator-core';
-import { EXPECT_TIMEOUT_ENV, RUN_ENV, type RunConfig, SETTINGS_ENV, type Settings, type TestRecord } from './env.ts';
+import { RUN_FILE_ENV, type RunConfig, type RunResults, SETTINGS_ENV, type Settings, type TestOutcome, type TestRecord } from './env.ts';
+import { type RunRequest, type RunnerOutcome, createProcessRunner } from './runner.ts';
 import { type WebServerConfig, acquireServers } from './server.ts';
 
 export interface PlaywrightSessionOptions extends Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak'> {
@@ -45,60 +46,36 @@ const DEFAULT_STARTUP_MS = 5000;
  * costs the whole expect timeout (5 s by default) per failing assertion.
  */
 const EXPECT_FACTOR = 3;
-const MIN_EXPECT_MS = 2000;
+const MIN_EXPECT_MS = 1000;
 
-interface JsonTest {
-  projectName: string;
-  status: 'expected' | 'unexpected' | 'flaky' | 'skipped';
-  results: { duration: number; status: string }[];
+/** The `expect` timeout bound of a mutant run whose slowest selected test took `slowestMs` in the dry run. */
+export function expectTimeoutFor(slowestMs: number): number {
+  return Math.max(MIN_EXPECT_MS, EXPECT_FACTOR * slowestMs);
 }
 
-interface JsonSpec {
-  title: string;
-  file: string;
-  line: number;
-  tests: JsonTest[];
-}
-
-interface JsonSuite {
-  title: string;
-  file: string;
-  specs: JsonSpec[];
-  suites?: JsonSuite[];
-}
-
-interface JsonReport {
+/** `playwright test --list --reporter=json`, the parts used here. */
+interface Listing {
   config: {
     rootDir: string;
-    configFile?: string;
     projects: { name: string }[];
     webServer?: WebServerConfig | WebServerConfig[] | null;
   };
-  suites: JsonSuite[];
-  errors?: { message?: string }[];
+  suites: ListedSuite[];
 }
 
-/** A test of a report, with what identifies it across the CLI, the report and the fixture. */
-interface FoundTest {
-  file: string;
-  project: string;
-  titles: string[];
-  line: number;
-  test: JsonTest;
+interface ListedSuite {
+  title: string;
+  specs: { title: string; file: string; line: number; tests: { projectName: string }[] }[];
+  suites?: ListedSuite[];
 }
+
+type TestKey = Pick<TestOutcome, 'file' | 'project' | 'titles'>;
 
 /** A test's location, as `TestLocation.taskId`: where it is, and what it took in the dry run. */
 interface Task {
   line: number;
   project: string;
   ms: number;
-}
-
-interface RunOutcome {
-  report: JsonReport | undefined;
-  timedOut: boolean;
-  stderr: string;
-  wallMs: number;
 }
 
 let generated = 0;
@@ -112,7 +89,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
 
   const listing = await list(cli, configFile, root);
   const multiProject = listing.config.projects.length > 1;
-  const idOf = (t: Pick<FoundTest, 'file' | 'project' | 'titles'>) => `${relative(root, t.file)}#${multiProject ? `[${t.project}] ` : ''}${t.titles.join(' > ')}`;
+  const idOf = (t: TestKey) => `${relative(root, t.file)}#${multiProject ? `[${t.project}] ` : ''}${t.titles.join(' > ')}`;
 
   const dir = mkdtempSync(join(tmpdir(), 'mutator-playwright-'));
   const settings: Settings = {
@@ -126,17 +103,25 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
   const settingsJson = JSON.stringify(settings);
   const settingsPath = join(dir, 'settings.json');
   writeFileSync(settingsPath, settingsJson);
+  const runFile = join(dir, 'run.json');
 
   // Next to the project's config, so the paths in it resolve as they do for Playwright.
   const wrapper = join(configDir, `.mutator-${process.pid}-${generated++}.playwright.config.ts`);
   writeFileSync(
     wrapper,
     [
+      "import { readFileSync } from 'node:fs';",
       `import * as project from './${basename(configFile)}';`,
-      `const config = ((project as { default?: object }).default ?? project) as { expect?: { timeout?: number } };`,
-      `const limit = Number(process.env.${EXPECT_TIMEOUT_ENV});`,
-      '// mutator runs the webServer itself, with the instrumentation enabled; in mutant runs it bounds expect timeouts.',
-      'export default { ...config, webServer: undefined, ...(limit ? { expect: { ...config.expect, timeout: Math.min(config.expect?.timeout ?? 5000, limit) } } : {}) };',
+      'const config = ((project as { default?: object }).default ?? project) as { expect?: { timeout?: number } };',
+      `const run = JSON.parse(readFileSync(process.env.${RUN_FILE_ENV}!, 'utf8')) as { expectTimeout?: number };`,
+      'const timeout = config.expect?.timeout ?? 5000;',
+      '// mutator runs the webServer itself, with the instrumentation enabled; its output stays out of the project.',
+      'export default {',
+      '  ...config,',
+      '  webServer: undefined,',
+      `  outputDir: ${JSON.stringify(join(dir, 'results'))},`,
+      '  expect: { ...config.expect, timeout: run.expectTimeout ? Math.min(timeout, run.expectTimeout) : timeout },',
+      '};',
       '',
     ].join('\n'),
   );
@@ -149,51 +134,24 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
   // dev server reads the settings file once, when it starts).
   const serve = () => (release ??= acquireServers(hash(`${settingsJson}\0${JSON.stringify(servers)}`), servers, { configDir, env: { [SETTINGS_ENV]: settingsPath } }));
 
+  const runner = createProcessRunner({ cli, config: wrapper, cwd: root, runFile });
+
   const locations = new Map<string, TestLocation>();
   let mutants: Mutant[] | undefined;
   let startupMs = DEFAULT_STARTUP_MS;
   let runs = 0;
 
-  const playwright = async (args: readonly string[], run: RunConfig, timeoutMs = Infinity, env: Record<string, string> = {}): Promise<RunOutcome> => {
+  const playwright = async (request: Omit<RunRequest, 'results'>, run: Omit<RunConfig, 'results'>, timeoutMs = Infinity): Promise<RunnerOutcome> => {
     await serve();
-    const outputFile = join(dir, `report-${runs++}.json`);
-    const started = performance.now();
-    // --output: Playwright's artifacts (by default test-results/ next to the project's package.json) stay out of the project.
-    const child = spawn(process.execPath, [cli, 'test', '--config', wrapper, '--reporter=json', '--retries=0', '--output', join(dir, 'results'), ...args], {
-      cwd: root,
-      detached: true,
-      stdio: ['ignore', 'ignore', 'pipe'],
-      env: { ...process.env, PLAYWRIGHT_JSON_OUTPUT_NAME: outputFile, [RUN_ENV]: JSON.stringify(run), FORCE_COLOR: '0', ...env },
-    });
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderr.length < 64 * 1024) stderr += chunk.toString();
-    });
-    let timedOut = false;
-    const timer = Number.isFinite(timeoutMs)
-      ? setTimeout(() => {
-          timedOut = true;
-          killGroup(child.pid);
-        }, timeoutMs)
-      : undefined;
-    await new Promise<void>((done) => child.on('close', () => done()));
-    clearTimeout(timer);
-    // Browsers and workers Playwright started are in the same group; make sure none outlives the run.
-    killGroup(child.pid);
-    let report: JsonReport | undefined;
-    try {
-      report = JSON.parse(readFileSync(outputFile, 'utf8')) as JsonReport;
-    } catch {
-      report = undefined;
-    }
-    rmSync(outputFile, { force: true });
-    return { report, timedOut, stderr, wallMs: performance.now() - started };
+    const results = join(dir, `results-${runs++}.json`);
+    writeFileSync(runFile, JSON.stringify({ ...run, results } satisfies RunConfig));
+    return runner.run({ ...request, results }, timeoutMs);
   };
 
-  const measure = (outcome: RunOutcome) => {
-    if (!outcome.report) return;
-    const testsMs = tests(outcome.report).reduce((sum, t) => sum + t.test.results.reduce((s, r) => s + r.duration, 0), 0);
-    startupMs = Math.max(1000, outcome.wallMs - testsMs);
+  const measure = (outcome: RunnerOutcome) => {
+    if (!outcome.results) return;
+    const testsMs = outcome.results.tests.reduce((sum, t) => sum + t.durationMs, 0);
+    startupMs = Math.max(500, outcome.wallMs - testsMs);
   };
 
   return {
@@ -217,15 +175,15 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     },
 
     async testFiles() {
-      return [...new Set(tests(listing).map((t) => t.file))].sort();
+      return [...new Set(listed(listing).map((t) => t.file))].sort();
     },
 
     async dryRun(files) {
       if (files && files.length === 0) return emptyDryRun();
       const out = join(dir, `coverage-${runs}`);
       mkdirSync(out, { recursive: true });
-      const outcome = await playwright(files ?? [], { active: null, hitLimit: DEFAULT_HIT_LIMIT, out });
-      if (!outcome.report) throw new Error(`mutator: playwright produced no report\n${outcome.stderr}`);
+      const outcome = await playwright({ locations: files ?? [], projects: [] }, { active: null, hitLimit: DEFAULT_HIT_LIMIT, out });
+      if (!outcome.results) throw new Error(`mutator: playwright produced no results\n${outcome.stderr}`);
       measure(outcome);
       const records: TestRecord[] = readdirSync(out).flatMap((name) =>
         readFileSync(join(out, name), 'utf8')
@@ -234,7 +192,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
           .map((line) => JSON.parse(line) as TestRecord),
       );
       rmSync(out, { recursive: true, force: true });
-      const dry = collectDryRun(outcome.report, records, { root, idOf, targets: settings.targets });
+      const dry = collectDryRun(outcome.results, records, { root, idOf, targets: settings.targets });
       for (const [id, location] of dry.index) locations.set(id, location);
       return dry;
     },
@@ -258,22 +216,21 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
       }
       if (filters.size === 0) return { status: 'Survived', killedBy: [], durationMs: 0 };
       const outcome = await playwright(
-        [
+        {
+          locations: [...filters],
+          projects: multiProject ? [...projects] : [],
           // One worker per run: mutator runs several mutants at once.
-          '--workers=1',
-          ...(earlyExit ? ['--max-failures=1'] : []),
-          ...(multiProject ? [...projects].map((p) => `--project=${p}`) : []),
-          ...filters,
-        ],
-        { active: key, hitLimit },
+          workers: 1,
+          ...(earlyExit ? { maxFailures: 1 } : {}),
+        },
+        { active: key, hitLimit, expectTimeout: expectTimeoutFor(slowestMs) },
         timeoutMs + startupMs,
-        { [EXPECT_TIMEOUT_ENV]: String(Math.max(MIN_EXPECT_MS, EXPECT_FACTOR * slowestMs)) },
       );
       const durationMs = outcome.wallMs;
       if (outcome.timedOut) return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
-      if (!outcome.report) return { status: 'RuntimeError', killedBy: [], durationMs };
+      if (!outcome.results) return { status: 'RuntimeError', killedBy: [], durationMs };
       measure(outcome);
-      return { ...classify(outcome.report, idOf, new Set(testIds)), durationMs };
+      return { ...classify(outcome.results, idOf, new Set(testIds)), durationMs };
     },
 
     async close() {
@@ -285,17 +242,8 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
   };
 }
 
-function killGroup(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {
-    // already gone
-  }
-}
-
 /** `playwright test --list`: the config and the tests, without running anything (or starting a server). */
-async function list(cli: string, configFile: string, root: string): Promise<JsonReport> {
+async function list(cli: string, configFile: string, root: string): Promise<Listing> {
   const child = spawn(process.execPath, [cli, 'test', '--list', '--reporter=json', '--config', configFile], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -307,63 +255,63 @@ async function list(cli: string, configFile: string, root: string): Promise<Json
   child.stderr.on('data', (c: Buffer) => (stderr += c.toString()));
   const code = await new Promise<number | null>((done) => child.on('close', done));
   try {
-    return JSON.parse(stdout.slice(stdout.indexOf('{'))) as JsonReport;
+    return JSON.parse(stdout.slice(stdout.indexOf('{'))) as Listing;
   } catch {
     throw new Error(`mutator: playwright test --list failed (exit ${code})\n${stderr}${stdout}`);
   }
 }
 
-/** Every test of a report, one per project. */
-function tests(report: JsonReport): FoundTest[] {
-  const out: FoundTest[] = [];
-  const walk = (suite: JsonSuite, titles: readonly string[]) => {
+/** Every listed test, one per project. */
+function listed(listing: Listing): TestKey[] {
+  const out: TestKey[] = [];
+  const walk = (suite: ListedSuite, titles: readonly string[]) => {
     for (const spec of suite.specs) {
-      for (const test of spec.tests) {
-        out.push({ file: resolve(report.config.rootDir, spec.file), project: test.projectName, titles: [...titles, spec.title], line: spec.line, test });
-      }
+      for (const test of spec.tests) out.push({ file: resolve(listing.config.rootDir, spec.file), project: test.projectName, titles: [...titles, spec.title] });
     }
     for (const child of suite.suites ?? []) walk(child, [...titles, child.title]);
   };
   // The top-level suites are the test files; their titles are not part of a test's name.
-  for (const file of report.suites) walk(file, []);
+  for (const file of listing.suites) walk(file, []);
   return out;
 }
 
-function collectDryRun(report: JsonReport, records: readonly TestRecord[], input: { root: string; idOf: (t: Pick<FoundTest, 'file' | 'project' | 'titles'>) => string; targets: readonly string[] }): DryRunResult {
+function collectDryRun(results: RunResults, records: readonly TestRecord[], input: { root: string; idOf: (t: TestKey) => string; targets: readonly string[] }): DryRunResult {
   const { root, idOf } = input;
   const dry = emptyDryRun();
   const recorded = new Map(records.map((r) => [idOf(r), r]));
   // The browser loads the sources, not the test files: any target may affect any test.
   const sources = input.targets.map((f) => relative(root, f)).sort();
   const fingerprints = new Map<string, string>();
-  for (const found of tests(report)) {
+  for (const found of results.tests) {
     const id = idOf(found);
     const rel = relative(root, found.file);
-    const task: Task = { line: found.line, project: found.project, ms: found.test.results.reduce((sum, r) => sum + r.duration, 0) };
+    const task: Task = { line: found.line, project: found.project, ms: found.durationMs };
     dry.index.set(id, { moduleId: found.file, taskId: JSON.stringify(task) });
     dry.deps.set(rel, sources);
     dry.staticByFile.set(rel, new Set());
-    if (found.test.status === 'skipped') continue;
-    if (found.test.status === 'unexpected') dry.failed.push(id);
+    if (found.outcome === 'skipped') continue;
+    if (found.outcome === 'unexpected') dry.failed.push(id);
     let fingerprint = fingerprints.get(found.file);
     if (!fingerprint) fingerprints.set(found.file, (fingerprint = hash(readFileSync(found.file, 'utf8'))));
-    dry.tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: task.ms });
+    dry.tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: found.durationMs });
     const record = recorded.get(id);
     if (!record) continue;
     for (const key of Object.keys(record.hits)) dry.coverage.set(key, [...(dry.coverage.get(key) ?? []), id]);
     for (const key of Object.keys(record.infected)) (dry.infected ??= new Map()).set(key, [...(dry.infected.get(key) ?? []), id]);
     for (const [key, n] of Object.entries(record.counts)) dry.hits.set(key, (dry.hits.get(key) ?? 0) + n);
   }
+  // A test file that fails to load runs no test: the run fails without a mutant.
+  if (results.errors.length > 0 && dry.failed.length === 0) dry.failed.push(...results.errors.map((e) => `playwright: ${e.split('\n')[0]}`));
   return dry;
 }
 
-function classify(report: JsonReport, idOf: (t: FoundTest) => string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
-  const killedBy = tests(report)
-    .filter((t) => t.test.status === 'unexpected')
+function classify(results: RunResults, idOf: (t: TestKey) => string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
+  const killedBy = results.tests
+    .filter((t) => t.outcome === 'unexpected')
     .map(idOf)
     .filter((id) => selected.has(id));
   if (killedBy.length > 0) return { status: 'Killed', killedBy };
   // Errors outside any test (a test file failing to load, a global setup) under this mutant.
-  if (report.errors?.length) return { status: 'RuntimeError', killedBy: [] };
+  if (results.errors.length > 0) return { status: 'RuntimeError', killedBy: [] };
   return { status: 'Survived', killedBy: [] };
 }

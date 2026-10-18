@@ -6,7 +6,7 @@
 // instrumented code in every document before the app's scripts run: the active mutant and
 // the test's id. Coverage of a document that is left (a navigation) is kept in
 // sessionStorage, and read with the live documents' when the test ends.
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   type BrowserContext,
@@ -17,11 +17,12 @@ import {
   type PlaywrightWorkerOptions,
   test as base,
 } from '@playwright/test';
-import { RUN_ENV, type RunConfig, type TestRecord } from './env.ts';
+import { RUN_FILE_ENV, type RunConfig, type TestRecord } from './env.ts';
 
 export { expect } from '@playwright/test';
 
-const run: RunConfig | undefined = process.env[RUN_ENV] ? (JSON.parse(process.env[RUN_ENV]) as RunConfig) : undefined;
+// Read when the worker starts: Playwright starts new workers for every run.
+const run: RunConfig | undefined = process.env[RUN_FILE_ENV] ? (JSON.parse(readFileSync(process.env[RUN_FILE_ENV], 'utf8')) as RunConfig) : undefined;
 
 /** What a document observed: mutants reached, infected, and hit counts. */
 interface Observed {

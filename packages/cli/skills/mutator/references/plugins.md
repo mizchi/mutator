@@ -12,7 +12,7 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 | `AssignmentOperator` | `+=` ↔ `-=`, `??=` → `&&=`, ... |
 | `BlockStatement` | a function or block body → `{}` |
 | `BooleanLiteral` | `true` ↔ `false`, `!x` → `x` |
-| `CallExpression` | a call statement removed (`f(x);` → `;`) |
+| `CallExpression` | a call statement removed (`f(x);` → `;`), unless another mutant lies inside it (its arguments) |
 | `ConditionalExpression` | a condition (or a part of it) → `true` / `false` |
 | `EqualityOperator` | `<` ↔ `<=`, `>` ↔ `>=`, `===` ↔ `!==` |
 | `FnValue` | a short function body → `{ return 0; }`, `{ return 1; }`, `{ return ""; }`, `{ return "xyzzy"; }`, ... |

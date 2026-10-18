@@ -37,7 +37,7 @@ jobs:
 
 ## Rolling it out
 
-1. Start with warnings only (no `--fail-on-survived`, no `thresholds.break`) and a `--time-budget`.
+1. Start with warnings only (no `--fail-on-survived`, no `thresholds.break`) and a `--time-budget`: a few minutes on pull requests (only the diff runs), more on the default branch or a nightly `schedule` run (the action treats it as a push: a full run), which fills the cache and continues a sampled or budgeted rollout.
 2. Close or accept the gaps the first pull requests show.
 3. Then gate: `--fail-on-survived` on the diff, `thresholds.break` for the score, or `critical` for the code that must be fully tested.
 

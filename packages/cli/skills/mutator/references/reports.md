@@ -34,7 +34,7 @@ Score = detected / (detected + undetected). With `--since` it covers the mutants
 ## Reporters (`--reporter`, repeatable)
 
 - `text` (default): the summary on stdout.
-- `json`: `.mutator/report/mutation.json` in the mutation-testing-elements schema (StrykerJS format); the `id` of a mutant is its key.
+- `json`: `.mutator/report/mutation.json` in the mutation-testing-elements schema (StrykerJS format): `files[path].mutants[]` with `id` (the key), `status`, `statusReason` (why a mutant is `Ignored`: `arid: ...`, `disabled: ...`, `<ignorer>: ...`, `accepted: ...`), `coveredBy` / `killedBy` (test ids, named under `testFiles`).
 - `html`: `.mutator/report/index.html` (the report UI, loaded from unpkg).
 - `agent`: JSON on stdout for coding agents (logs on stderr): one record per undetected mutant with `key`, `gap`, location, `original` → `replacement`, the enclosing function's source, covering tests and a `fix` hint, plus flags on a gap (`critical: true` in a critical region, `childProcess: true` when only a spawned process may reach it, `recheck: true` for a mutant outside the diff whose killing tests are gone, `simplify` for a removal no test observes), `warnings` and `acceptance` (accepted entries that are killed now or stale). `scope` is `diff` when the run is narrowed (`--since`, or `--only`, which also sets `selection: "only"`) and `all` otherwise; `score` and `counts` cover that scope. Pipe it (`| jq`) or redirect it to a file.
 - `simplify`: covered survivors that remove code (a statement, a branch, a call): code no test observes the removal of, which may be unnecessary. No effect on the score or the gate.
@@ -42,6 +42,6 @@ Score = detected / (detected + undetected). With `--since` it covers the mutants
 ## Other commands
 
 - `mutator accept <key>... --reason <text>`: record equivalent mutants in `mutator.accepted.json`. Later runs report them `Ignored` and list entries whose mutant is detected now or gone.
-- `mutator select-tests --since <ref> [--format files|json]`: from the last run's snapshot, without running anything, rank the tests a change can break (killers of mutants in the changed functions first).
+- `mutator select-tests --since <ref> [--format files|json]`: from the last run's snapshot, without running anything, rank the test files a change (committed or not) can break: killers of mutants in the changed functions first. The list goes to stdout (the summary to stderr), so `npx vitest run $(npx mutator select-tests --since main)` runs them; an empty list (nothing affected) makes Vitest run everything, so check for it in scripts.
 - `--kill-matrix`: tests that detect nothing, tests whose kills another test subsumes, and tests with the same kill set. Treat them as candidates for review: a subsumed test can still pin a behaviour worth keeping.
 - `--only <key>`: re-check single mutants in about a second, reusing the cache for the rest.

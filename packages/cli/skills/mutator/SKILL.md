@@ -32,9 +32,9 @@ npx mutator --since main             # only mutants in `git diff main`
 npx mutator --include 'src/core/**'  # a part of the project
 ```
 
-- What is mutated: `src/**` by default; set `include` / `exclude` (globs, relative to the root) for other layouts.
+- What is mutated: `src/**` by default; set `include` (replaces the default) and `exclude` (taken out of it), globs relative to the root.
 - Exit code 4 means the tests fail without any mutant: fix them first.
-- A large project's first run can take long. Bound it with `--time-budget <seconds>` (unrun mutants stay `Pending` and run next time) or `--mutants-per-line 1`, or start with `--since`.
+- A large project's first run can take long. Bound it with `--time-budget <seconds>` (no new mutant run starts after it, so the run ends a little later; the rest stay `Pending` and run next time), or sample with `--mutants-per-line 1` (the rest stay `Pending` until you raise the number: 2, 3, ..., then drop the flag), or start with `--since`.
 - Later runs reuse every result whose function and covering tests did not change.
 
 ## 4. Read the result

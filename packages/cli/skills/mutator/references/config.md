@@ -34,7 +34,7 @@ export default defineConfig({
 | `vitestConfig` | `--config <file>` | Vitest config file |
 | `jestConfig` | `--jest-config <file>` | Jest config file (implies the Jest runner) |
 | `playwrightConfig` | `--playwright-config <file>` | Playwright config file (implies the Playwright runner) |
-| `arid` | `--no-arid`, `--arid-callee <pattern>` | logging-only code (`console.*`, `logger.*`, `*.debug`, ...) is reported `Ignored` and not run; `false` runs it, `{ callees }` replaces the patterns |
+| `arid` | `--no-arid`, `--arid-callee <pattern>` | logging-only code is reported `Ignored` and not run (defaults: `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`); `false` runs it; `{ callees }` and `--arid-callee` replace the defaults, a plugin's `aridCallees` adds to them ([plugins.md](plugins.md)) |
 | `experimentalCallgraph` | `--experimental-callgraph` | after edits, re-run only survivors connected to changed code in a static call graph (faster, can miss effects through tests) |
 | `fullDryRun` | `--full-dry-run` | collect coverage from every test file instead of the cached coverage (after editing a test helper with Jest) |
 | `reporters` | `--reporter <name>` | `text` (default), `json`, `html`, `agent`, `simplify`; repeatable |
@@ -43,7 +43,7 @@ export default defineConfig({
 | `failOnSurvived` | `--fail-on-survived` | exit 2 when any mutant survives |
 | `typecheck` | `--[no-]typecheck` | type-check mutants with the project's TypeScript first; ill-typed ones are `CompileError` and not run (default `auto`) |
 | `weakMutation` | `--no-weak-mutation` | weak mutation decides a covered mutant no test reaches with a different value as Survived without running it (default on) |
-| `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator-core`) |
+| `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator-core`; see [plugins.md](plugins.md)) |
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |
 | `mutantsPerLine` | `--mutants-per-line <n>` | run at most n mutants per line, most productive first; the rest stay `Pending` |
 | `timeBudget` | `--time-budget <s>` | start no new mutant run after s seconds; the rest stay `Pending` and run next time |
@@ -54,6 +54,6 @@ Command-line only: `--root <dir>` (project root), `--only <key>` (run and report
 
 ## In the source
 
-- `// mutator-disable-next-line [Mutator]: reason` skips the next line (StrykerJS `// Stryker disable` comments work too).
+- `// mutator-disable-next-line: reason` skips the next line; `// mutator-disable-next-line StringLiteral: reason` only that mutator (no brackets). Also `mutator-disable-line`, and `mutator-disable` / `mutator-enable` for a region; StrykerJS `// Stryker disable` comments work too. Details: [plugins.md](plugins.md).
 - `// mutator-critical` before a function makes it a critical region.
 - `mutator.accepted.json` (written by `mutator accept`) lists accepted equivalent mutants by key, with a reason. Commit it.

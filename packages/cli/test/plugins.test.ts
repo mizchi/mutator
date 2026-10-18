@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, test } from 'vitest';
+import { ConfigError } from '../src/config.ts';
 import { runMutation } from '../src/run.ts';
 
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -98,5 +99,15 @@ export default defineIgnorer({
     expect(inPort.every((e) => e.status === 'Ignored')).toBe(true);
     expect(report.executed).toBe(0);
   });
-});
 
+  test('a plugin module that exports nothing usable is a config error that says what is missing', async () => {
+    const misnamed = `import { defineMutator } from ${JSON.stringify(core)};\nexport default defineMutator({ name: 'Drop', mutate() { return []; } });\n`;
+    const root = project({ 'mutators/misnamed.ts': misnamed, 'mutators/nameless.ts': 'export default { mutators: [] };\n' });
+    const misnamedRun = runMutation({ root, concurrency: 1, plugins: ['./mutators/misnamed.ts'] });
+    await expect(misnamedRun).rejects.toThrow(ConfigError);
+    await expect(misnamedRun).rejects.toThrow('plugin ./mutators/misnamed.ts: Drop has no visit (a mutator), shouldIgnore (an ignorer), or mutators / ignorers / aridCallees (a plugin)');
+    await expect(runMutation({ root, concurrency: 1, plugins: ['./mutators/nameless.ts'] })).rejects.toThrow(
+      'plugin ./mutators/nameless.ts: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name',
+    );
+  });
+});

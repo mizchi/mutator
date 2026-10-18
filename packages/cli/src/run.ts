@@ -153,6 +153,8 @@ export interface Report {
   notRun: { sampled: number; budget: number };
   /** With --since: changed test files (relative) the runner does not collect. */
   uncollectedTests?: string[];
+  /** Tests ran, yet no mutant was reached: the instrumentation or `include` is likely wrong, not the tests. */
+  noCoverage?: true;
   /** With --since: skipped or todo tests on the changed lines of test files (they check nothing). */
   skippedTests?: { file: string; line: number; text: string }[];
   /** With accepted mutants: those detected now (their entry can go), and entries whose mutant no longer exists. */
@@ -300,6 +302,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const final = acceptance?.entries ?? report;
     const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
+    const verdicts = final.filter((e) => e.status !== 'Pending' && e.status !== 'Ignored' && e.status !== 'CompileError');
+    const noCoverage = merged.tests.length > 0 && verdicts.length > 0 && verdicts.every((e) => e.status === 'NoCoverage');
     return {
       entries: final,
       executed,       dryRunFiles: [...dryFiles].sort(),
@@ -311,6 +315,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(options.only ? { selection: 'only' as const } : {}),
       ...(unknownKeys.length ? { unknownKeys } : {}),
       ...(uncollected ? { uncollectedTests: uncollected } : {}),
+      ...(noCoverage ? { noCoverage: true as const } : {}),
       ...(skipped?.length ? { skippedTests: skipped } : {}),
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
       ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),

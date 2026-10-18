@@ -15,6 +15,9 @@
 - Agent skills for using mutator, shipped under `skills/` (skills-npm convention): `mutator` (setup, config, reports, CI) in `@mizchi/mutator` next to `mutation-test-loop`, and `mutator-playwright` in `@mizchi/mutator-playwright`. `mutator init-skill` now copies every skill the CLI ships, with its reference files.
 - Critical regions: a critical mutant left unrun (`--time-budget`, `--mutants-per-line`) fails the gate, and on GitHub Actions undetected critical mutants are `::error` annotations titled `Critical mutant ...` (also unreached ones in full runs).
 - A runner that cannot start (a Playwright config it cannot list, a dev server that fails or a port in use) exits 1 with its message instead of a stack trace.
+- Playwright: a test file depends on the local files it imports (helpers, fixtures), so editing one re-collects its coverage.
+- A run whose tests reach no mutant at all warns that the setup (include, instrumentation) is likely wrong (`noCoverage` in the agent report).
+- A plugin module that exports nothing usable (a misspelt `visit`, a missing name) is a config error saying what is missing.
 
 ## 0.1.0 - 2026-10-16
 

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { isAbsolute, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type MutantIgnorer, type MutatorDefinition, type MutatorPlugin, hash } from '@mizchi/mutator-core';
+import { ConfigError } from './config.ts';
 
 export type PluginSpec = string | MutatorPlugin | MutatorDefinition | MutantIgnorer;
 
@@ -47,13 +48,17 @@ export async function loadPlugins(root: string, specs: readonly PluginSpec[]): P
     }
     if (typeof value === 'object' && value !== null && typeof (value as MutatorPlugin).name === 'string') {
       const plugin = value as MutatorPlugin;
+      // A named object with none of the parts is a mistake (a misspelt `visit`), not an empty plugin.
+      if (!plugin.mutators && !plugin.ignorers && !plugin.aridCallees) {
+        throw new ConfigError(`plugin ${origin}: ${plugin.name} has no visit (a mutator), shouldIgnore (an ignorer), or mutators / ignorers / aridCallees (a plugin)`);
+      }
       for (const m of plugin.mutators ?? []) add(m, origin);
       for (const i of plugin.ignorers ?? []) add(i, origin);
       aridCallees.push(...(plugin.aridCallees ?? []));
       prints.push(`plugin:${plugin.name}:${(plugin.aridCallees ?? []).join(',')}`);
       return;
     }
-    throw new Error(`plugin ${origin}: expected a plugin, a mutator, an ignorer or an array of them as the default export`);
+    throw new ConfigError(`plugin ${origin}: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name`);
   };
 
   for (const spec of specs) {
@@ -77,6 +82,6 @@ function resolvePackage(root: string, spec: string): string {
   try {
     return createRequire(join(root, 'package.json')).resolve(spec);
   } catch (error) {
-    throw new Error(`plugin ${spec}: cannot resolve it from ${root}`, { cause: error });
+    throw new ConfigError(`plugin ${spec}: cannot resolve it from ${root}`, { cause: error });
   }
 }

@@ -56,7 +56,7 @@ A mutant no input can observe (an *equivalent* mutant, e.g. `?.` on a value that
 
 ## 5. Configure
 
-Put lasting options in `mutator.config.json` (or `.ts` / `.mjs` with `defineConfig`), with `"$schema": "./node_modules/@mizchi/mutator/schema/mutator.config.schema.json"`. Common keys: `include`, `exclude`, `runner`, `thresholds` (`break` fails the run below a score), `failOnSurvived`, `critical` (globs whose every mutant must be killed or accepted), `timeBudget`. All keys and flags: [references/config.md](references/config.md).
+Put lasting options in `mutator.config.json` (or `.ts` / `.mjs` with `defineConfig`), with `"$schema": "./node_modules/@mizchi/mutator/schema/mutator.config.schema.json"`. Common keys: `include`, `exclude`, `runner`, `thresholds` (`break` fails the run below a score), `failOnSurvived`, `critical` (globs whose every mutant must be killed or accepted), `timeBudget`. All keys and flags: [references/config.md](references/config.md). Built-in mutator names, logging-only (arid) code, disable comments and custom mutators: [references/plugins.md](references/plugins.md).
 
 ## 6. CI
 
@@ -69,6 +69,10 @@ On pull requests, run on the diff with the cache kept between runs. The reposito
 ```
 
 Gate with `--fail-on-survived` or `thresholds.break` once the baseline is known. Workflow details and the cache: [references/ci.md](references/ci.md).
+
+## Agent skills
+
+These skills ship in the packages (`skills/`, the skills-npm convention): with skills-npm or `npx skills experimental_sync` they are linked on install. Otherwise `npx mutator init-skill [--dir <dir>]` copies this one and `mutation-test-loop` into `.claude/skills/` (rerun with `--force` after upgrading mutator).
 
 ## Exit codes
 

@@ -31,6 +31,10 @@ export function uncollectedMessage(file: string): string {
   return `${file} changed, but the test runner does not collect it: it kills nothing, so mutants only it would kill are reported as undetected (check the runner's include patterns, projects or env-based filters)`;
 }
 
+/** Why tests that reach no mutant point at the setup rather than at missing tests. */
+export const NO_COVERAGE_MESSAGE =
+  'the tests ran but reached no mutant: check that `include` matches the code they run (with Playwright: the Vite plugin and the fixture import), rather than writing tests';
+
 /** Why a skipped test in the change matters. */
 export function skippedMessage(s: { file: string; line: number; text: string }): string {
   return `${s.file}:${s.line} skips a test in the change, so it checks nothing: ${oneLine(s.text)}`;
@@ -66,6 +70,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   ];
   if (notRun.length > 0) lines.push(`not run: ${notRun.join(', ')}`);
   if (report.timeoutRetries) lines.push(`timeouts re-run with a longer budget: ${report.timeoutRetries.retried} (${report.timeoutRetries.confirmed} timed out again)`);
+  if (report.noCoverage) lines.push(`warning: ${NO_COVERAGE_MESSAGE}`);
   for (const file of report.uncollectedTests ?? []) lines.push(`warning: ${uncollectedMessage(file)}`);
   for (const s of report.skippedTests ?? []) lines.push(`warning: ${skippedMessage(s)}`);
   const spawning = report.childProcessTests ?? [];

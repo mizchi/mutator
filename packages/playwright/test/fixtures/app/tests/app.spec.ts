@@ -1,4 +1,5 @@
 import { expect, test } from '@mizchi/mutator-playwright';
+import { openCounter } from './pages.ts';
 
 test.describe('counter', () => {
   test('increments', async ({ page }) => {
@@ -10,7 +11,7 @@ test.describe('counter', () => {
 });
 
 test('navigates', async ({ page }) => {
-  await page.goto('/');
+  await openCounter(page);
   await expect(page.locator('#label')).toHaveText('few');
   await page.click('#next');
   await expect(page.locator('#out')).toHaveText('HI');

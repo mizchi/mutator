@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +38,11 @@ describe('runMutation with Playwright (E2E through a Vite dev server)', { timeou
     expect(second.executed).toBe(0);
     expect(second.dryRunFiles).toEqual([]);
     expect(second.entries.map((e) => e.status)).toEqual(first.entries.map((e) => e.status));
+
+    // A helper the spec imports changed: its coverage is collected again.
+    writeFileSync(join(root, 'tests/pages.ts'), `${readFileSync(join(root, 'tests/pages.ts'), 'utf8')}// edited\n`);
+    const third = await runMutation({ root, runner: 'playwright', concurrency: 2, typecheck: false });
+    expect(third.dryRunFiles).toEqual(['tests/app.spec.ts']);
   });
 
   test('a dev server port already in use is an error message with exit 1, not a crash', async () => {

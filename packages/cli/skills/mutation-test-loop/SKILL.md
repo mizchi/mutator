@@ -21,6 +21,7 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
 ```
 
 - `<base>` is the branch the change will merge into, usually `main`.
+- Progress goes to stderr, so the file holds only the JSON. `score` there is a fraction (0.75), not a percentage.
 - Read `.mutator/agent.json`. Each entry in `gaps` has:
   - `gap`, the kind of gap
   - the mutant (`original` → `replacement` at `file:line`)
@@ -35,7 +36,7 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
 
 ## 2. Close each gap
 
-Handle the gaps one function at a time. Read the test files in `coveredBy`, so the new test fits the existing ones: put it in the same file, follow its style, and reuse its helpers.
+Handle the gaps one function at a time (group them by `scope.id`). Read the test files in `coveredBy`, so the new test fits the existing ones: put it in the same file, follow its style, and reuse its helpers.
 
 | `gap` | What to do |
 |---|---|
@@ -71,11 +72,11 @@ Some mutants are equivalent: no input can tell the mutated code from the origina
 npx mutator accept <key> --reason "equivalent: <why no input can observe it>"
 ```
 
-This writes to `mutator.accepted.json`, together with where the mutant is (`file:line:col original -> replacement`). The file is committed and reviewed like code. Later runs list in `acceptance.killed` the accepted mutants that a test detects now, and in `acceptance.stale` the entries whose mutant no longer exists. Remove both kinds from the file. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
+This writes to `mutator.accepted.json`, together with where the mutant is (`file:line:col original -> replacement`). The file is committed and reviewed like code. `accept` does not check that the mutant is undetected: accept only keys from `gaps`. Once the file exists, later runs list in `acceptance.killed` the accepted mutants that a test detects now, and in `acceptance.stale` the entries whose mutant no longer exists. Remove both kinds from the file. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
 
 ## 5. Finish
 
-Run step 1 again. Stop when every gap is either:
+Run step 1 again (it re-runs the mutants your new tests cover, so it takes longer than the `--only` checks). Stop when every gap is either:
 
 - killed,
 - accepted with a reason, or

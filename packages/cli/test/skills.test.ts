@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { BUILTIN_MUTATOR_NAMES, DEFAULT_ARID_CALLEES } from '@mizchi/mutator-core';
 import { CONFIG_KEYS } from '../src/config.ts';
 
 const packages = join(import.meta.dirname, '../..');
@@ -105,4 +106,14 @@ test('every mutator option the skills mention exists in the CLI', () => {
 test('the configuration reference documents every config key', () => {
   const reference = readFileSync(join(packages, 'cli/skills/mutator/references/config.md'), 'utf8');
   expect(CONFIG_KEYS.filter((key) => key !== '$schema' && !reference.includes(`| \`${key}\` |`))).toEqual([]);
+});
+
+test('the plugins reference lists every built-in mutator and the default logging patterns', () => {
+  const reference = readFileSync(join(packages, 'cli/skills/mutator/references/plugins.md'), 'utf8');
+  const listed = [...reference.matchAll(/^\| `([A-Za-z]+)` \|/gm)].map((m) => m[1]);
+  expect(listed).toEqual([...BUILTIN_MUTATOR_NAMES]);
+  for (const reference of ['plugins.md', 'config.md']) {
+    const text = readFileSync(join(packages, 'cli/skills/mutator/references', reference), 'utf8');
+    for (const callee of DEFAULT_ARID_CALLEES) expect(text, `${reference}: ${callee}`).toContain(`\`${callee}\``);
+  }
 });

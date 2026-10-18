@@ -74,8 +74,9 @@ describe('playwright session', { timeout: 120_000 }, () => {
     expect(dry.coverage.get(find('counter.ts', 'n >= 10', 'n > 10').key)?.sort()).toEqual(['tests/app.spec.ts#counter > increments', 'tests/app.spec.ts#navigates']);
     expect(dry.coverage.get(find('other.ts', 'toUpperCase', 'toLowerCase').key)).toEqual(['tests/app.spec.ts#navigates']);
     expect(dry.coverage.get(find('counter.ts', 'x * 3', 'x / 3').key)).toBeUndefined();
-    // E2E tests reach the sources through the browser: every test file depends on every target.
-    expect(dry.deps.get('tests/app.spec.ts')).toEqual(['src/counter.ts', 'src/main.ts', 'src/other.ts']);
+    // E2E tests reach the sources through the browser: every test file depends on every target,
+    // and on the local files it imports (a helper edit re-collects its coverage).
+    expect(dry.deps.get('tests/app.spec.ts')).toEqual(['src/counter.ts', 'src/main.ts', 'src/other.ts', 'tests/pages.ts']);
     // Each test's fingerprint covers its file's content and its id: reuse tells them apart.
     expect(new Set(dry.tests.map((t) => t.fingerprint)).size).toBe(dry.tests.length);
   });

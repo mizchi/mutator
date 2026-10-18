@@ -4,7 +4,7 @@
 // through a generated config that extends the project's without its webServer. The fixture
 // activates the mutant in the page and records coverage there.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
@@ -20,6 +20,7 @@ import {
   emptyDryRun,
   hash,
   instrument,
+  scanImports,
 } from '@mizchi/mutator-core';
 import { RUN_FILE_ENV, type RunConfig, type RunResults, SETTINGS_ENV, type Settings, type TestOutcome, type TestRecord } from './env.ts';
 import { type RunRequest, type RunnerOutcome, createProcessRunner } from './runner.ts';
@@ -276,15 +277,22 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
   const { root, idOf } = input;
   const dry = emptyDryRun();
   const recorded = new Map(records.map((r) => [idOf(r), r]));
-  // The browser loads the sources, not the test files: any target may affect any test.
-  const sources = input.targets.map((f) => relative(root, f)).sort();
+  // The browser loads the sources, not the test files: any target may affect any test. A test
+  // file also depends on the local files it imports (helpers, fixtures): editing one re-collects it.
+  const sources = input.targets.map((f) => relative(root, f));
+  const depsOf = new Map<string, string[]>();
+  const deps = (file: string) => {
+    let out = depsOf.get(file);
+    if (!out) depsOf.set(file, (out = [...new Set([...sources, ...localImports(file).map((f) => relative(root, f))])].sort()));
+    return out;
+  };
   const fingerprints = new Map<string, string>();
   for (const found of results.tests) {
     const id = idOf(found);
     const rel = relative(root, found.file);
     const task: Task = { line: found.line, project: found.project, ms: found.durationMs };
     dry.index.set(id, { moduleId: found.file, taskId: JSON.stringify(task) });
-    dry.deps.set(rel, sources);
+    dry.deps.set(rel, deps(found.file));
     dry.staticByFile.set(rel, new Set());
     if (found.outcome === 'skipped') continue;
     if (found.outcome === 'unexpected') dry.failed.push(id);
@@ -311,4 +319,29 @@ function classify(results: RunResults, idOf: (t: TestKey) => string, selected: R
   // Errors outside any test (a test file failing to load, a global setup) under this mutant.
   if (results.errors.length > 0) return { status: 'RuntimeError', killedBy: [] };
   return { status: 'Survived', killedBy: [] };
+}
+
+const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '/index.ts', '/index.js'];
+
+/** Local files `file` imports through relative specifiers, transitively (absolute paths, `file` excluded). */
+function localImports(file: string): string[] {
+  const seen = new Set<string>([file]);
+  const pending = [file];
+  while (pending.length > 0) {
+    const from = pending.pop()!;
+    let loads: string[];
+    try {
+      loads = scanImports(from, readFileSync(from, 'utf8')).loads;
+    } catch {
+      continue;
+    }
+    for (const specifier of loads) {
+      if (!specifier.startsWith('.')) continue;
+      const base = resolve(dirname(from), specifier);
+      const target = RESOLVE_SUFFIXES.map((suffix) => base + suffix).find((candidate) => existsSync(candidate) && statSync(candidate).isFile());
+      if (target && !seen.has(target)) seen.add(target), pending.push(target);
+    }
+  }
+  seen.delete(file);
+  return [...seen];
 }

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
@@ -100,6 +100,23 @@ test('a reader that closes the pipe early (grep -q) does not crash the exit', ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('tests that run but reach no mutant are reported as a setup problem, not as missing tests', () => {
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-no-coverage-${process.pid}`);
+  cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });
+  // The tests import nothing from src/: as if the instrumentation never reached the code they run.
+  rmSync(join(root, 'test'), { recursive: true, force: true });
+  mkdirSync(join(root, 'test'));
+  writeFileSync(join(root, 'test/other.test.ts'), "import { expect, test } from 'vitest';\ntest('other', () => { expect(1).toBe(1); });\n");
+  try {
+    const text = spawnSync(process.execPath, [cli, '--root', root, '--no-typecheck'], { encoding: 'utf8' });
+    expect(text.stdout).toContain('warning: the tests ran but reached no mutant');
+    const agent = spawnSync(process.execPath, [cli, '--root', root, '--no-typecheck', '--reporter', 'agent'], { encoding: 'utf8' });
+    expect(JSON.parse(agent.stdout).warnings.map((w: { kind: string }) => w.kind)).toContain('noCoverage');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));

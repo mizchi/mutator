@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { childProcessMessage } from './child-process.ts';
 import { reported } from './gate.ts';
-import { type Gap, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
+import { type Gap, NO_COVERAGE_MESSAGE, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
 import { type RemovalKind, isSimplifyCandidate, removalKind } from './simplify.ts';
@@ -60,6 +60,7 @@ export interface AgentReport {
   counts: Record<string, number>;
   gaps: AgentGap[];
   warnings: (
+    | { kind: 'noCoverage'; message: string }
     | { kind: 'uncollectedTest'; file: string; message: string }
     | { kind: 'skippedTest'; file: string; line: number; message: string }
     | { kind: 'unknownKey'; key: string; message: string }
@@ -122,6 +123,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
     counts,
     gaps,
     warnings: [
+      ...(report.noCoverage ? [{ kind: 'noCoverage' as const, message: NO_COVERAGE_MESSAGE }] : []),
       ...(report.uncollectedTests ?? []).map((file) => ({ kind: 'uncollectedTest' as const, file, message: uncollectedMessage(file) })),
       ...(report.skippedTests ?? []).map((s) => ({ kind: 'skippedTest' as const, file: s.file, line: s.line, message: skippedMessage(s) })),
       ...(report.unknownKeys ?? []).map((key) => ({ kind: 'unknownKey' as const, key, message: `--only: no mutant with key ${key}` })),

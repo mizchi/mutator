@@ -49,6 +49,7 @@ Rules for every test you write:
 - **Assert behaviour a caller can observe.** Do not reach into private state, mock the function under test, or assert the exact sequence of internal calls. A test that only pins the implementation kills the mutant but breaks on any refactor.
 - **Write a test that fails on the mutated code.** The test name should describe a behaviour, not the mutant.
 - **Do not change the code under test** to kill a mutant, unless it has a real bug. If you find one, say so and stop for confirmation.
+- **Never let the code under test decide what a test destroys.** Under a mutant it may return anything: a test that kills the pids or deletes the paths a function returns can kill or delete the wrong ones. Act only on the processes and files the test itself created.
 
 ## 3. Re-check just those mutants
 

@@ -2,17 +2,26 @@ import { spawn } from 'node:child_process';
 import { expect, test } from 'vitest';
 import { descendants } from '../src/terminate.ts';
 
-test('descendants lists children and their children, not unrelated processes', async () => {
-  // A shell that starts a grandchild (sleep) and waits for it.
-  const child = spawn('sh', ['-c', 'sleep 30 & wait'], { stdio: 'ignore' });
+const kill = (pid: number) => {
   try {
-    await expect.poll(() => descendants(child.pid!).length, { timeout: 5000 }).toBe(1);
+    process.kill(pid, 'SIGKILL');
+  } catch {
+    // already gone
+  }
+};
+
+test('descendants lists children and their children, not the process itself', async () => {
+  // A shell that starts a grandchild (sleep), prints its pid and waits for it. The test kills only
+  // the pids it knows: under a mutant, descendants() may return anything.
+  const child = spawn('sh', ['-c', 'sleep 30 & echo $!; wait'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const grandchild = await new Promise<number>((done) => child.stdout.once('data', (chunk: Buffer) => done(Number(String(chunk).trim()))));
+  try {
+    expect(descendants(child.pid!)).toEqual([grandchild]);
     const all = descendants(process.pid);
-    expect(all).toContain(child.pid);
-    expect(all).toEqual(expect.arrayContaining(descendants(child.pid!)));
+    expect(all).toEqual(expect.arrayContaining([child.pid, grandchild]));
     expect(all).not.toContain(process.pid);
-    expect(descendants(process.ppid)).toContain(process.pid);
   } finally {
-    for (const pid of [...descendants(child.pid!), child.pid!]) process.kill(pid, 'SIGKILL');
+    kill(grandchild);
+    kill(child.pid!);
   }
 });

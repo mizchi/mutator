@@ -8,6 +8,49 @@ Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vi
 - **Result reuse** – mutant identity is position independent (`file + scope path + AST path + mutator + replacement`), and every result is cached with the hash of its enclosing function. Unchanged code with unchanged covering tests is never re-run.
 - **`--since <ref>`** – only mutants touched by `git diff <ref>` are executed or decided, and only they are counted, listed, annotated and checked by `--fail-on-survived`. The others needing work stay `Pending`, including those weak mutation would decide without running. A changed test file does not pull in the code it covers, since its survivors predate the change. The exception is a mutant outside the diff that was killed before but whose killing tests are all gone (removed or renamed): it is rechecked and listed apart as "killed before, undetected now". A test edited so that it no longer kills is not noticed; a full run catches it. The mutants in the diff are type-checked on a worker thread while the dry run goes on. A changed test file that the runner does not collect (`*.test.*`, `*.spec.*` or under `__tests__/`) is reported as a warning in the summary, the annotations and the JSON report, since the mutants only it would kill look undetected.
 
+## Compared with StrykerJS
+
+mutator does what [StrykerJS](https://stryker-mutator.io/) does for JavaScript and TypeScript (mutation switching, per-test coverage, the same report format), built for fast reruns on a changing codebase rather than for breadth of test runners.
+
+### Speed
+
+Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); measured 2026-10-09 on an Apple M3 Pro with StrykerJS 10 and `coverageAnalysis: "perTest"`):
+
+| project | mutants (mutator / Stryker) | first run | rerun, no change | rerun after a one-line edit (mutator `--since` / Stryker `--incremental`) | score on shared mutants |
+|---|---|---|---|---|---|
+| defu | 107 / 103 | **2.0** / 7.3 | **0.26** / 2.1 | **0.63** / 2.5 | 84.0 / 84.0 |
+| scule | 153 / 81 | **2.9** / 6.5 | **0.25** / 2.1 | **0.68** / 2.1 | 92.2 / 92.2 |
+| cookie-es | 727 / 725 | **12.2** / 16.7 | **0.28** / 2.2 | **0.71** / 2.6 | 86.3 / 86.3 |
+| pathe | 547 / 524 | 16.8 / 15.2 | **0.30** / 4.2 | **1.0** / 4.3 | 87.4 / 87.0 |
+| ufo | 1109 / 1011 | **23.6** / 25.9 | **1.1** / 3.0 | **1.1** / 3.5 | 82.6 / 82.6 |
+
+- Reruns are where the gap is: 8–14x faster with no change (ufo 3x, where one of the two runs was an outlier), 3–4x after an edit. First runs are similar (faster on four projects, slightly slower on pathe).
+- Verdicts agree on every mutant both tools generate, except two in pathe that break a test file while Vitest collects it: StrykerJS reports them Survived, mutator detected.
+- StrykerJS ran on Vitest 4.1.5 (StrykerJS 10's Vitest runner did not work with Vitest 5 when measured), mutator on Vitest 5.0.3. Mutator sets differ, so totals and overall scores are not comparable; the last column compares the mutants both generate.
+
+Where the speed comes from:
+
+- **No sandbox.** Sources are instrumented in memory by a Vite transform inside warm Vitest instances; StrykerJS by default copies the project into a sandbox and starts its runners for every run.
+- **Reuse by function.** A mutant's identity does not depend on its position, and its result is cached with the hash of its enclosing function and its covering tests. A rerun with no change runs nothing; after an edit only the edited functions' mutants run, plus those whose covering tests changed. The coverage run also skips test files the change cannot affect.
+- **Diff mode.** `--since <ref>` runs and reports only the mutants in `git diff <ref>`.
+- **Fewer runs.** Weak mutation decides covered mutants that no test reaches with a different value as Survived without running them, and mutants that do not type-check are dropped before any test runs (StrykerJS has an optional TypeScript checker for the latter).
+
+### Differences
+
+| | mutator | StrykerJS |
+|---|---|---|
+| test runners | Vitest 5; Jest 30 in native ESM mode and Playwright Test for browser code served by Vite (both experimental) | Jest, Vitest, Mocha, Jasmine, Karma, Cucumber, Tap, any command |
+| scope of a run | the whole project, or only `git diff <ref>` (`--since`) | `mutate` globs (with line ranges); `--incremental` reuses unchanged results but reports everything |
+| undetected mutants | split by where the tests stopped short: not detected, not infected, not reached (with a fix for each) | Survived, NoCoverage |
+| equivalent mutants | `mutator accept <key>` (keyed, outside the source, reported when stale) and `?.` proven unneeded by types; disable comments | disable comments (`// Stryker disable`, also honoured by mutator) |
+| a test file failing to load under a mutant | detected | Survived (StrykerJS 10's Vitest runner) |
+| mutators | 18, including function return values by type and call statement removal; logging-only code is skipped (arid) | its own set, including `switch` case removal and a richer regex mutator; skips everything under `as` casts |
+| beyond the score | critical regions, `--kill-matrix` (redundant tests), `--reporter simplify` (code no test needs), `select-tests` (tests a change can break), `--reporter agent` and agent skills, a GitHub Action with a cached snapshot | Stryker Dashboard, plugins for many runners and checkers |
+| reports | mutation-testing-elements JSON and HTML (the format StrykerJS emits), text, GitHub annotations | mutation-testing-elements HTML / JSON, progress, dashboard |
+| maturity | 0.x | stable, widely used |
+
+Choose StrykerJS for a test runner mutator does not support (Mocha, Karma, Jasmine, CommonJS Jest), for the Stryker Dashboard, or for a long-established tool. Choose mutator for Vitest projects where mutation testing should run on every change, in CI or by a coding agent.
+
 ## Install
 
 Requires Node.js 24 or later.

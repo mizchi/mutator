@@ -85,8 +85,11 @@ describe('playwright session', { timeout: 120_000 }, () => {
     const result = await session.runMutant(find('counter.ts', 'n + 1', 'n - 1').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 30_000 });
     expect(result).toMatchObject({ status: 'Killed', killedBy: ['tests/app.spec.ts#counter > increments'] });
     // The failing expect stops waiting for the text long before Playwright's default 5 s: it is
-    // bounded by what the test took in the dry run.
-    expect(result.durationMs).toBeLessThan(5000);
+    // bounded by what the test took in the dry run. Compared with a passing run of the same test,
+    // so the machine's load cancels out.
+    const passing = await session.runMutant(find('counter.ts', 'n >= 10', 'n > 10').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 30_000 });
+    expect(passing.status).toBe('Survived');
+    expect(result.durationMs - passing.durationMs).toBeLessThan(3500);
   });
 
   test('early exit stops at the first failing test; without it every failing test is reported (kill matrix)', async () => {
@@ -105,13 +108,6 @@ describe('playwright session', { timeout: 120_000 }, () => {
     expect(result).toMatchObject({ status: 'Survived', killedBy: [] });
   });
 
-  test('a run past its budget is a timeout', async () => {
-    const result = await session.runMutant(find('counter.ts', 'n + 1', 'n - 1').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 1 });
-    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'time', killedBy: [] });
-    // The stuck run was killed with its process group; the next run is not affected.
-    const next = await session.runMutant(find('counter.ts', 'n + 1', 'n - 1').key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 30_000 });
-    expect(next).toMatchObject({ status: 'Killed', killedBy: ['tests/app.spec.ts#counter > increments'] });
-  });
 });
 
 describe('playwright session instrument options', { timeout: 120_000 }, () => {
@@ -218,6 +214,18 @@ describe('playwright session failures', { timeout: 120_000 }, () => {
       expect(result).toMatchObject({ status: 'RuntimeError', killedBy: [] });
       // A test that waits 1.5 s for its expect still passes: the bound follows what it took in the dry run.
       expect(await session.runMutant('no-such-mutant', ['tests/plain.spec.ts#waits'], { timeoutMs: 30_000 })).toMatchObject({ status: 'Survived' });
+    } finally {
+      await session.close();
+    }
+  });
+
+  test('a run that hangs past its budget is a timeout, and the next run is not affected', async () => {
+    const session = await createPlaywrightSession({ root, targets: [] });
+    try {
+      await session.dryRun();
+      // A budget of 2 s (plus the measured start-up) ends the run long before Playwright's own 30 s test timeout.
+      expect(await session.runMutant('hang', ['tests/plain.spec.ts#passes'], { timeoutMs: 2000 })).toMatchObject({ status: 'Timeout', timeoutCause: 'time', killedBy: [] });
+      expect(await session.runMutant('no-such-mutant', ['tests/plain.spec.ts#passes'], { timeoutMs: 30_000 })).toMatchObject({ status: 'Survived' });
     } finally {
       await session.close();
     }

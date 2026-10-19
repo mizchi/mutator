@@ -2,11 +2,13 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
-// Under the mutant `break-file` this file fails to load.
+// Under the mutant `break-file` this file fails to load; under `hang`, `passes` never ends.
 const file = process.env.MUTATOR_PLAYWRIGHT_RUN_FILE;
-if (file && (JSON.parse(readFileSync(file, 'utf8')) as { active: string | null }).active === 'break-file') throw new Error('the test file broke');
+const active = file ? (JSON.parse(readFileSync(file, 'utf8')) as { active: string | null }).active : null;
+if (active === 'break-file') throw new Error('the test file broke');
 
-test('passes', () => {
+test('passes', async () => {
+  if (active === 'hang') await new Promise(() => {});
   // While ../leave-process exists: start a process that outlives the test, and write its pid there.
   const marker = new URL('../leave-process', import.meta.url);
   if (existsSync(marker)) writeFileSync(marker, String(spawn('sleep', ['30'], { stdio: 'ignore' }).pid));

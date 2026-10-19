@@ -13,6 +13,7 @@ import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveVal
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { BaselineError, SnapshotError, listMutants, runMutation } from './run.ts';
 import { selectTestsSince, selectionFiles } from './select-tests.ts';
+import { stopDescendantsOnTermination } from './terminate.ts';
 import { formatSimplify, simplifyCandidates } from './simplify.ts';
 import { VERSION } from './version.ts';
 
@@ -70,6 +71,8 @@ exit codes:
   1  invalid options or config file
   2  quality gate failed (score below --threshold-break, a survivor with --fail-on-survived, or an undetected critical mutant)
   4  tests fail without mutants (baseline)`;
+
+stopDescendantsOnTermination();
 
 try {
   if (process.argv[2] === 'accept') {

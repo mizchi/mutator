@@ -34,9 +34,9 @@ describe('process runner', { timeout: 60_000 }, () => {
       expect(outcome.timedOut).toBe(false);
       const tests = outcome.results!.tests.map((t) => [t.titles.join(' > '), t.outcome, t.file, t.line]);
       expect(tests.sort()).toEqual([
-        ['fails', 'unexpected', join(root, 'tests/plain.spec.ts'), 16],
-        ['passes', 'expected', join(root, 'tests/plain.spec.ts'), 9],
-        ['waits', 'expected', join(root, 'tests/plain.spec.ts'), 22],
+        ['fails', 'unexpected', join(root, 'tests/plain.spec.ts'), 18],
+        ['passes', 'expected', join(root, 'tests/plain.spec.ts'), 10],
+        ['waits', 'expected', join(root, 'tests/plain.spec.ts'), 24],
       ]);
     }
   });
@@ -45,7 +45,7 @@ describe('process runner', { timeout: 60_000 }, () => {
     const marker = join(root, 'leave-process');
     writeFileSync(marker, '');
     try {
-      await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
+      await run([`${join(root, 'tests/plain.spec.ts')}:10`]);
       const pid = Number(readFileSync(marker, 'utf8'));
       expect(pid).toBeGreaterThan(0);
       // A killed process answers signal 0 until it is reaped, which a busy machine may delay.
@@ -64,7 +64,7 @@ describe('process runner', { timeout: 60_000 }, () => {
   });
 
   test('runs only the tests at the given locations', async () => {
-    const outcome = await run([`${join(root, 'tests/plain.spec.ts')}:9`]);
+    const outcome = await run([`${join(root, 'tests/plain.spec.ts')}:10`]);
     expect(outcome.results!.tests.map((t) => t.titles)).toEqual([['passes']]);
   });
 });

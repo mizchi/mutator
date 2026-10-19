@@ -118,6 +118,54 @@ test('tests that run but reach no mutant are reported as a setup problem, not as
   }
 }, 60_000);
 
+/** Every process below `pid`, from `ps`. */
+function descendantsOf(pid: number): number[] {
+  const rows = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).stdout.trim().split('\n').map((l) => l.trim().split(/\s+/).map(Number));
+  const out: number[] = [];
+  const walk = (parent: number) => rows.filter(([, ppid]) => ppid === parent).forEach(([child]) => (out.push(child!), walk(child!)));
+  walk(pid);
+  return out;
+}
+
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+test.each([
+  ['SIGTERM', 143],
+  ['SIGINT', 130],
+] as const)('%s stops the run and the workers with it, also one stuck in a loop', async (signal, code) => {
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-signal-${signal}-${process.pid}`);
+  rmSync(root, { recursive: true, force: true });
+  mkdirSync(join(root, 'src'), { recursive: true });
+  mkdirSync(join(root, 'test'));
+  writeFileSync(join(root, 'vitest.config.ts'), "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n");
+  writeFileSync(join(root, 'src/three.ts'), 'export function three(): number {\n  return 1 + 2;\n}\n');
+  // A loop in test code: no hit limit stops it, so under a mutant the worker spins until killed.
+  writeFileSync(join(root, 'test/three.test.ts'), "import { expect, test } from 'vitest';\nimport { three } from '../src/three.ts';\ntest('three', () => {\n  const v = three();\n  let n = 0;\n  while (v !== 3) n++;\n  expect(n).toBe(0);\n});\n");
+  try {
+    const child = spawn(process.execPath, [cli, '--root', root, '--no-typecheck', '-j', '1'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const closed = new Promise<number | null>((done) => child.on('close', done));
+    // Wait until a mutant run is stuck.
+    for (let i = 0; i < 200 && !/to run/.test(stderr); i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 2000));
+    const workers = descendantsOf(child.pid!);
+    expect(workers.length).toBeGreaterThan(0);
+    child.kill(signal);
+    expect(await closed).toBe(code);
+    await expect.poll(() => workers.filter(alive), { timeout: 5000 }).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));
   writeFileSync(join(root, 'mutator.config.json'), '{"concurency": 2}');

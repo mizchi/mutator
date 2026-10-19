@@ -394,6 +394,8 @@ The two timeouts are derived from the dry run, so a machine that is busier durin
 
 A `RuntimeError` (the run failed outside any test: a test file that fails to load, an unhandled error) is re-run once with the same budget, and counts only if it fails that way again. Without it, an error that a flaky test file raises under load is credited as a detection of whatever mutant was running. The summary reports these too: `runtime errors re-run to confirm them: 3 (1 failed again)`.
 
+Stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every process it started (test workers, Jest and Playwright processes, dev servers) and exits with 130 / 143: a worker stuck in a mutant's loop cannot notice its parent going away, and would otherwise keep spinning. SIGKILL cannot be handled; after `kill -9` such a worker may be left behind.
+
 ## Packages
 
 | package | role |

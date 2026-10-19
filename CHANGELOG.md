@@ -20,6 +20,8 @@
 - A plugin module that exports nothing usable (a misspelt `visit`, a missing name) is a config error saying what is missing.
 - A mutant reached while a test file loads (or in its `beforeAll`) ran only that file's tests, not the tests of other files that reach it while running, so it could be reported Survived although one of those kills it. Both run now; the snapshot version is bumped so such cached verdicts are not reused.
 - A `RuntimeError` is re-run once and counts only if it fails the same way again: under load, an unhandled error from a flaky test file was credited as a detection of whatever mutant was running (seen as bursts of RuntimeError that the same mutants did not reproduce alone, where they survive).
+- Ctrl-C and SIGTERM kill every process the run started before exiting (130 / 143). A worker stuck in a mutant's loop used to keep spinning at full CPU after mutator was stopped.
+- Playwright tests of this repository no longer depend on the machine's load (the timeout test hangs on purpose; the expect-bound test compares with a passing run).
 
 ## 0.1.0 - 2026-10-16
 

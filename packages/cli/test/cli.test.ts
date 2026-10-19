@@ -136,28 +136,38 @@ const alive = (pid: number) => {
   }
 };
 
-test.each([
-  ['SIGTERM', 143],
-  ['SIGINT', 130],
-] as const)('%s stops the run and the workers with it, also one stuck in a loop', async (signal, code) => {
-  const root = join(import.meta.dirname, '../../../.tmp', `cli-signal-${signal}-${process.pid}`);
+/** A project whose test loops in test code: no hit limit stops it, so under a mutant the worker spins until killed. */
+function loopingProject(name: string): string {
+  const root = join(import.meta.dirname, '../../../.tmp', `${name}-${process.pid}`);
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, 'src'), { recursive: true });
   mkdirSync(join(root, 'test'));
   writeFileSync(join(root, 'vitest.config.ts'), "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n");
   writeFileSync(join(root, 'src/three.ts'), 'export function three(): number {\n  return 1 + 2;\n}\n');
-  // A loop in test code: no hit limit stops it, so under a mutant the worker spins until killed.
   writeFileSync(join(root, 'test/three.test.ts'), "import { expect, test } from 'vitest';\nimport { three } from '../src/three.ts';\ntest('three', () => {\n  const v = three();\n  let n = 0;\n  while (v !== 3) n++;\n  expect(n).toBe(0);\n});\n");
+  return root;
+}
+
+/** Starts mutator on `root` and resolves once a mutant run has been stuck for a while. */
+async function startStuck(root: string) {
+  const child = spawn(process.execPath, [cli, '--root', root, '--no-typecheck', '-j', '1'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let stderr = '';
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+  const closed = new Promise<number | null>((done) => child.on('close', done));
+  for (let i = 0; i < 200 && !/to run/.test(stderr); i++) await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 3000));
+  const workers = descendantsOf(child.pid!);
+  expect(workers.length).toBeGreaterThan(0);
+  return { child, closed, workers };
+}
+
+test.each([
+  ['SIGTERM', 143],
+  ['SIGINT', 130],
+] as const)('%s stops the run and the workers with it, also one stuck in a loop', async (signal, code) => {
+  const root = loopingProject(`cli-signal-${signal}`);
   try {
-    const child = spawn(process.execPath, [cli, '--root', root, '--no-typecheck', '-j', '1'], { stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
-    const closed = new Promise<number | null>((done) => child.on('close', done));
-    // Wait until a mutant run is stuck.
-    for (let i = 0; i < 200 && !/to run/.test(stderr); i++) await new Promise((r) => setTimeout(r, 100));
-    await new Promise((r) => setTimeout(r, 2000));
-    const workers = descendantsOf(child.pid!);
-    expect(workers.length).toBeGreaterThan(0);
+    const { child, closed, workers } = await startStuck(root);
     child.kill(signal);
     expect(await closed).toBe(code);
     await expect.poll(() => workers.filter(alive), { timeout: 5000 }).toEqual([]);
@@ -165,6 +175,26 @@ test.each([
     rmSync(root, { recursive: true, force: true });
   }
 }, 60_000);
+
+test('after SIGKILL, the next run stops the workers the killed run left behind', async () => {
+  const root = loopingProject('cli-sigkill');
+  const workers: number[] = [];
+  try {
+    const stuck = await startStuck(root);
+    workers.push(...stuck.workers);
+    stuck.child.kill('SIGKILL');
+    await stuck.closed;
+    // SIGKILL cannot be handled: the stuck worker is still there, orphaned.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect(workers.filter(alive).length).toBeGreaterThan(0);
+    const next = spawnSync(process.execPath, [cli, '--root', root, '--no-typecheck', '--only', 'nosuchkey'], { encoding: 'utf8' });
+    expect(next.stderr).toMatch(/stopped \d+ process\(es\) left by an interrupted run/);
+    await expect.poll(() => workers.filter(alive), { timeout: 5000 }).toEqual([]);
+  } finally {
+    for (const pid of workers.filter(alive)) process.kill(pid, 'SIGKILL');
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 90_000);
 
 test('an invalid config file exits 1 with the reason', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-cli-'));

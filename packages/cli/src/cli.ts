@@ -13,6 +13,7 @@ import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveVal
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { BaselineError, SnapshotError, listMutants, runMutation } from './run.ts';
 import { selectTestsSince, selectionFiles } from './select-tests.ts';
+import { reapOrphans, recordProcesses } from './orphans.ts';
 import { stopDescendantsOnTermination } from './terminate.ts';
 import { formatSimplify, simplifyCandidates } from './simplify.ts';
 import { VERSION } from './version.ts';
@@ -72,6 +73,9 @@ exit codes:
   2  quality gate failed (score below --threshold-break, a survivor with --fail-on-survived, or an undetected critical mutant)
   4  tests fail without mutants (baseline)`;
 
+/** Ends the process record of this run (set once the run starts). */
+let stopRecording: (() => void) | undefined;
+
 stopDescendantsOnTermination();
 
 try {
@@ -98,6 +102,12 @@ try {
   }
   const options = await resolveValues(values, process.cwd());
   const { root, reporters } = options;
+  // Workers a killed run (SIGKILL) left spinning; then record this run's, for the next one.
+  // In the CLI process only: tests run it as a child process, never with mutated code.
+  const processes = join(root, '.mutator');
+  const reaped = reapOrphans(processes);
+  if (reaped > 0) console.error(`stopped ${reaped} process(es) left by an interrupted run`);
+  stopRecording = recordProcesses(processes);
   if (options.configPath) console.error(`config: ${options.configPath}`);
   const accepted = readAccepted(join(root, ACCEPTED_FILE));
   const report = await runMutation({
@@ -155,6 +165,7 @@ try {
  * exiting drops what is still queued (a large --reporter agent document piped to jq).
  */
 async function exit(code: number): Promise<never> {
+  stopRecording?.();
   const flush = (stream: NodeJS.WriteStream) =>
     new Promise<void>((done) => {
       // A reader that went away (EPIPE, as after `grep -q`) needs nothing more.

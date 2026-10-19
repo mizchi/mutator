@@ -22,6 +22,7 @@
 - A `RuntimeError` is re-run once and counts only if it fails the same way again: under load, an unhandled error from a flaky test file was credited as a detection of whatever mutant was running (seen as bursts of RuntimeError that the same mutants did not reproduce alone, where they survive).
 - Ctrl-C and SIGTERM kill every process the run started before exiting (130 / 143). A worker stuck in a mutant's loop used to keep spinning at full CPU after mutator was stopped.
 - Playwright tests of this repository no longer depend on the machine's load (the timeout test hangs on purpose; the expect-bound test compares with a passing run).
+- After a run killed with SIGKILL, the next run stops the workers it left spinning (recorded under `.mutator/processes/` with their start time; only those still orphaned and started when recorded).
 
 ## 0.1.0 - 2026-10-16
 

@@ -305,8 +305,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const final = acceptance?.entries ?? report;
     const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
-    // Coverage, not verdicts: a reached mutant may still be pending (time budget).
-    const reached = merged.staticKeys.size > 0 || [...merged.coverage.values()].some((tests) => tests.length > 0);
+    // Coverage, not verdicts: a reached mutant may still be pending (time budget). The merged
+    // coverage holds only mutants some test reached.
+    const reached = merged.staticKeys.size > 0 || merged.coverage.size > 0;
     const noCoverage = merged.tests.length > 0 && mutants.length > 0 && !reached;
     return {
       entries: final,

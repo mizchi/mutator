@@ -1,0 +1,5 @@
+{
+  "name": "mutator-jest-fixture-noisy",
+  "private": true,
+  "type": "module"
+}

@@ -12,9 +12,12 @@ export type InitSkillResult = { skill: string; path: string; status: 'written' |
 
 /** Names of the shipped skills: the directories under skills/ with a SKILL.md. */
 export function shippedSkills(): string[] {
-  return readdirSync(SHIPPED_SKILLS)
-    .filter((name) => existsSync(join(SHIPPED_SKILLS, name, 'SKILL.md')))
-    .sort();
+  return skillNames(readdirSync(SHIPPED_SKILLS), (name) => existsSync(join(SHIPPED_SKILLS, name, 'SKILL.md')));
+}
+
+/** The skill entries, in name order: readdir's order depends on the file system. */
+export function skillNames(entries: readonly string[], isSkill: (name: string) => boolean): string[] {
+  return entries.filter(isSkill).sort();
 }
 
 function filesUnder(dir: string): string[] {

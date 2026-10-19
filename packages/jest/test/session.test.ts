@@ -21,6 +21,19 @@ describe('jest session: child processes', { timeout: 60_000 }, () => {
   });
 });
 
+test('a test writing megabytes to stdout does not block the run (stdout is not piped)', { timeout: 60_000 }, async () => {
+  const noisyRoot = fileURLToPath(new URL('./fixtures/noisy', import.meta.url));
+  const session = await createJestSession({ root: noisyRoot, targets: [join(noisyRoot, 'src/double.js')] });
+  try {
+    const dry = await session.dryRun();
+    expect(dry.tests.map((t) => t.id)).toEqual(['__tests__/noisy.test.js#double']);
+    const mutant = session.mutants().find((m) => m.original === 'n * 2' && m.replacement === 'n / 2')!;
+    expect(await session.runMutant(mutant.key, ['__tests__/noisy.test.js#double'], { timeoutMs: 20_000 })).toMatchObject({ status: 'Killed' });
+  } finally {
+    await session.close();
+  }
+});
+
 describe('jest session: a mutant failing several test files', { timeout: 60_000 }, () => {
   const matrixRoot = fileURLToPath(new URL('./fixtures/matrix', import.meta.url));
   const A = '__tests__/a.test.js#a';

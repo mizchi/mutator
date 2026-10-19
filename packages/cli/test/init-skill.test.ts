@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { ConfigError } from '../src/config.ts';
-import { DEFAULT_SKILL_DIR, initSkills, shippedSkills } from '../src/init-skill.ts';
+import { DEFAULT_SKILL_DIR, initSkills, shippedSkills, skillNames } from '../src/init-skill.ts';
 import { parseInitSkillCli } from '../src/options.ts';
 
 const cli = join(import.meta.dirname, '../src/cli.ts');
@@ -23,6 +23,10 @@ function withProject(body: (dir: string) => void): void {
 test("the repository's mutation-test-loop skill is the shipped one, byte for byte", () => {
   const repoCopy = join(import.meta.dirname, '../../../.claude/skills/mutation-test-loop/SKILL.md');
   expect(readFileSync(repoCopy).equals(readFileSync(join(shipped, 'mutation-test-loop/SKILL.md')))).toBe(true);
+});
+
+test('skill names keep only skills, in name order whatever order the file system lists them in', () => {
+  expect(skillNames(['zeta', 'notes.md', 'alpha', 'mid'], (name) => !name.endsWith('.md'))).toEqual(['alpha', 'mid', 'zeta']);
 });
 
 test('the shipped skills are every directory under skills/', () => {

@@ -6,11 +6,28 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Nightly: a full run with a longer budget continues where the push runs' budget stopped,
+  # and keeps the cache warm.
+  schedule:
+    - cron: '17 18 * * *'
+  # By hand: e.g. re-run the mutants of an older change (since: its parent commit's sha).
+  workflow_dispatch:
+    inputs:
+      since:
+        description: Commit sha to diff against (empty for a full run)
+        default: ''
+      time-budget:
+        description: Seconds after which no new mutant run starts
+        default: '600'
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   mutation:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.event_name == 'schedule' && 90 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -25,6 +42,6 @@ jobs:
         with:
           # The CLI from source: this repository does not depend on the published package.
           command: node packages/cli/src/cli.ts
-          # On main, only the pushed commits: it keeps the cache warm for pull requests.
-          since: ${{ github.event_name == 'push' && github.event.before || '' }}
-          args: --time-budget 600
+          # On main, only the pushed commits; by hand, what was asked; nightly, everything.
+          since: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'workflow_dispatch' && inputs.since || '' }}
+          args: --time-budget ${{ github.event_name == 'schedule' && '3000' || github.event_name == 'workflow_dispatch' && inputs.time-budget || '600' }}

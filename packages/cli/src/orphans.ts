@@ -53,6 +53,17 @@ export function descendantsIn(table: readonly ProcessInfo[], pid: number): Proce
   return out;
 }
 
+/** SIGKILL each pid; one already gone is skipped. */
+export function killAll(pids: readonly number[]): void {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // already gone
+    }
+  }
+}
+
 const recordsDir = (dir: string) => join(dir, 'processes');
 
 export function writeRecord(dir: string, record: RunRecord): void {
@@ -86,13 +97,7 @@ export function reapOrphans(dir: string): number {
     records.map((r) => r.record),
     table,
   );
-  for (const pid of killed) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // already gone
-    }
-  }
+  killAll(killed);
   const alive = new Map(table.map((p) => [p.pid, p.start]));
   for (const { file, record } of records) if (alive.get(record.cli.pid) !== record.cli.start) rmSync(file, { force: true });
   return killed.length;

@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { ConfigError } from './config.ts';
 import type { ReportEntry } from './run.ts';
+import { isUndetected } from './status.ts';
 
 export const ACCEPTED_FILE = 'mutator.accepted.json';
 
@@ -53,7 +54,7 @@ export function applyAcceptance(entries: readonly ReportEntry[], accepted: Reado
   const out = entries.map((e) => {
     const reason = accepted.get(e.mutant.key);
     if (reason === undefined) return e;
-    if (e.status === 'Survived' || e.status === 'NoCoverage') return { ...e, status: 'Ignored' as const, accepted: reason };
+    if (isUndetected(e.status)) return { ...e, status: 'Ignored' as const, accepted: reason };
     if (e.status === 'Killed' || e.status === 'Timeout' || e.status === 'RuntimeError') killed.push(e.mutant.key);
     return e;
   });

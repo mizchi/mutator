@@ -8,6 +8,7 @@ import { POSSIBLY_IN_CHILD_PROCESS, childProcessMessage } from './child-process.
 import { uncollectedMessage } from './report.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
+import { isUndetected } from './status.ts';
 import { VERSION } from './version.ts';
 
 /** mutation-testing-elements release loaded by the HTML report (and the schema version tests validate against). */
@@ -65,7 +66,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
             ? 'not infected: no covering test reaches it with a value it changes'
             : (reason ?? mutant.ignored);
     // An undetected mutant in a critical region fails the run (accepted ones are Ignored).
-    const undetectedCritical = critical.has(mutant.key) && (status === 'Survived' || status === 'NoCoverage');
+    const undetectedCritical = critical.has(mutant.key) && isUndetected(status);
     const reasons = [undetectedCritical ? CRITICAL_REASON : undefined, statusReason].filter(Boolean).join('; ');
     files[path].mutants.push({
       id: mutant.key,

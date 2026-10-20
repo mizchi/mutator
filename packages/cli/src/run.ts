@@ -37,6 +37,7 @@ import { type SpawningTest, childProcessReach, isFile, possiblyInChildProcess } 
 import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
 import { RETRY_FACTOR, runWithTimeoutRetry } from './timeout-retry.ts';
+import { score } from './status.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
@@ -722,15 +723,6 @@ function mergeSnapshot(previous: RunSnapshot | undefined, current: RunSnapshot, 
   const alive = new Map(mutants.map((m) => [m.key, m.scope.hash]));
   const kept = previous.results.filter((r) => !written.has(r.key) && alive.get(r.key) === r.scopeHash);
   return { ...current, results: [...current.results, ...kept] };
-}
-
-const DETECTED = new Set<string>(['Killed', 'Timeout', 'RuntimeError']);
-const UNDETECTED = new Set<string>(['Survived', 'NoCoverage']);
-
-function score(entries: readonly ReportEntry[]): number {
-  const detected = entries.filter((e) => DETECTED.has(e.status)).length;
-  const undetected = entries.filter((e) => UNDETECTED.has(e.status)).length;
-  return detected + undetected === 0 ? 1 : detected / (detected + undetected);
 }
 
 function readIfExists(file: string): string {

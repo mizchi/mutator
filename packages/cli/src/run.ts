@@ -8,7 +8,6 @@ import {
   type Mutant,
   type MutantResult,
   type MutantStatus,
-  type PlanEntry,
   type ResultReason,
   type RunSnapshot,
   type SelectMode,
@@ -25,7 +24,6 @@ import {
   selectPerLine,
   testFileOf,
   testFingerprint,
-  toResult,
 } from '@mizchi/mutator-core';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
 import { type Runner, type RunnerSessionOptions, createRunnerSession, detectRunner } from './runner.ts';
@@ -38,7 +36,8 @@ import { applyAcceptance } from './accepted.ts';
 import { type SpawningTest, childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
 import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
-import { RETRY_FACTOR, runWithTimeoutRetry } from './timeout-retry.ts';
+import { RetryCounts, type TimeoutRetries, runWithTimeoutRetry } from './timeout-retry.ts';
+import { type Job, type Tally, applyTypecheck, classifyPlan, resultOf } from './tally.ts';
 import { score } from './status.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
@@ -291,7 +290,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
     const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
-    applyTypecheck(tally, jobs, notInfected, typecheck, merged.coverage);
+    applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
     const { executed, timeoutRetries, runtimeErrorRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
@@ -314,7 +313,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const noCoverage = merged.tests.length > 0 && mutants.length > 0 && !reached;
     return {
       entries: final,
-      executed,       dryRunFiles: [...dryFiles].sort(),
+      executed,
+      dryRunFiles: [...dryFiles].sort(),
       score: score(scored),
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
@@ -433,109 +433,6 @@ async function resolveSetup(root: string, options: RunOptions, log: (message: st
   return { files, plugins, arid, instrumentOptions, runner, sessionOptions };
 }
 
-/** Report entries in plan order, and the results the snapshot records. */
-export interface TimeoutRetries {
-  retried: number;
-  confirmed: number;
-}
-
-interface Tally {
-  report: ReportEntry[];
-  results: MutantResult[];
-  notRun: { sampled: number; budget: number };
-}
-
-type Job = { index: number; entry: Extract<PlanEntry, { kind: 'run' }> };
-
-/** Not run now; keep the coverage so the next run can still select tests for it. */
-function skip(tally: Tally, index: number, mutant: Mutant, coveredBy: string[]): void {
-  tally.results.push(toResult(mutant, 'Pending', [], coveredBy));
-  tally.report[index] = { mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy };
-}
-
-/**
- * Settle the plan entries decided without running. Mutants to run become jobs; notInfected
- * ones (report indices) wait for the type check.
- */
-function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryRun['coverage'], inScope: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, sampled: ReadonlySet<string> | undefined) {
-  const tally: Tally = { report: [], results: [], notRun: { sampled: 0, budget: 0 } };
-  const { report, results, notRun } = tally;
-  const jobs: Job[] = [];
-  const notInfected: number[] = [];
-  for (const entry of entries) {
-    const { mutant } = entry;
-    const coveredBy = [...(coverage.get(mutant.key) ?? [])];
-    // Outside --since or sampled out: left Pending, whether it would run or be decided without running.
-    // A recheck is not sampled: it is the only run that notices its killing tests are gone.
-    const focus = inScope?.get(mutant.key);
-    const sampledOut = sampled !== undefined && !sampled.has(mutant.key) && focus !== 'recheck';
-    if ((entry.kind === 'run' || entry.kind === 'notInfected') && ((inScope && !focus) || sampledOut)) {
-      if (!inScope || focus) notRun.sampled++;
-      skip(tally, report.length, mutant, coveredBy);
-      continue;
-    }
-    switch (entry.kind) {
-      case 'ignored':
-        results.push(toResult(mutant, 'Ignored', [], []));
-        report.push({ mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy });
-        break;
-      case 'notInfected':
-        // Covered, but no covering test reaches it with a different value: it cannot be
-        // killed. Decided after type checking (an uncompilable mutant is a CompileError).
-        notInfected.push(report.length);
-        report.push({ mutant, status: 'Survived', source: 'static', killedBy: [], coveredBy, reason: 'notInfected' });
-        break;
-      case 'noCoverage':
-        results.push(toResult(mutant, 'NoCoverage', [], []));
-        report.push({ mutant, status: 'NoCoverage', source: 'static', killedBy: [], coveredBy });
-        break;
-      case 'reuse':
-        // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
-        results.push({ ...entry.result, coveredBy });
-        report.push({ mutant, status: entry.result.status, source: 'reuse', killedBy: entry.result.killedBy, coveredBy, ...(entry.result.reason ? { reason: entry.result.reason } : {}), ...(entry.result.matrix ? { matrix: true as const } : {}) });
-        break;
-      case 'run':
-        jobs.push({ index: report.length, entry });
-        report.push({ mutant, status: 'Pending', source: 'run', killedBy: [], coveredBy });
-        break;
-    }
-  }
-  return { tally, jobs, notInfected };
-}
-
-/**
- * Uncompilable mutants become CompileError, those proven equivalent by types Ignored (both
- * leave `jobs`); the other notInfected ones are settled Survived.
- */
-function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent }: TypecheckResult, coverage: MergedDryRun['coverage']): void {
-  const { report, results } = tally;
-  const decided = (key: string): { status: MutantStatus; reason?: ResultReason } | undefined => {
-    if (errors.has(key)) return { status: 'CompileError' };
-    const reason = equivalent.get(key);
-    return reason === undefined ? undefined : { status: 'Ignored', reason };
-  };
-  for (const i of notInfected) {
-    const entry = report[i]!;
-    const verdict = decided(entry.mutant.key);
-    if (verdict) {
-      const { reason: _reason, ...rest } = entry;
-      report[i] = { ...rest, ...verdict };
-    }
-    // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
-    const { status, reason } = report[i]!;
-    results.push({ ...toResult(entry.mutant, status, [], entry.coveredBy), ...(reason ? { reason } : {}) });
-  }
-  for (let i = jobs.length - 1; i >= 0; i--) {
-    const { index, entry } = jobs[i]!;
-    const verdict = decided(entry.mutant.key);
-    if (!verdict) continue;
-    const coveredBy = [...(coverage.get(entry.mutant.key) ?? [])];
-    results.push({ ...toResult(entry.mutant, verdict.status, [], coveredBy), ...(verdict.reason ? { reason: verdict.reason } : {}) });
-    report[index] = { mutant: entry.mutant, source: 'static', killedBy: [], coveredBy, ...verdict };
-    jobs.splice(i, 1);
-  }
-}
-
 interface ExecuteContext {
   root: string;
   log: (message: string) => void;
@@ -559,7 +456,7 @@ interface ExecuteContext {
  */
 async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries; runtimeErrorRetries: TimeoutRetries }> {
   const { root, log, merged, timeBudget } = ctx;
-  const { report, results, notRun } = tally;
+  const { report, notRun } = tally;
   const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
   // Under a budget, cheapest first: the budget then settles as many mutants as possible.
   if (timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
@@ -575,8 +472,7 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
   for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
-  const timeoutRetries: TimeoutRetries = { retried: 0, confirmed: 0 };
-  const runtimeErrorRetries: TimeoutRetries = { retried: 0, confirmed: 0 };
+  const retries = new RetryCounts();
   const neverStarted = await runSharded({
     workers: workers.length,
     jobs: sharded,
@@ -593,35 +489,26 @@ async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Prom
         ...(ctx.killMatrix ? { earlyExit: false } : {}),
       };
       const { outcome, retried } = await runWithTimeoutRetry((o) => workers[worker]!.runMutant(entry.mutant.key, [...tests], o), options);
-      const where = `${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`;
-      if (retried === 'timeout') {
-        timeoutRetries.retried++;
-        if (outcome.status === 'Timeout') timeoutRetries.confirmed++;
-        log(`timed out, re-ran with ${RETRY_FACTOR}x the budget: ${outcome.status} ${where}`);
-      } else if (retried === 'runtimeError') {
-        runtimeErrorRetries.retried++;
-        if (outcome.status === 'RuntimeError') runtimeErrorRetries.confirmed++;
-        log(`runtime error, re-ran to confirm it: ${outcome.status} ${where}`);
-      }
+      const message = retries.count(retried, outcome.status);
+      if (message) log(`${message}: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
       return outcome;
     },
     onDone: ({ index, entry }, outcome) => {
       const { mutant } = entry;
       executed++;
       log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-      const { coveredBy } = report[index]!;
       const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
-      results.push({ ...toResult(mutant, outcome.status, outcome.killedBy, coveredBy, outcome.durationMs), ...matrix });
-      report[index] = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy, ...matrix };
+      const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...matrix };
+      tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
     },
   });
   // Over the time budget: the jobs never started.
   for (const { index, entry } of neverStarted) {
     notRun.budget++;
-    skip(tally, index, entry.mutant, report[index]!.coveredBy);
+    tally.skip(index, entry.mutant, report[index]!.coveredBy);
   }
   if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
-  return { executed, timeoutRetries, runtimeErrorRetries };
+  return { executed, timeoutRetries: retries.timeout, runtimeErrorRetries: retries.runtimeError };
 }
 
 /** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */

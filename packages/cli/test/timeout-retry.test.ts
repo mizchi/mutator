@@ -5,9 +5,23 @@ import type { MutantRunResult, RunMutantOptions } from '@mizchi/mutator-core';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { formatSummary } from '../src/report.ts';
 import { runMutation } from '../src/run.ts';
-import { RETRY_FACTOR, runWithTimeoutRetry } from '../src/timeout-retry.ts';
+import { RETRY_FACTOR, RetryCounts, runWithTimeoutRetry } from '../src/timeout-retry.ts';
 
 const result = (status: MutantRunResult['status'], extra: Partial<MutantRunResult> = {}): MutantRunResult => ({ status, killedBy: [], durationMs: 100, ...extra });
+
+describe('RetryCounts', () => {
+  test('counts re-runs by cause, and those whose verdict the re-run confirmed', () => {
+    const counts = new RetryCounts();
+    expect(counts.count(false, 'Killed')).toBeUndefined();
+    expect(counts.count('timeout', 'Timeout')).toBe(`timed out, re-ran with ${RETRY_FACTOR}x the budget`);
+    expect(counts.count('timeout', 'Survived')).toBe(`timed out, re-ran with ${RETRY_FACTOR}x the budget`);
+    expect(counts.count('runtimeError', 'RuntimeError')).toBe('runtime error, re-ran to confirm it');
+    expect(counts.count('runtimeError', 'Killed')).toBe('runtime error, re-ran to confirm it');
+    expect(counts.count('runtimeError', 'Survived')).toBe('runtime error, re-ran to confirm it');
+    expect(counts.timeout).toEqual({ retried: 2, confirmed: 1 });
+    expect(counts.runtimeError).toEqual({ retried: 3, confirmed: 1 });
+  });
+});
 
 describe('runWithTimeoutRetry', () => {
   const recording = (outcomes: MutantRunResult[]) => {

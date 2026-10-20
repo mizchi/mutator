@@ -4,6 +4,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
 import { type SpawnedCommand, scanImports } from '@mizchi/mutator-core';
 import type { ReportEntry } from './run.ts';
+import { isUndetected } from './status.ts';
 
 /** The warning heading the list of spawning tests. */
 export const CHILD_PROCESS_WARNING = 'these tests run code in a child process; mutator cannot observe mutants there';
@@ -86,7 +87,7 @@ export function childProcessReach(input: {
 
 /** Keys of the undetected mutants (NoCoverage, Survived) in `files` (relative). */
 export function possiblyInChildProcess(entries: readonly ReportEntry[], files: ReadonlySet<string>, root: string): string[] {
-  return entries.filter((e) => (e.status === 'NoCoverage' || e.status === 'Survived') && files.has(relative(root, e.mutant.file))).map((e) => e.mutant.key);
+  return entries.filter((e) => isUndetected(e.status) && files.has(relative(root, e.mutant.file))).map((e) => e.mutant.key);
 }
 
 function loadsOf(file: string): string[] {

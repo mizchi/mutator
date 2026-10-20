@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { type MutantResult, testFileOf } from '@mizchi/mutator-core';
 import { loadersOf } from './consumers.ts';
-import { type RunOptions, loadWarmSnapshot } from './run.ts';
+import { loadWarmSnapshot } from './reuse.ts';
+import type { RunOptions } from './run.ts';
 import { TEST_FILE, diffLines, diffTouched } from './since.ts';
 
 export interface SelectionInput {

@@ -1,52 +1,34 @@
-import { existsSync, globSync, readFileSync } from 'node:fs';
-import { availableParallelism } from 'node:os';
-import { delimiter, dirname, join, relative, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { delimiter, join, relative, resolve } from 'node:path';
 import {
-  type CallGraphSource,
-  type InstrumentFlags,
   type InstrumentOptions,
   type Mutant,
-  type MutantResult,
   type MutantStatus,
   type ResultReason,
-  type RunSnapshot,
   type SelectMode,
-  type Session,
   type TestInfo,
   buildCallGraph,
-  DEFAULT_ARID_CALLEES,
-  estimatedCost,
-  hash,
-  instrument,
-  orderByCost,
   plan,
   relatedScopes,
   selectPerLine,
   testFileOf,
   testFingerprint,
 } from '@mizchi/mutator-core';
-import { type PluginSpec, loadPlugins } from './plugins.ts';
-import { type Runner, type RunnerSessionOptions, createRunnerSession, detectRunner } from './runner.ts';
-import { type CliSnapshot, type MergedDryRun, type SourceInfo, mergeDryRun, planDryRun, scopeTable, testFileHashes } from './coverage-cache.ts';
-import { oneLine } from './report.ts';
-import { runSharded, splitByFile } from './shard.ts';
-import { readSnapshot, writeSnapshot } from './snapshot.ts';
-import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { applyAcceptance } from './accepted.ts';
-import { type SpawningTest, childProcessReach, isFile, possiblyInChildProcess } from './child-process.ts';
-import { type EarlyTypecheck, TS_FILE, type TypecheckResult, startTypecheck, typecheckJobs } from './typecheck.ts';
+import { type SpawningTest, childProcessReach, possiblyInChildProcess } from './child-process.ts';
+import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
+import { executeJobs } from './execute.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
-import { RetryCounts, type TimeoutRetries, runWithTimeoutRetry } from './timeout-retry.ts';
-import { type Job, type Tally, applyTypecheck, classifyPlan, resultOf } from './tally.ts';
+import type { PluginSpec } from './plugins.ts';
+import { ENV_FILES, SNAPSHOT_VERSION, buildSnapshot, environmentHash, mutationSettings } from './reuse.ts';
+import { type Runner, createRunnerSession } from './runner.ts';
+import { collectSources, importResolver, resolveSetup } from './setup.ts';
+import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
+import { readSnapshot, writeSnapshot } from './snapshot.ts';
 import { score } from './status.ts';
-
-/** Runs longer than this (estimated from the dry run) are split by test file. */
-const SHARD_TARGET_MS = 10_000;
-
-// Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
-// no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
-// without the tests that reached them while running), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.8';
+import { applyTypecheck, classifyPlan } from './tally.ts';
+import type { TimeoutRetries } from './timeout-retry.ts';
+import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 export interface RunOptions {
   root: string;
@@ -180,9 +162,6 @@ export interface Report {
 
 export class BaselineError extends Error {}
 
-const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
-const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
-const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'tsconfig.json'];
 
 /**
  * Vitest reports a worker that dies after its run was abandoned (e.g. a timed-out
@@ -339,49 +318,6 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   }
 }
 
-/** Mutation settings change which mutants are placed (and thus covered): part of the environment. */
-function mutationSettings(options: RunOptions, setup: { runner: Runner; arid: InstrumentOptions['arid']; plugins: { fingerprint: unknown } }): string {
-  const { runner, arid, plugins } = setup;
-  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
-}
-
-/** Node version, mutation settings, and the content of the environment files (relative to root). */
-function environmentHash(root: string, settings: string, envFiles: readonly string[]): string {
-  return hash([process.version, settings, ...envFiles.flatMap((f) => [f, readIfExists(join(root, f))])].join('\0'));
-}
-
-/** The snapshot cannot be used: missing, or written by another tool version or environment. */
-export class SnapshotError extends Error {}
-
-/**
- * The snapshot of the last run with the current mutants, without running anything. The
- * environment is re-hashed from the files the run recorded (the runner's config files are
- * only known to a runner session), so the snapshot must have been written by a run that
- * recorded them.
- */
-export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[] }> {
-  const root = resolve(options.root);
-  const snapshotPath = options.snapshotPath ?? join(root, '.mutator', 'snapshot.json');
-  const setup = await resolveSetup(root, options, () => {});
-  const snapshot = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
-  const rel = relative(process.cwd(), snapshotPath) || snapshotPath;
-  if (!snapshot) throw new SnapshotError(`no snapshot at ${rel}: run \`mutator\` once first`);
-  if (snapshot.toolVersion !== SNAPSHOT_VERSION || !snapshot.envFiles || snapshot.index === undefined) {
-    throw new SnapshotError(`${rel} was written by another mutator version: run \`mutator\` once first`);
-  }
-  if (snapshot.envHash !== environmentHash(root, mutationSettings(options, setup), snapshot.envFiles)) {
-    throw new SnapshotError(`${rel} is from another environment (lockfile, tsconfig, runner config, node version or mutation options changed): run \`mutator\` once first`);
-  }
-  return { snapshot, mutants: collectSources(root, setup.files, setup.instrumentOptions).mutants };
-}
-
-/** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
-export async function listMutants(options: RunOptions): Promise<Mutant[]> {
-  const root = resolve(options.root);
-  const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
-  return collectSources(root, files, instrumentOptions).mutants;
-}
-
 /** The `only` keys as a focus map, kept within the --since focus when there is one. */
 function selectOnly(only: ReadonlySet<string>, since: ReadonlyMap<string, 'diff' | 'recheck'> | undefined, mutants: readonly Mutant[]): Map<string, 'diff' | 'recheck'> {
   const known = new Set(mutants.map((m) => m.key));
@@ -392,165 +328,6 @@ function selectOnly(only: ReadonlySet<string>, since: ReadonlyMap<string, 'diff'
     else if (since.has(key)) out.set(key, since.get(key)!);
   }
   return out;
-}
-
-/** Target files, plugins, and the runner with the options its sessions are created with. */
-async function resolveSetup(root: string, options: RunOptions, log: (message: string) => void) {
-  const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
-    cwd: root,
-    exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
-  }).map((f) => join(root, f));
-  const plugins = await loadPlugins(root, options.plugins ?? []);
-  const arid = combineArid(options.arid, plugins.aridCallees);
-  const instrumentOptions: InstrumentFlags = {
-    ...(options.weakMutation === false ? { weak: false } : {}),
-    ...(arid !== undefined ? { arid } : {}),
-    ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
-    ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
-    ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
-  };
-  // An explicit runner config picks the runner; otherwise detect it from the project.
-  const runner =
-    options.runner && options.runner !== 'auto'
-      ? options.runner
-      : options.jestConfigFile
-        ? 'jest'
-        : options.playwrightConfigFile
-          ? 'playwright'
-          : options.configFile
-            ? 'vitest'
-            : detectRunner(root);
-  const configFile = { vitest: options.configFile, jest: options.jestConfigFile, playwright: options.playwrightConfigFile }[runner];
-  log(`runner: ${runner}`);
-  const sessionOptions: RunnerSessionOptions = {
-    root,
-    targets: new Set(files),
-    ...instrumentOptions,
-    pluginModules: plugins.modules,
-    hasPluginObjects: plugins.hasObjects,
-    ...(configFile ? { configFile } : {}),
-  };
-  return { files, plugins, arid, instrumentOptions, runner, sessionOptions };
-}
-
-interface ExecuteContext {
-  root: string;
-  log: (message: string) => void;
-  runner: Runner;
-  sessionOptions: RunnerSessionOptions;
-  /** The dry run's session; parallel sessions created here are added to `sessions` for closing. */
-  session: Session;
-  sessions: Session[];
-  merged: MergedDryRun;
-  /** Start of the run, for the time budget. */
-  started: number;
-  timeBudget: number | undefined;
-  concurrency: number | undefined;
-  /** No early exit: every covering test runs, kills are recorded as a full matrix. */
-  killMatrix: boolean;
-}
-
-/**
- * Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many
- * ran, and how many runs timed out and were re-run with a longer budget (`confirmed`: timed out again).
- */
-async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries; runtimeErrorRetries: TimeoutRetries }> {
-  const { root, log, merged, timeBudget } = ctx;
-  const { report, notRun } = tally;
-  const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
-  // Under a budget, cheapest first: the budget then settles as many mutants as possible.
-  if (timeBudget !== undefined) jobs.splice(0, jobs.length, ...orderByCost(jobs, (j) => estimatedCost(j.entry.tests, testDurations), (j) => j.entry.mutant.key));
-  // Long runs (typically static mutants, which run every test file that loaded them) are
-  // split by test file so idle sessions can take part of them.
-  const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
-  const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
-  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), shardCount));
-  // In parallel mode every mutant session gets a single worker so sessions do not
-  // oversubscribe the CPU; a lone session keeps the runner's default workers.
-  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
-  if (concurrency > 1) ctx.sessions.push(...workers);
-  for (const s of workers) s.useTestIndex(merged.index);
-  const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
-  let executed = 0;
-  const retries = new RetryCounts();
-  const neverStarted = await runSharded({
-    workers: workers.length,
-    jobs: sharded,
-    shouldStop: () => performance.now() >= deadline,
-    allShards: ctx.killMatrix,
-    // A shard keeps its job's timeout: test durations leave out module loading, so a
-    // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
-    run: async (worker, { entry }, tests) => {
-      const options = {
-        timeoutMs: entry.timeoutMs,
-        stallMs: stallBudget(tests, testDurations),
-        isStatic: entry.isStatic,
-        hitLimit: Math.max(10_000, (merged.hits.get(entry.mutant.key) ?? 0) * 100),
-        ...(ctx.killMatrix ? { earlyExit: false } : {}),
-      };
-      const { outcome, retried } = await runWithTimeoutRetry((o) => workers[worker]!.runMutant(entry.mutant.key, [...tests], o), options);
-      const message = retries.count(retried, outcome.status);
-      if (message) log(`${message}: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
-      return outcome;
-    },
-    onDone: ({ index, entry }, outcome) => {
-      const { mutant } = entry;
-      executed++;
-      log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
-      const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
-      const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...matrix };
-      tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
-    },
-  });
-  // Over the time budget: the jobs never started.
-  for (const { index, entry } of neverStarted) {
-    notRun.budget++;
-    tally.skip(index, entry.mutant, report[index]!.coveredBy);
-  }
-  if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
-  return { executed, timeoutRetries: retries.timeout, runtimeErrorRetries: retries.runtimeError };
-}
-
-/** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */
-function buildSnapshot(
-  root: string,
-  reusable: CliSnapshot | undefined,
-  run: { envHash: string; envFiles: string[]; results: MutantResult[]; mutants: readonly Mutant[]; merged: MergedDryRun; testFiles: Record<string, string>; sources: ReadonlyMap<string, SourceInfo> },
-): CliSnapshot {
-  const { merged } = run;
-  const core = mergeSnapshot(reusable, { toolVersion: SNAPSHOT_VERSION, envHash: run.envHash, results: run.results, tests: merged.tests }, run.mutants);
-  return {
-    ...core,
-    envFiles: run.envFiles,
-    testFiles: run.testFiles,
-    deps: Object.fromEntries(merged.deps),
-    index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
-    staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
-    hits: Object.fromEntries(merged.hits),
-    spawns: Object.fromEntries(merged.spawns),
-    scopes: scopeTable(root, run.sources),
-  };
-}
-
-function defaultConcurrency(): number {
-  return Math.max(1, Math.floor(availableParallelism() / 2));
-}
-
-/**
- * A run must make progress (a test starting or finishing) at least this often: the
- * slowest selected test, 3x, plus room for loading the test file's modules. A
- * mutant stuck in a loop is cut here instead of after the sum of all its tests.
- */
-function stallBudget(tests: readonly string[], durations: ReadonlyMap<string, number>): number {
-  let slowest = 0;
-  for (const t of tests) slowest = Math.max(slowest, durations.get(t) ?? 0);
-  return Math.round(slowest * 3) + 10_000;
-}
-
-/** Plugins' logging patterns extend the arid callees (the defaults, or the configured ones). */
-function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]): InstrumentOptions['arid'] {
-  if (arid === false || extra.length === 0) return arid;
-  return { callees: [...(arid?.callees ?? DEFAULT_ARID_CALLEES), ...extra] };
 }
 
 const testsOf = (tests: readonly TestInfo[], files: ReadonlySet<string>) => new Set(tests.map((t) => t.id).filter((id) => files.has(testFileOf(id))));
@@ -569,49 +346,9 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   return out;
 }
 
-/** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
-function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
-  const sources = new Map<string, SourceInfo>();
-  const graphSources: CallGraphSource[] = [];
-  const mutants = files.flatMap((file) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
-    sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports });
-    graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
-    return result.mutants;
-  });
-  return { mutants, sources, graphSources };
-}
-
-const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];
-
-/**
- * Relative import specifier -> one of the mutated files (TS-style `.js` -> `.ts` included);
- * with `onDisk`, any existing file.
- */
-export function importResolver(files: readonly string[], onDisk = false) {
-  const known = new Set(files);
-  const found = (path: string) => known.has(path) || (onDisk && isFile(path));
-  return (from: string, specifier: string): string | undefined => {
-    if (!specifier.startsWith('.')) return undefined;
-    const base = join(dirname(from), specifier);
-    const stems = [base, base.replace(/\.(c|m)?js$/, '.$1ts').replace(/\.jsx$/, '.tsx')];
-    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) if (found(stem + suffix)) return stem + suffix;
-    return undefined;
-  };
-}
-
-/**
- * Keep cached results of mutants that still exist but were not part of this run.
- * `previous` must already be reusable (same tool version and environment as `current`).
- */
-function mergeSnapshot(previous: RunSnapshot | undefined, current: RunSnapshot, mutants: readonly Mutant[]): RunSnapshot {
-  if (!previous) return current;
-  const written = new Set(current.results.map((r) => r.key));
-  const alive = new Map(mutants.map((m) => [m.key, m.scope.hash]));
-  const kept = previous.results.filter((r) => !written.has(r.key) && alive.get(r.key) === r.scopeHash);
-  return { ...current, results: [...current.results, ...kept] };
-}
-
-function readIfExists(file: string): string {
-  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+/** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
+export async function listMutants(options: RunOptions): Promise<Mutant[]> {
+  const root = resolve(options.root);
+  const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
+  return collectSources(root, files, instrumentOptions).mutants;
 }

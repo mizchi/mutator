@@ -4,7 +4,8 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { childProcessReach, possiblyInChildProcess, spawnedEntries } from '../src/child-process.ts';
-import { type Report, type ReportEntry, importResolver, runMutation } from '../src/run.ts';
+import { type Report, type ReportEntry, runMutation } from '../src/run.ts';
+import { importResolver } from '../src/setup.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'mutator-spawn-'));
 for (const dir of ['src', 'bin', 'node_modules/tool']) mkdirSync(join(root, dir), { recursive: true });

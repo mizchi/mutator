@@ -1,4 +1,5 @@
-export { BaselineError, type Report, type ReportEntry, type RunOptions, SNAPSHOT_VERSION, runMutation } from './run.ts';
+export { BaselineError, type Report, type ReportEntry, type RunOptions, runMutation } from './run.ts';
+export { SNAPSHOT_VERSION } from './reuse.ts';
 export { VERSION } from './version.ts';
 export { formatAnnotations, formatSummary } from './report.ts';
 export { MTE_VERSION, type MteReport, formatHtml, formatMutationTestingJson } from './mte-report.ts';

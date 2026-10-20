@@ -2,17 +2,18 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, matchesGlob, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  DEFAULT_HIT_LIMIT,
   type DryRunResult,
-  HIT_LIMIT_MESSAGE,
   type MutantRunResult,
-  type SpawnedCommand,
   type Session,
+  type SpawnedCommand,
   type TestInfo,
   type TestLocation,
+  DEFAULT_HIT_LIMIT,
   emptyDryRun,
   hash,
+  HIT_LIMIT_MESSAGE,
   numberDuplicates,
+  testFingerprint,
 } from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
 import { createVitest } from 'vitest/node';
@@ -257,7 +258,7 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
       const state = test.result().state;
       if (state === 'skipped') continue;
       if (state === 'failed') failed.push(id);
-      tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: test.diagnostic()?.duration ?? 0 });
+      tests.push({ id, fingerprint: testFingerprint(fingerprint, id), durationMs: test.diagnostic()?.duration ?? 0 });
       const testHits = test.options.concurrent
         ? (moduleMeta.mutatorConcurrent ?? {})
         : ((test.meta() as { mutatorHits?: Record<string, number> }).mutatorHits ?? {});

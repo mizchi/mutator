@@ -3,6 +3,7 @@ import { availableParallelism } from 'node:os';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import {
   type CallGraphSource,
+  type InstrumentFlags,
   type InstrumentOptions,
   type Mutant,
   type MutantResult,
@@ -10,11 +11,11 @@ import {
   type PlanEntry,
   type ResultReason,
   type RunSnapshot,
+  type SelectMode,
   type Session,
   type TestInfo,
-  type SelectMode,
-  DEFAULT_ARID_CALLEES,
   buildCallGraph,
+  DEFAULT_ARID_CALLEES,
   estimatedCost,
   hash,
   instrument,
@@ -23,6 +24,7 @@ import {
   relatedScopes,
   selectPerLine,
   testFileOf,
+  testFingerprint,
   toResult,
 } from '@mizchi/mutator-core';
 import { type PluginSpec, loadPlugins } from './plugins.ts';
@@ -262,7 +264,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
     for (const test of merged.tests) {
       const file = testFileOf(test.id);
-      if (dryFiles.has(file)) test.fingerprint = hash(`${finalTestFiles[file]}\0${test.id}`);
+      if (dryFiles.has(file)) test.fingerprint = testFingerprint(finalTestFiles[file]!, test.id);
     }
     session.useTestIndex(merged.index);
 
@@ -679,8 +681,6 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
   }
   return out;
 }
-
-type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'mutators' | 'ignorers' | 'excludedMutators' | 'weak'>;
 
 /** Mutants and scopes of every target file; keys match the ones the Vite plugin produces. */
 function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {

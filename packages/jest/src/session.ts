@@ -6,9 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import {
-  DEFAULT_HIT_LIMIT,
   type DryRunResult,
-  HIT_LIMIT_MESSAGE,
   type InstrumentOptions,
   type Mutant,
   type MutantRunResult,
@@ -16,10 +14,14 @@ import {
   type SpawnedCommand,
   type TestInfo,
   type TestLocation,
+  DEFAULT_HIT_LIMIT,
   emptyDryRun,
   hash,
+  HIT_LIMIT_MESSAGE,
   instrument,
+  instrumentFlags,
   numberDuplicates,
+  testFingerprint,
 } from '@mizchi/mutator-core';
 import { type JestProject, PARTIAL_REPORTER, mutatorJestConfig, readJestProject } from './config.ts';
 
@@ -90,8 +92,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
     root,
     targets: [...options.targets],
     pluginModules: [...(options.pluginModules ?? [])],
-    ...(options.arid !== undefined ? { arid: options.arid } : {}),
-    ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
+    ...instrumentFlags({ arid: options.arid, excludedMutators: options.excludedMutators }),
   };
   writeFileSync(configPath, JSON.stringify(mutatorJestConfig(project, transformer, join(dir, 'cache'))));
 
@@ -170,13 +171,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
     mutants() {
       mutants ??= options.targets.flatMap(
         (file) =>
-          instrument(file, readFileSync(file, 'utf8'), {
-            identity: relative(root, file),
-            ...(options.arid !== undefined ? { arid: options.arid } : {}),
-            ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
-            ...(options.mutators ? { mutators: options.mutators } : {}),
-            ...(options.ignorers ? { ignorers: options.ignorers } : {}),
-          }).mutants,
+          instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentFlags(options) }).mutants,
       );
       return mutants;
     },
@@ -330,7 +325,7 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
       dry.index.set(id, { moduleId: suite.name, taskId: assertion.fullName });
       if (SKIPPED.has(assertion.status)) continue;
       if (assertion.status === 'failed') dry.failed.push(id);
-      const test: TestInfo = { id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: assertion.duration ?? 0 };
+      const test: TestInfo = { id, fingerprint: testFingerprint(fingerprint, id), durationMs: assertion.duration ?? 0 };
       dry.tests.push(test);
       const spawned = cov?.spawns?.[coverageKey];
       if (spawned) (dry.spawns ??= new Map()).set(id, spawned);

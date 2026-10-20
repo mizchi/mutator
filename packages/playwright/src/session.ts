@@ -9,18 +9,20 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
-  DEFAULT_HIT_LIMIT,
   type DryRunResult,
   type InstrumentOptions,
   type Mutant,
   type MutantRunResult,
   type Session,
-  RunnerSetupError,
   type TestLocation,
+  DEFAULT_HIT_LIMIT,
   emptyDryRun,
   hash,
   instrument,
+  instrumentFlags,
+  RunnerSetupError,
   scanImports,
+  testFingerprint,
 } from '@mizchi/mutator-core';
 import { RUN_FILE_ENV, type RunConfig, type RunResults, SETTINGS_ENV, type Settings, type TestOutcome, type TestRecord } from './env.ts';
 import { type RunRequest, type RunnerOutcome, createProcessRunner } from './runner.ts';
@@ -97,9 +99,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     root,
     targets: [...options.targets].sort(),
     pluginModules: [...(options.pluginModules ?? [])],
-    ...(options.arid !== undefined ? { arid: options.arid } : {}),
-    ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
-    ...(options.weak !== undefined ? { weak: options.weak } : {}),
+    ...instrumentFlags({ arid: options.arid, excludedMutators: options.excludedMutators, weak: options.weak }),
   };
   const settingsJson = JSON.stringify(settings);
   const settingsPath = join(dir, 'settings.json');
@@ -158,14 +158,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     mutants() {
       mutants ??= options.targets.flatMap(
         (file) =>
-          instrument(file, readFileSync(file, 'utf8'), {
-            identity: relative(root, file),
-            ...(options.arid !== undefined ? { arid: options.arid } : {}),
-            ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
-            ...(options.weak !== undefined ? { weak: options.weak } : {}),
-            ...(options.mutators ? { mutators: options.mutators } : {}),
-            ...(options.ignorers ? { ignorers: options.ignorers } : {}),
-          }).mutants,
+          instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentFlags(options) }).mutants,
       );
       return mutants;
     },
@@ -298,7 +291,7 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
     if (found.outcome === 'unexpected') dry.failed.push(id);
     let fingerprint = fingerprints.get(found.file);
     if (!fingerprint) fingerprints.set(found.file, (fingerprint = hash(readFileSync(found.file, 'utf8'))));
-    dry.tests.push({ id, fingerprint: hash(`${fingerprint}\0${id}`), durationMs: found.durationMs });
+    dry.tests.push({ id, fingerprint: testFingerprint(fingerprint, id), durationMs: found.durationMs });
     const record = recorded.get(id);
     if (!record) continue;
     for (const key of Object.keys(record.hits)) dry.coverage.set(key, [...(dry.coverage.get(key) ?? []), id]);

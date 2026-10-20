@@ -1,7 +1,8 @@
 // Runner contract: what a test-runner adapter (Vitest, Jest, ...) implements so the
 // CLI can orchestrate dry runs and mutant runs without knowing the runner, plus
 // the small helpers every adapter needs to produce the same results.
-import type { Mutant, MutantStatus, TestInfo } from './types.ts';
+import { hash } from './hash.ts';
+import type { InstrumentOptions, Mutant, MutantStatus, TestInfo } from './types.ts';
 
 /** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
 export interface TestLocation {
@@ -109,4 +110,20 @@ export function numberDuplicates(): (id: string) => string {
     seen.set(id, n);
     return n > 1 ? `${id}#${n}` : id;
   };
+}
+
+/**
+ * A test's fingerprint: changes when its test file (or what the file imports) changes. Adapters
+ * and the CLI must compute it the same way, or cached results are never reused.
+ */
+export const testFingerprint = (testFileHash: string, testId: string): string => hash(`${testFileHash}\0${testId}`);
+
+/** The instrument options an adapter passes through to `instrument`. */
+export type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak' | 'mutators' | 'ignorers'>;
+
+const FLAG_KEYS = ['arid', 'excludedMutators', 'weak', 'mutators', 'ignorers'] as const satisfies readonly (keyof InstrumentFlags)[];
+
+/** The instrument options among `options` that are set (an option left undefined is left out). */
+export function instrumentFlags(options: { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined }): InstrumentFlags {
+  return Object.fromEntries(FLAG_KEYS.filter((k) => options[k] !== undefined).map((k) => [k, options[k]])) as InstrumentFlags;
 }

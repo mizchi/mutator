@@ -3,10 +3,6 @@
     "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/server.ts:81:9 stderr.length < 16 * 1024 -> stderr.length <= 16 * 1024"
   },
-  "10eesz01w7y": {
-    "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
-    "where": "packages/cli/src/init-skill.ts:16:61 'SKILL.md' -> ''"
-  },
   "152m0t2tltm": {
     "reason": "equivalent: the cause only helps debugging; the message says what failed",
     "where": "packages/cli/src/plugins.ts:85:77 { cause: error } -> {}"
@@ -43,10 +39,6 @@
     "reason": "equivalent: runs only makes the temp file names unique per run; counting down keeps them unique",
     "where": "packages/jest/src/session.ts:105:46 runs++ -> runs--"
   },
-  "1rmqq0b2tkx": {
-    "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
-    "where": "packages/cli/src/init-skill.ts:15:10 readdirSync(SHIPPED_SKILLS) .filter((name) => existsSync(jo… -> readdirSync(SHIPPED_SKILLS) .filter((name) => existsSync(jo…"
-  },
   "27uz9yxrhg4": {
     "reason": "equivalent: the copied files are the same whatever the order they are listed in",
     "where": "packages/cli/src/init-skill.ts:21:10 readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en… -> readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en…"
@@ -58,6 +50,10 @@
   "2elf0f0iahq": {
     "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> text.length <= 64 * 1024"
+  },
+  "2tnool0c6w": {
+    "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
+    "where": "packages/cli/src/init-skill.ts:15:98 'SKILL.md' -> ''"
   },
   "b8ktbbqkd9": {
     "reason": "not worth a test: the kill fails only when the process exits between the exitCode check and the kill",

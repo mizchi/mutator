@@ -1,4 +1,4 @@
-import { type Frame, type Node, isFunction, outermost, unwrap } from './ast.ts';
+import { type Frame, type Node, isDirective, isFunction, isSuperCall, isSuperConstructor, outermost, unwrap } from './ast.ts';
 import { regexMutations } from './regex.ts';
 import type { MutatorName, Range } from './types.ts';
 
@@ -200,7 +200,7 @@ const assignmentOperator: Mutator = (frame, ctx) => {
 
 const PLACEHOLDER = 'Stryker was here!';
 
-const arrayDeclaration: Mutator = (frame, ctx) => {
+const arrayDeclaration: Mutator = (frame) => {
   const { node } = frame;
   if (node.type === 'ArrayExpression') {
     return [whole(frame, 'ArrayDeclaration', node.elements.length ? '[]' : `["${PLACEHOLDER}"]`)];
@@ -209,7 +209,6 @@ const arrayDeclaration: Mutator = (frame, ctx) => {
     const prefix = node.type === 'NewExpression' ? 'new ' : '';
     return [whole(frame, 'ArrayDeclaration', node.arguments.length ? `${prefix}Array()` : `${prefix}Array([])`)];
   }
-  void ctx;
   return [];
 };
 
@@ -260,17 +259,11 @@ const stringLiteral: Mutator = (frame, ctx) => {
   return [];
 };
 
-function hasSuperCall(body: Node): boolean {
-  return body.body.some(
-    (s: Node) => s.type === 'ExpressionStatement' && s.expression.type === 'CallExpression' && s.expression.callee.type === 'Super',
-  );
-}
-
 const blockStatement: Mutator = (frame) => {
   const { node, parent } = frame;
   if (node.type !== 'BlockStatement' || node.body.length === 0) return [];
   // Constructors calling super(): emptying them breaks derived classes before any test runs.
-  if (parent && isFunction(parent.node) && parent.parent?.node.type === 'MethodDefinition' && parent.parent.node.kind === 'constructor' && hasSuperCall(node)) {
+  if (parent && isFunction(parent.node) && isSuperConstructor(parent, node)) {
     return [];
   }
   return [whole(frame, 'BlockStatement', '{}')];
@@ -333,10 +326,10 @@ const optionalChaining: Mutator = (frame, ctx) => {
  */
 const callExpression: Mutator = (frame) => {
   const { node } = frame;
-  if (node.type !== 'ExpressionStatement' || typeof node.directive === 'string') return [];
+  if (node.type !== 'ExpressionStatement' || isDirective(node)) return [];
   let expr = unwrap(node.expression);
   if (expr.type === 'ChainExpression') expr = expr.expression;
-  if (expr.type !== 'CallExpression' || expr.callee.type === 'Super') return [];
+  if (expr.type !== 'CallExpression' || isSuperCall(expr)) return [];
   return [whole(frame, 'CallExpression', ';')];
 };
 

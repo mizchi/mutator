@@ -11,14 +11,14 @@ interface ScopeInfo {
 const WORD = /[\p{L}\p{N}_$]/u;
 const SIGN = /[+-]/;
 
+/** Top-level code of a module gets scope ids starting with `<top`; functions are named by their path. */
+export const isTopLevelScope = (scopeId: string): boolean => scopeId.startsWith('<top');
+
 /**
  * Normalize source for hashing: drop comments and insignificant whitespace,
  * keep string / template contents verbatim. Whitespace that can change meaning
  * survives: line breaks (ASI) and spaces between words or between `+` / `-`.
  */
-/** Top-level code of a module gets scope ids starting with `<top`; functions are named by their path. */
-export const isTopLevelScope = (scopeId: string): boolean => scopeId.startsWith('<top');
-
 export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[], holes: readonly Range[] = []): string {
   const skip = comments.filter((c) => c.start >= range.start && c.end <= range.end);
   const keep = literals.filter((l) => l.start >= range.start && l.end <= range.end);

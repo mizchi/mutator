@@ -1,5 +1,5 @@
 // Placement rules: where a mutant switch can wrap code without changing its meaning.
-import { type Frame, type Node, isFunction, outermost } from './ast.ts';
+import { type Frame, type Node, isDirective, isFunction, isSuperCall, isSuperConstructor, outermost } from './ast.ts';
 import type { Mutant } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
@@ -42,7 +42,7 @@ function statementAllowed(frame: Frame): boolean {
   if (!parent) return false;
   if (parent.node.type === 'LabeledStatement') return false;
   if (node.type === 'ExpressionStatement') {
-    if (typeof node.directive === 'string') return false;
+    if (isDirective(node)) return false;
     if (isSuperCall(node.expression)) return false;
   }
   return LIST_PARENTS.has(parent.node.type) || parent.node.type.endsWith('Statement');
@@ -140,12 +140,4 @@ function inChainSpine(frame: Frame): boolean {
     f = f.parent;
   }
   return false;
-}
-
-function isSuperCall(node: Node): boolean {
-  return node.type === 'CallExpression' && node.callee.type === 'Super';
-}
-
-function isSuperConstructor(fn: Frame, body: Node): boolean {
-  return fn.parent?.node.type === 'MethodDefinition' && fn.parent.node.kind === 'constructor' && body.body.some((st: Node) => st.type === 'ExpressionStatement' && isSuperCall(st.expression));
 }

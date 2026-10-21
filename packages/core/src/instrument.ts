@@ -195,6 +195,7 @@ function assertCustomMutantsParse(file: string, source: string, code: string, mu
 
 function intersects(a: Range, b: Range): boolean {
   if (a.start === a.end) return a.start >= b.start && a.start <= b.end;
+  if (b.start === b.end) return a.start <= b.start && b.start <= a.end;
   return a.start < b.end && b.start < a.end;
 }
 

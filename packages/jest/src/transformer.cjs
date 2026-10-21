@@ -35,40 +35,13 @@ async function loadInner(inner) {
   return typeof mod.createTransformer === 'function' ? await mod.createTransformer(options) : mod;
 }
 
-/** Plugin modules (absolute paths) -> custom mutators and ignorers, like the CLI's loader. */
-async function loadPlugins(files) {
-  const mutators = [];
-  const ignorers = [];
-  const add = (value, origin) => {
-    if (Array.isArray(value)) return value.forEach((v) => add(v, origin));
-    if (value && typeof value.visit === 'function') return void mutators.push(value);
-    if (value && typeof value.shouldIgnore === 'function') return void ignorers.push(value);
-    if (value && typeof value.name === 'string') {
-      for (const m of value.mutators || []) add(m, origin);
-      for (const i of value.ignorers || []) add(i, origin);
-      return;
-    }
-    throw new Error(`mutator: plugin ${origin} has no plugin, mutator or ignorer as its default export`);
-  };
-  for (const file of files) {
-    const mod = await import(pathToFileURL(file).href);
-    add(mod.default ?? mod, file);
-  }
-  return { mutators, ignorers };
-}
-
 async function createTransformer(config) {
-  const { instrument, instrumentFlags } = await import('@mizchi/mutator-core');
-  const { mutators, ignorers } = await loadPlugins(config.pluginModules || []);
+  // Core is ESM: a dynamic import works from CommonJS.
+  const { instrument, loadInstrumentFlags } = await import('@mizchi/mutator-core');
+  // The session's flags and plugin modules, read as the CLI reads them.
+  const instrumentOptions = await loadInstrumentFlags(config);
   const inner = await loadInner(config.inner);
   const targets = new Set(config.targets);
-  const instrumentOptions = instrumentFlags({
-    arid: config.arid,
-    excludedMutators: config.excludedMutators,
-    weak: config.weak,
-    ...(mutators.length ? { mutators } : {}),
-    ...(ignorers.length ? { ignorers } : {}),
-  });
   const innerOptions = (options) => ({ ...options, transformerConfig: config.inner ? config.inner[1] : {} });
   const fingerprint = JSON.stringify({ ...config, targets: undefined });
 

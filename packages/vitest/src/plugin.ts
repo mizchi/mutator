@@ -1,4 +1,4 @@
-import { type InstrumentOptions, type Mutant, instrument } from '@mizchi/mutator-core';
+import { type InstrumentOptions, type Mutant, instrument, instrumentFlags } from '@mizchi/mutator-core';
 import { relative } from 'node:path';
 import type { Plugin } from 'vitest/config';
 
@@ -32,14 +32,7 @@ export function mutatorPlugin(registry: MutantRegistry, options: PluginOptions):
     transform(code, id) {
       const file = id.split('?')[0]!;
       if (!SOURCE.test(file) || file.includes('/node_modules/') || !options.include(file)) return;
-      const result = instrument(file, code, {
-        ...(options.excludedMutators ? { excludedMutators: options.excludedMutators } : {}),
-        ...(options.arid !== undefined ? { arid: options.arid } : {}),
-        ...(options.mutators ? { mutators: options.mutators } : {}),
-        ...(options.ignorers ? { ignorers: options.ignorers } : {}),
-        ...(options.weak !== undefined ? { weak: options.weak } : {}),
-        ...(options.root ? { identity: relative(options.root, file) } : {}),
-      });
+      const result = instrument(file, code, { ...instrumentFlags(options), ...(options.root ? { identity: relative(options.root, file) } : {}) });
       registry.byFile.set(file, result.mutants);
       return { code: result.code, map: result.map };
     },

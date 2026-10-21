@@ -20,6 +20,7 @@ import {
   hash,
   instrument,
   instrumentFlags,
+  portableFlags,
   RunnerSetupError,
   scanImports,
   testFingerprint,
@@ -99,7 +100,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     root,
     targets: [...options.targets].sort(),
     pluginModules: [...(options.pluginModules ?? [])],
-    ...instrumentFlags({ arid: options.arid, excludedMutators: options.excludedMutators, weak: options.weak }),
+    ...portableFlags(options),
   };
   const settingsJson = JSON.stringify(settings);
   const settingsPath = join(dir, 'settings.json');

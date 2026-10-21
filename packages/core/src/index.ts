@@ -1,6 +1,15 @@
 export type * from './types.ts';
 export type * from './runner.ts';
-export { RunnerSetupError, emptyDryRun, instrumentFlags, numberDuplicates, testFileOf, testFingerprint } from './runner.ts';
+export { RunnerSetupError, emptyDryRun, instrumentFlags, numberDuplicates, portableFlags, testFileOf, testFingerprint } from './runner.ts';
+export {
+  type PluginParts,
+  PluginError,
+  addPluginExport,
+  emptyPluginParts,
+  loadInstrumentFlags,
+  loadPluginModule,
+  loadPluginModules,
+} from './load-plugins.ts';
 export { applyMutant, instrument, scanImports } from './instrument.ts';
 export { hash } from './hash.ts';
 export { isTopLevelScope } from './scope.ts';

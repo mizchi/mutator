@@ -15,6 +15,10 @@
     "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
     "where": "packages/playwright/src/vite.ts:43:11 settings.arid !== undefined -> true"
   },
+  "18b8tdd2jt2": {
+    "reason": "equivalent: messages count as a hit-limit stop only when non-empty and all carry the hit-limit message; [] and ['Stryker was here!'] both fail that, and passing tests' messages are never read",
+    "where": "packages/jest/src/session.ts:346:155 [] -> [\"Stryker was here!\"]"
+  },
   "1i35w09ueaa": {
     "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/runner.ts:98:23 64 * 1024 -> 64 / 1024"
@@ -39,6 +43,10 @@
     "reason": "equivalent: runs only makes the temp file names unique per run; counting down keeps them unique",
     "where": "packages/jest/src/session.ts:105:46 runs++ -> runs--"
   },
+  "273jfcpg3a4": {
+    "reason": "equivalent: a file error's message is read only to spot the hit-limit message; '' and 'Stryker was here!' both lack it, so the verdict is the same",
+    "where": "packages/jest/src/session.ts:344:85 '' -> 'Stryker was here!'"
+  },
   "27uz9yxrhg4": {
     "reason": "equivalent: the copied files are the same whatever the order they are listed in",
     "where": "packages/cli/src/init-skill.ts:21:10 readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en… -> readdirSync(dir) .flatMap((entry) => (statSync(join(dir, en…"
@@ -46,6 +54,10 @@
   "28qkyz6x14e": {
     "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> true"
+  },
+  "29ggvf7n0p3": {
+    "reason": "equivalent: a file error's message is read only to spot the hit-limit message; '' and 'Stryker was here!' both lack it, so the verdict is the same",
+    "where": "packages/vitest/src/session.ts:322:125 '' -> 'Stryker was here!'"
   },
   "2aoopkyyeis": {
     "reason": "unreachable: walk() skips directive statements (isSkippedNode), so statementAllowed never sees a directive; the branch is a defensive guard",
@@ -59,9 +71,17 @@
     "reason": "equivalent for the shipped package: skills/ holds only skill directories, each with a SKILL.md",
     "where": "packages/cli/src/init-skill.ts:15:98 'SKILL.md' -> ''"
   },
+  "8gjb8nlj2y": {
+    "reason": "equivalent: classifyRun reads only runErrors.length, which the mapped value does not change",
+    "where": "packages/vitest/src/session.ts:328:50 (e as { message?: string }).message ?? String(e) -> undefined"
+  },
   "8p20vn01tb": {
     "reason": "equivalent on valid code: super() is a SyntaxError outside a class constructor, so a MethodDefinition whose body calls super() at top level is always a constructor",
     "where": "packages/core/src/ast.ts:112:57 fn.parent.node.kind === 'constructor' -> true"
+  },
+  "anufzydiah": {
+    "reason": "equivalent: classifyRun reads only runErrors.length, which the mapped value does not change",
+    "where": "packages/vitest/src/session.ts:328:50 (e as { message?: string }).message ?? String(e) -> ((e as { message?: string }).message && String(e))"
   },
   "b8ktbbqkd9": {
     "reason": "not worth a test: the kill fails only when the process exits between the exitCode check and the kill",
@@ -114,6 +134,14 @@
   "th7u2y2jjk": {
     "reason": "equivalent: the name only labels the plugin in Vite's errors and plugin list",
     "where": "packages/playwright/src/vite.ts:23:11 'mutator:instrument' -> ''"
+  },
+  "uj3mix158a": {
+    "reason": "equivalent: Jest's cache then lives directly in the session's private temp dir instead of a subdirectory; its file names never collide with the report/partial/coverage files, nothing lists that dir, and close removes it either way",
+    "where": "packages/jest/src/session.ts:92:111 'cache' -> ''"
+  },
+  "uzwthpgqn0": {
+    "reason": "equivalent: a test's messages are read only to spot the hit-limit message; '' and 'Stryker was here!' both lack it, so the verdict is the same",
+    "where": "packages/vitest/src/session.ts:316:161 '' -> 'Stryker was here!'"
   },
   "vt76geophs": {
     "reason": "equivalent: n[keys.length] is undefined, which the if skips",

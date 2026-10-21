@@ -7,14 +7,6 @@
     "reason": "equivalent: the cause only helps debugging; the message says what failed",
     "where": "packages/cli/src/plugins.ts:85:77 { cause: error } -> {}"
   },
-  "170llzltqh0": {
-    "reason": "equivalent: only the selected tests run (file:line and --project filters), so every failing test is a selected one",
-    "where": "packages/playwright/src/session.ts:305:20 results.tests .filter((t) => t.outcome === 'unexpected') .m… -> results.tests .filter((t) => t.outcome === 'unexpected') .m…"
-  },
-  "17gwxl2kcri": {
-    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
-    "where": "packages/playwright/src/vite.ts:43:11 settings.arid !== undefined -> true"
-  },
   "18b8tdd2jt2": {
     "reason": "equivalent: messages count as a hit-limit stop only when non-empty and all carry the hit-limit message; [] and ['Stryker was here!'] both fail that, and passing tests' messages are never read",
     "where": "packages/jest/src/session.ts:346:155 [] -> [\"Stryker was here!\"]"
@@ -99,17 +91,9 @@
     "reason": "equivalent: walk() skips directive statements (isSkippedNode), so no mutant anchor, built-in or custom, ever reaches a directive frame in statementAllowed",
     "where": "packages/core/src/placement.ts:45:9 isDirective(node) -> false"
   },
-  "j9t74o206v": {
-    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
-    "where": "packages/playwright/src/vite.ts:46:11 mutators.length -> true"
-  },
   "jko1hend3u": {
     "reason": "equivalent: Playwright kills its workers and browsers when it exits; this kill only guards against processes it leaves behind",
     "where": "packages/playwright/src/runner.ts:72:13 killGroup(child); -> ;"
-  },
-  "lnizb49adl": {
-    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
-    "where": "packages/playwright/src/vite.ts:47:11 ignorers.length -> true"
   },
   "lnphk3ec8i": {
     "reason": "equivalent: the test file itself is removed from the set at the end; seeding it only avoids visiting it twice in a cycle",
@@ -127,10 +111,6 @@
     "reason": "equivalent below 16 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/server.ts:81:25 16 * 1024 -> 16 / 1024"
   },
-  "rp14w0kiyt": {
-    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
-    "where": "packages/playwright/src/vite.ts:45:11 settings.weak !== undefined -> true"
-  },
   "th7u2y2jjk": {
     "reason": "equivalent: the name only labels the plugin in Vite's errors and plugin list",
     "where": "packages/playwright/src/vite.ts:23:11 'mutator:instrument' -> ''"
@@ -146,10 +126,6 @@
   "vt76geophs": {
     "reason": "equivalent: n[keys.length] is undefined, which the if skips",
     "where": "packages/playwright/src/page.ts:54:60 i < keys.length -> i <= keys.length"
-  },
-  "w6nuogjq6l": {
-    "reason": "equivalent: spreading an undefined (or empty) option is the same as leaving it out",
-    "where": "packages/playwright/src/vite.ts:44:11 settings.excludedMutators -> true"
   },
   "y67brib93y": {
     "reason": "equivalent: the map only memoizes deps per test file; recomputing gives the same list",

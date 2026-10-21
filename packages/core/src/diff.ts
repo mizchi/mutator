@@ -1,4 +1,5 @@
 // Unified diff parsing and diff-scoped mutant selection. Pure: callers supply diff text and sources.
+import { intersects, lineStarts } from './text.ts';
 import type { Range } from './types.ts';
 
 export interface DiffHunk {
@@ -253,8 +254,7 @@ export function changedLines(file: FileDiff): number[] {
 }
 
 export function lineRanges(source: string, lines: readonly number[]): Range[] {
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source[i] === '\n') starts.push(i + 1);
+  const starts = lineStarts(source);
   const lineEnd = (n: number) => {
     const next = starts[n];
     if (next === undefined) return source.length;
@@ -273,12 +273,6 @@ export function lineRanges(source: string, lines: readonly number[]): Range[] {
 }
 
 // ---- selection --------------------------------------------------------------
-
-function intersects(a: Range, b: Range): boolean {
-  if (a.start === a.end) return b.start <= a.start && a.start <= b.end;
-  if (b.start === b.end) return a.start <= b.start && b.start <= a.end;
-  return a.start < b.end && b.start < a.end;
-}
 
 export function selectMutants<M extends { file: string; range: Range; scope: { range: Range } }>(
   mutants: readonly M[],

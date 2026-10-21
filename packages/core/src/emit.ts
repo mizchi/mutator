@@ -1,6 +1,6 @@
 // Emission: wraps placed nodes in mutant switches with coverage and weak-mutation probes.
 import type MagicString from 'magic-string';
-import { type Frame, type Node, outermost } from './ast.ts';
+import { type Frame, type Node, isDirective, outermost } from './ast.ts';
 import type { Placement } from './placement.ts';
 import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, RUNTIME_WEAK } from './runtime.ts';
 import type { Mutant } from './types.ts';
@@ -25,7 +25,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
       break;
     case 'body': {
       const directives = node.body
-        .filter((st: Node) => typeof st.directive === 'string')
+        .filter(isDirective)
         .map((st: Node) => source.slice(st.start, st.end))
         .join(' ');
       prefix = `{${directives}${mutants.map((m, i) => `${i ? 'else ' : ''}if (${act(m)}) ${mutated(m)} `).join('')}else {${cov}; `;
@@ -114,7 +114,7 @@ function needsAsiGuard(frame: Frame, placements: ReadonlyMap<Node, Placement>): 
 }
 
 export function headerInsertion(program: Node, runtimeHeader: string): { at: number; text: string } {
-  const directives = (program.body as Node[]).filter((st) => typeof st.directive === 'string');
+  const directives = (program.body as Node[]).filter(isDirective);
   const last = directives.at(-1);
   if (last) return { at: last.end, text: `\n${runtimeHeader}` };
   if (program.hashbang) return { at: program.hashbang.end, text: `\n${runtimeHeader}` };

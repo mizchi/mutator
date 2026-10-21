@@ -1,11 +1,7 @@
 import { visitorKeys } from 'oxc-parser';
+import type { AstNode } from './types.ts';
 
-export interface Node {
-  type: string;
-  start: number;
-  end: number;
-  [key: string]: any;
-}
+export type Node = AstNode;
 
 export interface Frame {
   node: Node;
@@ -59,7 +55,7 @@ function isSkippedNode(node: Node): boolean {
     case 'FunctionDeclaration':
       return node.declare === true || node.body == null;
     case 'ExpressionStatement':
-      return typeof node.directive === 'string';
+      return isDirective(node);
     default:
       return false;
   }
@@ -100,6 +96,20 @@ export function isFunction(node: Node): boolean {
     node.type === 'FunctionExpression' ||
     node.type === 'ArrowFunctionExpression'
   );
+}
+
+/** A prologue directive such as `'use strict'`. */
+export function isDirective(node: Node): boolean {
+  return node.type === 'ExpressionStatement' && typeof node.directive === 'string';
+}
+
+export function isSuperCall(node: Node): boolean {
+  return node.type === 'CallExpression' && node.callee.type === 'Super';
+}
+
+/** `body` is the body of the class constructor `fn` and calls `super()` at its top level. */
+export function isSuperConstructor(fn: Frame, body: Node): boolean {
+  return fn.parent?.node.type === 'MethodDefinition' && fn.parent.node.kind === 'constructor' && body.body.some((st: Node) => st.type === 'ExpressionStatement' && isSuperCall(st.expression));
 }
 
 /** Wrappers that leave their expression's runtime value and position unchanged. */

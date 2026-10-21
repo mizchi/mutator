@@ -1,5 +1,5 @@
 // Placement rules: where a mutant switch can wrap code without changing its meaning.
-import { type Frame, type Node, isDirective, isFunction, isSuperCall, isSuperConstructor, outermost } from './ast.ts';
+import { type Frame, type Node, isFunction, isSuperCall, isSuperConstructor, outermost } from './ast.ts';
 import type { Mutant } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
@@ -41,10 +41,8 @@ function statementAllowed(frame: Frame): boolean {
   const { node, parent } = frame;
   if (!parent) return false;
   if (parent.node.type === 'LabeledStatement') return false;
-  if (node.type === 'ExpressionStatement') {
-    if (isDirective(node)) return false;
-    if (isSuperCall(node.expression)) return false;
-  }
+  // Directives never get here: walk() skips them.
+  if (node.type === 'ExpressionStatement' && isSuperCall(node.expression)) return false;
   return LIST_PARENTS.has(parent.node.type) || parent.node.type.endsWith('Statement');
 }
 

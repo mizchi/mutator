@@ -42,6 +42,21 @@ test('an export that is none of them says what is missing', () => {
   );
 });
 
+test('null and functions are not plugins, even with a visit, shouldIgnore or name', () => {
+  const expected = new PluginError('plugin ./m.ts: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name');
+  const withVisit = Object.assign(function drop() {}, { visit: () => undefined });
+  const withShouldIgnore = Object.assign(function skip() {}, { shouldIgnore: () => undefined });
+  for (const value of [null, withVisit, withShouldIgnore, function named() {}]) {
+    expect(() => addPluginExport(emptyPluginParts(), value, './m.ts')).toThrow(expected);
+  }
+});
+
+test('a plugin without aridCallees adds none', () => {
+  const parts = emptyPluginParts();
+  addPluginExport(parts, definePlugin({ name: 'p', mutators: [mutator] }), 'x');
+  expect(parts).toEqual({ mutators: [mutator], ignorers: [], aridCallees: [] });
+});
+
 test('plugin modules load from absolute paths, in order', async () => {
   writeFileSync(join(dir, 'a.mjs'), `import { defineMutator } from ${JSON.stringify(core)};\nexport default defineMutator({ name: 'A', visit() {} });\n`);
   writeFileSync(join(dir, 'b.mjs'), `import { defineIgnorer, definePlugin } from ${JSON.stringify(core)};\nexport default definePlugin({ name: 'b', ignorers: [defineIgnorer({ name: 'B', shouldIgnore() {} })] });\n`);

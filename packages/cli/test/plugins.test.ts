@@ -1,8 +1,10 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PluginError, defineIgnorer, defineMutator, definePlugin } from '@mizchi/mutator-core';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ConfigError } from '../src/config.ts';
+import { type PluginSpec, loadPlugins } from '../src/plugins.ts';
 import { runMutation } from '../src/run.ts';
 
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -110,5 +112,39 @@ export default defineIgnorer({
     await expect(runMutation({ root, concurrency: 1, plugins: ['./mutators/nameless.ts'] })).rejects.toThrow(
       'plugin ./mutators/nameless.ts: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name',
     );
+  });
+});
+
+describe('loadPlugins', () => {
+  const drop = defineMutator({ name: 'Drop', visit: () => undefined });
+  const skip = defineIgnorer({ name: 'skip', shouldIgnore: () => undefined });
+
+  test('plugin objects are used as they are, with no module for other processes', async () => {
+    const loaded = await loadPlugins(tmpRoot, [definePlugin({ name: 'p', mutators: [drop], aridCallees: ['metrics.*'] }), skip]);
+    expect(loaded).toMatchObject({ mutators: [drop], ignorers: [skip], aridCallees: ['metrics.*'], modules: [], hasObjects: true });
+    expect((await loadPlugins(tmpRoot, [])).hasObjects).toBe(false);
+  });
+
+  test('an unusable plugin object is a config error naming it as an object, caused by the plugin error', async () => {
+    const error = await loadPlugins(tmpRoot, [{ name: 'Drop' } as never]).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as Error).message).toBe('plugin object: Drop has no visit (a mutator), shouldIgnore (an ignorer), or mutators / ignorers / aridCallees (a plugin)');
+    expect((error as Error).cause).toBeInstanceOf(PluginError);
+    expect(((error as Error).cause as Error).message).toBe((error as Error).message);
+  });
+
+  test('a relative plugin path is read from the root, not resolved as a package', async () => {
+    const root = project({});
+    await expect(loadPlugins(root, ['./mutators/missing.ts'])).rejects.toThrow(join(root, 'mutators/missing.ts'));
+  });
+
+  test('the fingerprint of plugin objects changes with their code and arid callees', async () => {
+    const print = async (...specs: PluginSpec[]) => (await loadPlugins(tmpRoot, specs)).fingerprint;
+    const otherDrop = defineMutator({ name: 'Drop', visit: () => [] });
+    const otherSkip = defineIgnorer({ name: 'skip', shouldIgnore: () => 'always' });
+    expect(await print(drop)).toBe(await print(drop));
+    expect(await print(drop)).not.toBe(await print(otherDrop));
+    expect(await print(skip)).not.toBe(await print(otherSkip));
+    expect(await print(definePlugin({ name: 'p', aridCallees: ['ab', 'c'] }))).not.toBe(await print(definePlugin({ name: 'p', aridCallees: ['a', 'bc'] })));
   });
 });

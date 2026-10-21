@@ -11,6 +11,7 @@ import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { type Placement, findPlacement } from './placement.ts';
 import { runtimeHeader } from './runtime.ts';
 import { ScopeTracker, isTopLevelScope, normalize } from './scope.ts';
+import { intersects, lineStarts, position } from './text.ts';
 import type { CallSite, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
 export { scanImports } from './facts.ts';
@@ -193,12 +194,6 @@ function assertCustomMutantsParse(file: string, source: string, code: string, mu
 
 // ---- helpers ----------------------------------------------------------------
 
-function intersects(a: Range, b: Range): boolean {
-  if (a.start === a.end) return a.start >= b.start && a.start <= b.end;
-  if (b.start === b.end) return a.start <= b.start && b.start <= a.end;
-  return a.start < b.end && b.start < a.end;
-}
-
 function collectRanges(program: Node): { literals: Range[]; functions: Range[] } {
   const literals: Range[] = [];
   const functions: Range[] = [];
@@ -221,23 +216,6 @@ function collectRanges(program: Node): { literals: Range[]; functions: Range[] }
   visit(program);
   const byStart = (a: Range, b: Range) => a.start - b.start;
   return { literals: literals.sort(byStart), functions: functions.sort(byStart) };
-}
-
-function lineStarts(source: string): number[] {
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source.charCodeAt(i) === 10) starts.push(i + 1);
-  return starts;
-}
-
-function position(starts: number[], offset: number) {
-  let lo = 0;
-  let hi = starts.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (starts[mid]! <= offset) lo = mid;
-    else hi = mid - 1;
-  }
-  return { line: lo + 1, column: offset - starts[lo]! };
 }
 
 function toMap(s: MagicString, file: string) {

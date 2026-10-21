@@ -94,6 +94,22 @@ describe('CallExpression mutator', () => {
   });
 });
 
+describe('ConditionalExpression through type wrappers', () => {
+  const conditions = (src: string) => summary(instrument('a.ts', src).mutants, 'ConditionalExpression');
+
+  test('a wrapped test is mutated once, by the statement', () => {
+    for (const test of ['(a > b) as boolean', '(a > b)!', '((a > b) satisfies boolean)', '<boolean>(a > b)']) {
+      expect(conditions(`if (${test}) f();`), test).toEqual([`ConditionalExpression: ${test} -> true`, `ConditionalExpression: ${test} -> false`]);
+    }
+  });
+
+  test('a wrapped operand of || / && skips the collapsing value', () => {
+    const operand = (src: string) => conditions(src).filter((s) => s.includes(': a > b '));
+    expect(operand('const v = x || ((a > b) as boolean);')).toEqual(['ConditionalExpression: a > b -> false']);
+    expect(operand('const v = x && <boolean>(a > b);')).toEqual(['ConditionalExpression: a > b -> true']);
+  });
+});
+
 describe('ConditionalExpression for (;;)', () => {
   const forMutants = (src: string) =>
     instrument('a.js', src)

@@ -89,7 +89,7 @@ const CONDITIONS = new Set(['IfStatement', 'ConditionalExpression']);
 function effectiveParent(frame: Frame): Frame | undefined {
   let f = frame.parent;
   let key = frame.key;
-  while (f && (f.node.type === 'ParenthesizedExpression' || f.node.type === 'TSAsExpression' || f.node.type === 'TSNonNullExpression' || f.node.type === 'TSSatisfiesExpression')) {
+  while (f && (f.node.type === 'ParenthesizedExpression' || f.node.type === 'TSAsExpression' || f.node.type === 'TSNonNullExpression' || f.node.type === 'TSSatisfiesExpression' || f.node.type === 'TSTypeAssertion')) {
     key = f.key;
     f = f.parent;
   }

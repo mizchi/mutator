@@ -41,6 +41,8 @@ export interface TestOutcome {
   titles: string[];
   outcome: 'expected' | 'unexpected' | 'flaky' | 'skipped';
   durationMs: number;
+  /** Messages of the errors that failed it. */
+  messages: string[];
 }
 
 /** What the reporter writes at the end of a run. */

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
   type DryRunResult,
+  HIT_LIMIT_MESSAGE,
   type InstrumentOptions,
   type Mutant,
   type MutantRunResult,
@@ -305,10 +306,12 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
 }
 
 function classify(results: RunResults, idOf: (t: TestKey) => string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
-  const killedBy = results.tests
-    .filter((t) => t.outcome === 'unexpected')
-    .map(idOf)
-    .filter((id) => selected.has(id));
+  const failed = results.tests.filter((t) => t.outcome === 'unexpected' && selected.has(idOf(t)));
+  // The hit limit guards against endless loops: a run stopped only by it is a timeout.
+  if (failed.length > 0 && failed.every((t) => t.messages.length > 0 && t.messages.every((m) => m.includes(HIT_LIMIT_MESSAGE)))) {
+    return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
+  }
+  const killedBy = failed.map(idOf);
   if (killedBy.length > 0) return { status: 'Killed', killedBy };
   // Errors outside any test (a test file failing to load, a global setup) under this mutant.
   if (results.errors.length > 0) return { status: 'RuntimeError', killedBy: [] };

@@ -311,6 +311,10 @@ Mutants of TypeScript files are type-checked with the project's own `typescript`
 
 The same pass drops mutants the types prove equivalent, on both backends: `a?.b` → `a.b` (and `a?.()` → `a()`, `a?.[k]` → `a[k]`) when the type of `a` excludes `null` and `undefined`. They are reported `Ignored` with `statusReason: equivalent: a is never nullish`, are not run, stay outside the score and `--fail-on-survived`, and the summary counts them (`equivalent by types: N`). This needs both `strictNullChecks` (or `strict`) and `noUncheckedIndexedAccess`: without the latter `xs[0]` is typed `string` but is `undefined` for `[]`, and on ufo all four mutants of that kind were killed. Types can still be wrong (a cast, an `any` assigned to a typed variable, a test passing `undefined as any`, `globalThis.process` in a browser); a dropped mutant is then one a test could have killed. `??` mutants are not dropped: the `??` → `&&` mutant differs whenever the left side is truthy. Only mutants that would otherwise run or be decided by weak mutation are considered; `NoCoverage` ones stay as they are.
 
+## Vite+ (vite-plus)
+
+A [Vite+](https://www.npmjs.com/package/vite-plus) project runs as a Vitest project. Its `vite.config.ts` (`defineConfig` from `vite-plus`) makes `auto` pick Vitest, and so does an installed `vite-plus` when there is no config file. Test files may import from `vite-plus/test`: vite-plus ships Vitest as a dependency and re-exports it, and the Vitest adapter resolves that same copy (pnpm resolves the adapter's optional `vitest` peer to it, npm hoists it). Checked with vite-plus 1.3.0 (Vitest 5.0.5) under pnpm and npm.
+
 ## Jest (experimental)
 
 `--runner jest` (or `runner: 'jest'`; `auto`, the default, picks Jest when the root has a `jest.config.*` or a `jest` field in package.json and no Vitest config) runs the same pipeline on a Jest 30 project. Jest is resolved from the project root.

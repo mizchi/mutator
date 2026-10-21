@@ -46,6 +46,34 @@ diff -r .claude/skills/mutator "$repo/packages/cli/skills/mutator"
 diff -r .claude/skills/mutation-test-loop "$repo/packages/cli/skills/mutation-test-loop"
 ./node_modules/.bin/mutator init-skill | grep -q 'mutator is up to date'
 
+# Vite+ project: vite-plus brings its own vitest; tests import from vite-plus/test
+mkdir -p "$work/vp-app"
+cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test} "$work/vp-app/"
+sed -i.bak "s#from 'vitest'#from 'vite-plus/test'#" "$work/vp-app/test/"*.ts && rm "$work/vp-app/test/"*.bak
+cat > "$work/vp-app/vite.config.ts" <<'TS'
+import { defineConfig } from 'vite-plus';
+
+export default defineConfig({
+  test: { include: ['test/**/*.test.ts'] },
+});
+TS
+cat > "$work/vp-app/package.json" <<JSON
+{
+  "name": "pack-smoke-vite-plus",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
+    "vite-plus": "1.3.0"
+  }
+}
+JSON
+cp "$work/app/pnpm-workspace.yaml" "$work/vp-app/"
+cd "$work/vp-app"
+pnpm install --prefer-offline >/dev/null
+./node_modules/.bin/mutator -j 1 | tee "$work/vp-out.txt"
+grep -q 'age >= 18 -> age > 18' "$work/vp-out.txt"
+
 # Jest (native ESM) project
 mkdir -p "$work/jest-app"
 cp -r "$repo/packages/jest/test/fixtures/esm/"{src,__tests__,jest.config.js} "$work/jest-app/"

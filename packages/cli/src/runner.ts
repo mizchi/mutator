@@ -14,17 +14,17 @@ const PLAYWRIGHT_CONFIGS = EXTENSIONS.map((ext) => `playwright.config.${ext}`);
 
 /**
  * Config files in the root decide, vitest (or vite) first, then jest, then playwright; otherwise
- * whichever runner resolves from the root. An app with a vite.config and Playwright tests
- * therefore needs `--runner playwright`.
+ * whichever runner resolves from the root, vite-plus counting as vitest (it ships vitest as its
+ * own dependency). An app with a vite.config and Playwright tests therefore needs `--runner playwright`.
  */
 export function detectRunner(root: string): Runner {
   if (VITEST_CONFIGS.some((f) => existsSync(join(root, f)))) return 'vitest';
   if (JEST_CONFIGS.some((f) => existsSync(join(root, f))) || hasJestField(root)) return 'jest';
   if (PLAYWRIGHT_CONFIGS.some((f) => existsSync(join(root, f)))) return 'playwright';
-  if (resolves(root, 'vitest/package.json')) return 'vitest';
+  if (resolves(root, 'vitest/package.json') || resolves(root, 'vite-plus/package.json')) return 'vitest';
   if (resolves(root, 'jest/package.json')) return 'jest';
   if (resolves(root, '@playwright/test/package.json')) return 'playwright';
-  throw new Error(`no test runner found: none of vitest, jest or @playwright/test resolves from ${root}`);
+  throw new Error(`no test runner found: none of vitest (or vite-plus), jest or @playwright/test resolves from ${root}`);
 }
 
 function hasJestField(root: string): boolean {

@@ -1,13 +1,20 @@
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { describe, expect, test } from 'vitest';
+import { afterAll, describe, expect, test } from 'vitest';
 import { acquireServers } from '../src/server.ts';
 import { freePort } from './port.ts';
 
 const node = JSON.stringify(process.execPath);
+// Every server these tests start carries this tag, so afterAll stops them even when the code
+// under test (a mutant of it, say) leaves them running.
+const tag = `mutator-server-test-${process.pid}-${Date.now()}`;
+afterAll(() => {
+  spawnSync('pkill', ['-f', tag]);
+});
 /** A command serving http (or plain tcp) on `port` until killed. */
-const http = (port: number) => `${node} -e "require('node:http').createServer((q, s) => s.end('ok')).listen(${port})"`;
-const tcp = (port: number) => `${node} -e "require('node:net').createServer((c) => c.end()).listen(${port})"`;
+const http = (port: number) => `${node} -e "require('node:http').createServer((q, s) => s.end('ok')).listen(${port})" ${tag}`;
+const tcp = (port: number) => `${node} -e "require('node:net').createServer((c) => c.end()).listen(${port})" ${tag}`;
 const options = { configDir: tmpdir(), env: {} };
 const answers = async (port: number) =>
   fetch(`http://localhost:${port}/`).then(

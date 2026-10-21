@@ -125,6 +125,8 @@ const corpus: Record<string, string> = {
   thisBinding: `const obj = { v: 2, get() { return this.v + 1; } }; exports.r = obj.get();`,
   memberCall: `const arr = [1, 2, 3]; exports.r = arr.map((x) => x + 1).filter((x) => x > 2).length;`,
   label: `let t = 0; outer: for (let i = 0; i < 3; i++) { for (let j = 0; j < 3; j++) { if (j > i) continue outer; t += 1; } } exports.r = t;`,
+  // A loop without a test is a mutant's placement itself: under a label, the switch must wrap the label.
+  labeledInfiniteFor: `let t = 0; outer: for (let i = 0; ; i++) { if (i > 2) break; for (;;) { t += 1; continue outer; } } exports.r = t;`,
   switchCase: `function sw(x) { switch (x) { case 1: { const y = x + 1; return y; } default: return x - 1; } } exports.r = [sw(1), sw(5)];`,
   ternary: `const p = 3; exports.r = p > 2 ? 'big' : 'small';`,
   template: "const q = 2; exports.r = `${q + 1}-${q > 1}`;",

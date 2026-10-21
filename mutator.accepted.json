@@ -51,10 +51,6 @@
     "reason": "equivalent: a file error's message is read only to spot the hit-limit message; '' and 'Stryker was here!' both lack it, so the verdict is the same",
     "where": "packages/vitest/src/session.ts:322:125 '' -> 'Stryker was here!'"
   },
-  "2aoopkyyeis": {
-    "reason": "unreachable: walk() skips directive statements (isSkippedNode), so statementAllowed never sees a directive; the branch is a defensive guard",
-    "where": "packages/core/src/placement.ts:45:35 false -> true"
-  },
   "2elf0f0iahq": {
     "reason": "equivalent below 64 KB of stderr: the cap only bounds memory",
     "where": "packages/playwright/src/runner.ts:98:9 text.length < 64 * 1024 -> text.length <= 64 * 1024"
@@ -86,10 +82,6 @@
   "fe20im5k9u": {
     "reason": "equivalent: the sources are sorted and localImports adds files in a deterministic order, so the list is the same run to run",
     "where": "packages/playwright/src/session.ts:286:39 [...new Set([...sources, ...localImports(file).map((f) => r… -> [...new Set([...sources, ...localImports(file).map((f) => r…"
-  },
-  "g9gxu45zm3": {
-    "reason": "equivalent: walk() skips directive statements (isSkippedNode), so no mutant anchor, built-in or custom, ever reaches a directive frame in statementAllowed",
-    "where": "packages/core/src/placement.ts:45:9 isDirective(node) -> false"
   },
   "jko1hend3u": {
     "reason": "equivalent: Playwright kills its workers and browsers when it exits; this kill only guards against processes it leaves behind",

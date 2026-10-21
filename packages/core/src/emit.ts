@@ -1,6 +1,6 @@
 // Emission: wraps placed nodes in mutant switches with coverage and weak-mutation probes.
 import type MagicString from 'magic-string';
-import type { Frame, Node } from './ast.ts';
+import { type Frame, type Node, outermost } from './ast.ts';
 import type { Placement } from './placement.ts';
 import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, RUNTIME_WEAK } from './runtime.ts';
 import type { Mutant } from './types.ts';
@@ -90,14 +90,14 @@ function weakChecks(frame: Frame, source: string, mutants: readonly Mutant[], mu
   return args.length ? [`${RUNTIME_WEAK}(${wrap(original)}, ${args.join(', ')})`] : [];
 }
 
+// Parentheses only, like isPure: a probe re-evaluates the source text, and TS wrappers are not proven pure here.
 function unwrapParens(node: Node): Node {
   return node.type === 'ParenthesizedExpression' ? unwrapParens(node.expression) : node;
 }
 
 /** The value is only used for its truthiness (if / loop / ternary test). */
 function isTestPosition(frame: Frame): boolean {
-  let f = frame;
-  while (f.parent && f.parent.node.type === 'ParenthesizedExpression') f = f.parent;
+  const f = outermost(frame);
   const parent = f.parent?.node;
   return f.key === 'test' && parent !== undefined && ['IfStatement', 'WhileStatement', 'DoWhileStatement', 'ForStatement', 'ConditionalExpression'].includes(parent.type);
 }

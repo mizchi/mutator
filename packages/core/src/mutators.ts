@@ -1,4 +1,4 @@
-import { type Frame, type Node, isFunction, unwrap } from './ast.ts';
+import { type Frame, type Node, isFunction, outermost, unwrap } from './ast.ts';
 import { regexMutations } from './regex.ts';
 import type { MutatorName, Range } from './types.ts';
 
@@ -85,17 +85,6 @@ const logicalOperator: Mutator = (frame, ctx) => {
 const LOOPS = new Set(['WhileStatement', 'DoWhileStatement', 'ForStatement']);
 const CONDITIONS = new Set(['IfStatement', 'ConditionalExpression']);
 
-/** Climb through parentheses / TS wrappers. */
-function effectiveParent(frame: Frame): Frame | undefined {
-  let f = frame.parent;
-  let key = frame.key;
-  while (f && (f.node.type === 'ParenthesizedExpression' || f.node.type === 'TSAsExpression' || f.node.type === 'TSNonNullExpression' || f.node.type === 'TSSatisfiesExpression' || f.node.type === 'TSTypeAssertion')) {
-    key = f.key;
-    f = f.parent;
-  }
-  return f && { ...f, key };
-}
-
 /** Index of `char` at or after `from`, skipping only whitespace and comments; -1 if something else comes first. */
 function nextToken(source: string, from: number, char: string): number {
   let i = from;
@@ -144,10 +133,11 @@ const conditionalExpression: Mutator = (frame, ctx) => {
   const logical = node.type === 'LogicalExpression' && node.operator !== '??';
   if (!comparison && !logical) return [];
   // Inside a test position the parent statement already produced these.
-  const outer = effectiveParent(frame);
-  if (outer?.key === 'test' && (LOOPS.has(outer.node.type) || CONDITIONS.has(outer.node.type))) return [];
+  const position = outermost(frame);
+  const outer = position.parent?.node;
+  if (position.key === 'test' && outer && (LOOPS.has(outer.type) || CONDITIONS.has(outer.type))) return [];
   // `a || <x>` with x=true / `a && <x>` with x=false collapse to equivalent-ish mutants of the parent.
-  const parentOp = outer?.node.type === 'LogicalExpression' ? outer.node.operator : undefined;
+  const parentOp = outer?.type === 'LogicalExpression' ? outer.operator : undefined;
   const out: Candidate[] = [];
   if (parentOp !== '||') out.push(whole(frame, 'ConditionalExpression', 'true'));
   if (parentOp !== '&&') out.push(whole(frame, 'ConditionalExpression', 'false'));

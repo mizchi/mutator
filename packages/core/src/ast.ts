@@ -102,17 +102,22 @@ export function isFunction(node: Node): boolean {
   );
 }
 
-/** Strip ParenthesizedExpression / TS expression wrappers. */
+/** Wrappers that leave their expression's runtime value and position unchanged. */
+export const TRANSPARENT: ReadonlySet<string> = new Set(['ParenthesizedExpression', 'TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'TSTypeAssertion']);
+
+/** Strip TRANSPARENT wrappers. */
 export function unwrap(node: Node): Node {
   let n = node;
-  while (
-    n.type === 'ParenthesizedExpression' ||
-    n.type === 'TSAsExpression' ||
-    n.type === 'TSSatisfiesExpression' ||
-    n.type === 'TSNonNullExpression' ||
-    n.type === 'TSTypeAssertion'
-  ) {
-    n = n.expression;
-  }
+  while (TRANSPARENT.has(n.type)) n = n.expression;
   return n;
+}
+
+/**
+ * The outermost TRANSPARENT wrapper around a node (the frame itself when unwrapped): its parent and
+ * key are the position the node really occupies, e.g. `(o?.m)()` puts `o?.m` in callee position.
+ */
+export function outermost(frame: Frame): Frame {
+  let f = frame;
+  while (f.parent && TRANSPARENT.has(f.parent.node.type)) f = f.parent;
+  return f;
 }

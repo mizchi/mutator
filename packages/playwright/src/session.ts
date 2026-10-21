@@ -10,13 +10,13 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import {
   type DryRunResult,
-  HIT_LIMIT_MESSAGE,
   type InstrumentOptions,
   type Mutant,
-  type MutantRunResult,
+  type RunReport,
   type Session,
   type TestLocation,
   DEFAULT_HIT_LIMIT,
+  classifyRun,
   emptyDryRun,
   hash,
   instrument,
@@ -226,7 +226,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
       if (outcome.timedOut) return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
       if (!outcome.results) return { status: 'RuntimeError', killedBy: [], durationMs };
       measure(outcome);
-      return { ...classify(outcome.results, idOf, new Set(testIds)), durationMs };
+      return { ...classifyRun(runReport(outcome.results, idOf, testIds)), durationMs };
     },
 
     async close() {
@@ -305,17 +305,15 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
   return dry;
 }
 
-function classify(results: RunResults, idOf: (t: TestKey) => string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
-  const failed = results.tests.filter((t) => t.outcome === 'unexpected' && selected.has(idOf(t)));
-  // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (failed.length > 0 && failed.every((t) => t.messages.length > 0 && t.messages.every((m) => m.includes(HIT_LIMIT_MESSAGE)))) {
-    return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
-  }
-  const killedBy = failed.map(idOf);
-  if (killedBy.length > 0) return { status: 'Killed', killedBy };
-  // Errors outside any test (a test file failing to load, a global setup) under this mutant.
-  if (results.errors.length > 0) return { status: 'RuntimeError', killedBy: [] };
-  return { status: 'Survived', killedBy: [] };
+/** The run as classifyRun reads it. */
+function runReport(results: RunResults, idOf: (t: TestKey) => string, testIds: readonly string[]): RunReport {
+  return {
+    tests: results.tests.map((t) => ({ id: idOf(t), failed: t.outcome === 'unexpected', messages: t.messages })),
+    fileErrors: [],
+    // The reporter's errors name no test file (a test file failing to load, a global setup).
+    runErrors: results.errors,
+    selected: new Set(testIds),
+  };
 }
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.js', '.jsx', '.mjs', '/index.ts', '/index.js'];

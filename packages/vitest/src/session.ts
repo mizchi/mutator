@@ -4,14 +4,15 @@ import { fileURLToPath } from 'node:url';
 import {
   type DryRunResult,
   type MutantRunResult,
+  type RunReport,
   type Session,
   type SpawnedCommand,
   type TestInfo,
   type TestLocation,
   DEFAULT_HIT_LIMIT,
+  classifyRun,
   emptyDryRun,
   hash,
-  HIT_LIMIT_MESSAGE,
   numberDuplicates,
   testFingerprint,
 } from '@mizchi/mutator-core';
@@ -176,7 +177,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
         await vitest.globTestSpecifications();
         return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
       }
-      return { ...classify(outcome, options.root, new Set(testIds), observed, idOf), durationMs };
+      return { ...classifyRun(report(outcome, options.root, testIds, observed, idOf)), durationMs };
     },
 
     async close() {
@@ -310,38 +311,21 @@ function collectDeps(vitest: Vitest, testFiles: readonly string[], options: Sess
   return deps;
 }
 
-function classify(
-  result: TestRunResult,
-  root: string,
-  selected: ReadonlySet<string>,
-  observed: readonly TestCase[],
-  idOf: (test: TestCase) => string,
-): Omit<MutantRunResult, 'durationMs'> {
-  const failures = [...observed];
-  const killedBy: string[] = observed.map(idOf);
-  let moduleError = false;
+/** The run as classifyRun reads it. */
+function report(result: TestRunResult, root: string, testIds: readonly string[], observed: readonly TestCase[], idOf: (test: TestCase) => string): RunReport {
+  const entry = (test: TestCase) => ({ id: idOf(test), failed: test.result().state === 'failed', messages: (test.result().errors ?? []).map((e) => e.message ?? '') });
+  // A failure the watch observed counts even outside the selection: it cancelled the run
+  // (a static mutant runs whole modules), and a cancelled run may report it as pending.
+  const tests = observed.map((test) => ({ ...entry(test), failed: true }));
+  const fileErrors: RunReport['fileErrors'][number][] = [];
   for (const module of result.testModules as readonly TestModule[]) {
-    if (module.errors().length > 0) {
-      moduleError = true;
-      killedBy.push(relative(root, module.moduleId));
-    }
-    for (const test of module.children.allTests()) {
-      const id = idOf(test);
-      if (killedBy.includes(id)) continue;
-      if (test.result().state === 'failed' && (selected.size === 0 || selected.has(id))) {
-        failures.push(test);
-        killedBy.push(id);
-      }
-    }
+    for (const error of module.errors()) fileErrors.push({ file: relative(root, module.moduleId), message: error.message ?? '' });
+    for (const test of module.children.allTests()) tests.push(entry(test));
   }
-  // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (!moduleError && failures.length > 0 && failures.every(hitLimitOnly)) return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
-  if (result.unhandledErrors.length > 0 && killedBy.length === 0) return { status: 'RuntimeError', killedBy: [] };
-  if (killedBy.length > 0) return { status: moduleError && killedBy.every((k) => !k.includes('#')) ? 'RuntimeError' : 'Killed', killedBy };
-  return { status: 'Survived', killedBy };
-}
-
-function hitLimitOnly(test: TestCase): boolean {
-  const errors = test.result().errors ?? [];
-  return errors.length > 0 && errors.every((e) => e.message?.includes(HIT_LIMIT_MESSAGE));
+  return {
+    tests,
+    fileErrors,
+    runErrors: result.unhandledErrors.map((e) => (e as { message?: string }).message ?? String(e)),
+    selected: new Set([...testIds, ...observed.map(idOf)]),
+  };
 }

@@ -58,16 +58,17 @@ async function loadPlugins(files) {
 }
 
 async function createTransformer(config) {
-  const { instrument } = await import('@mizchi/mutator-core');
+  const { instrument, instrumentFlags } = await import('@mizchi/mutator-core');
   const { mutators, ignorers } = await loadPlugins(config.pluginModules || []);
   const inner = await loadInner(config.inner);
   const targets = new Set(config.targets);
-  const instrumentOptions = {
-    ...(config.arid !== undefined ? { arid: config.arid } : {}),
-    ...(config.excludedMutators ? { excludedMutators: config.excludedMutators } : {}),
+  const instrumentOptions = instrumentFlags({
+    arid: config.arid,
+    excludedMutators: config.excludedMutators,
+    weak: config.weak,
     ...(mutators.length ? { mutators } : {}),
     ...(ignorers.length ? { ignorers } : {}),
-  };
+  });
   const innerOptions = (options) => ({ ...options, transformerConfig: config.inner ? config.inner[1] : {} });
   const fingerprint = JSON.stringify({ ...config, targets: undefined });
 

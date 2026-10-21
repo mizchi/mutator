@@ -15,6 +15,7 @@ export const DEFAULT_ARID_CALLEES: readonly string[] = ['console.*', 'logger.*',
 
 function calleePath(callee: Node, source: string): string | undefined {
   let n = callee;
+  // Not ast.ts TRANSPARENT: `?.` chains read as the same dotted path, while `as` / `satisfies` / `<T>` casts of a callee are not matched.
   while (n.type === 'ParenthesizedExpression' || n.type === 'ChainExpression' || n.type === 'TSNonNullExpression') n = n.expression;
   if (n.type !== 'Identifier' && n.type !== 'MemberExpression') return undefined;
   if (n.type === 'MemberExpression' && n.computed) return undefined;
@@ -46,6 +47,7 @@ export function createAridCheck(source: string, options: AridOptions = {}): (anc
 
   const isLoggingCall = (node: Node): boolean => {
     let n = node;
+    // Not ast.ts TRANSPARENT: `await` and `?.` keep it the same logging call; casts around the call are not climbed.
     while (n.type === 'ChainExpression' || n.type === 'ParenthesizedExpression' || n.type === 'AwaitExpression') n = n.expression ?? n.argument;
     if (n.type !== 'CallExpression') return false;
     const path = calleePath(n.callee, source);

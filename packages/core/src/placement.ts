@@ -1,5 +1,5 @@
 // Placement rules: where a mutant switch can wrap code without changing its meaning.
-import { type Frame, type Node, isFunction } from './ast.ts';
+import { type Frame, type Node, isFunction, outermost } from './ast.ts';
 import type { Mutant } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
@@ -59,12 +59,9 @@ function isExpression(node: Node): boolean {
   );
 }
 
-const TRANSPARENT = new Set(['ParenthesizedExpression', 'TSAsExpression', 'TSSatisfiesExpression', 'TSNonNullExpression', 'TSTypeAssertion']);
-
 /** The position a node really occupies: `(o?.m)()` puts `o?.m` in callee position. */
 function effectivePosition(frame: Frame): { parent: Node; key: string } {
-  let f = frame;
-  while (f.parent && TRANSPARENT.has(f.parent.node.type) && f.parent.parent) f = f.parent;
+  const f = outermost(frame);
   return { parent: f.parent!.node, key: f.key };
 }
 

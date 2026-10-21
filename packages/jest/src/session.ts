@@ -23,7 +23,7 @@ import {
   numberDuplicates,
   testFingerprint,
 } from '@mizchi/mutator-core';
-import { type JestProject, PARTIAL_REPORTER, mutatorJestConfig, readJestProject } from './config.ts';
+import { type JestProject, PARTIAL_REPORTER, mutatorJestConfig, readJestProject, transformerSettings } from './config.ts';
 
 export interface JestSessionOptions {
   root: string;
@@ -33,6 +33,7 @@ export interface JestSessionOptions {
   configFile?: string;
   arid?: InstrumentOptions['arid'];
   excludedMutators?: InstrumentOptions['excludedMutators'];
+  weak?: InstrumentOptions['weak'];
   /** Custom mutators / ignorers, used for `mutants()` in this process. */
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
@@ -88,13 +89,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
   const project: JestProject = await readJestProject(root, options.configFile);
   const dir = mkdtempSync(join(tmpdir(), 'mutator-jest-'));
   const configPath = join(dir, 'jest.config.json');
-  const transformer = {
-    root,
-    targets: [...options.targets],
-    pluginModules: [...(options.pluginModules ?? [])],
-    ...instrumentFlags({ arid: options.arid, excludedMutators: options.excludedMutators }),
-  };
-  writeFileSync(configPath, JSON.stringify(mutatorJestConfig(project, transformer, join(dir, 'cache'))));
+  writeFileSync(configPath, JSON.stringify(mutatorJestConfig(project, transformerSettings(options), join(dir, 'cache'))));
 
   const locations = new Map<string, TestLocation>();
   let mutants: Mutant[] | undefined;

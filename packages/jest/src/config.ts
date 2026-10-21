@@ -4,7 +4,7 @@
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { InstrumentOptions } from '@mizchi/mutator-core';
+import { type InstrumentFlags, type InstrumentOptions, instrumentFlags } from '@mizchi/mutator-core';
 
 // Published builds run from dist/; the CommonJS helpers ship in src/.
 const own = (name: string) => fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? `./${name}` : `../src/${name}`, import.meta.url));
@@ -64,6 +64,15 @@ export interface TransformerConfig {
   pluginModules: string[];
   arid?: InstrumentOptions['arid'];
   excludedMutators?: readonly string[];
+  weak?: InstrumentOptions['weak'];
+}
+
+/** The transformer's settings: every instrument option that survives JSON; plugins travel as module paths. */
+export function transformerSettings(
+  options: { root: string; targets: readonly string[]; pluginModules?: readonly string[] | undefined } & { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined },
+): Omit<TransformerConfig, 'inner'> {
+  const { mutators: _mutators, ignorers: _ignorers, ...flags } = instrumentFlags(options);
+  return { root: options.root, targets: [...options.targets], pluginModules: [...(options.pluginModules ?? [])], ...flags };
 }
 
 export function mutatorJestConfig(project: JestProject, transformer: Omit<TransformerConfig, 'inner'>, cacheDirectory: string): Record<string, unknown> {

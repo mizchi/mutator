@@ -8,6 +8,7 @@ globalThis.__mutator__ = {
   collect: !process.env.MUTATOR_ACTIVE,
   modules: [],
   cov: { static: {}, perTest: {} },
+  inf: { static: {}, perTest: {} },
   testId: null,
   hits: 0,
   hitLimit: Number.isFinite(limit) && limit > 0 ? limit : Infinity,

@@ -132,6 +132,40 @@ describe('ConditionalExpression for (;;)', () => {
   });
 });
 
+describe('ConditionalExpression in a switch case', () => {
+  test('a comparison used as a case test is mutated like any other comparison', () => {
+    const { mutants } = instrument('a.js', 'switch (x) { case a === b: f(); }');
+    expect(summary(mutants, 'ConditionalExpression')).toEqual(['ConditionalExpression: a === b -> true', 'ConditionalExpression: a === b -> false']);
+  });
+});
+
+describe('BlockStatement mutator and constructors', () => {
+  const blocks = (src: string) => summary(instrument('a.js', src).mutants, 'BlockStatement');
+
+  test('a constructor calling super() at its top level is never emptied', () => {
+    expect(blocks('class B extends A { constructor() { super(); this.x = 1; } }')).toEqual([]);
+    expect(blocks('class B extends A { constructor(a) { this.y = a; super(a); } }')).toEqual([]);
+  });
+
+  test('constructors without a top-level super() are emptied', () => {
+    expect(blocks('class C { constructor(a) { this.a = a; } }')).toEqual(['BlockStatement: { this.a = a; } -> {}']);
+    expect(blocks('class C { constructor(a) { if (a) this.a = a; } }')).toEqual(['BlockStatement: { if (a) this.a = a; } -> {}']);
+  });
+});
+
+describe('ArrayDeclaration mutator', () => {
+  test('Array() and new Array() calls swap between no arguments and some', () => {
+    const { mutants } = instrument('a.js', 'x = [new Array(3), Array(), new Array(), Array(1)];');
+    expect(summary(mutants, 'ArrayDeclaration')).toEqual([
+      'ArrayDeclaration: [new Array(3), Array(), new Array(), Array(1)] -> []',
+      'ArrayDeclaration: new Array(3) -> new Array()',
+      'ArrayDeclaration: Array() -> Array([])',
+      'ArrayDeclaration: new Array() -> new Array([])',
+      'ArrayDeclaration: Array(1) -> Array()',
+    ]);
+  });
+});
+
 describe('FnValue mutator', () => {
   const fnValues = (src: string) => summary(instrument('a.ts', src).mutants, 'FnValue');
 

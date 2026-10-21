@@ -1,6 +1,7 @@
 import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 import { applyMutant, instrument, scanImports } from '../src/instrument.ts';
+import { lineRanges, selectMutants } from '../src/diff.ts';
 import type { Mutant } from '../src/types.ts';
 
 const RUNTIME = '__mutator__';
@@ -75,6 +76,16 @@ describe('mutant discovery', () => {
     const start = src.indexOf('3');
     const { mutants } = instrument('a.js', src, { ranges: [{ start, end: start + 5 }] });
     expect(mutants.map((m) => m.original)).toEqual(['3 + 4']);
+  });
+
+  test('ranges select an insertion mutant at either edge, like selectMutants', () => {
+    // The empty test slot of `for (init;\n; ...)` sits at the end of line 1.
+    const src = 'for (let i = 0;\n; i++) break;';
+    const insertions = (ranges: { start: number; end: number }[]) => instrument('a.js', src, { ranges }).mutants.filter((m) => m.original === '').map((m) => applyMutant(src, m));
+    const [line1] = lineRanges(src, [1]);
+    expect(insertions([line1!])).toEqual(['for (let i = 0;false\n; i++) break;']);
+    expect(selectMutants(instrument('a.js', src).mutants.filter((m) => m.original === ''), new Map([['a.js', [line1!]]]), 'node')).toHaveLength(1);
+    expect(insertions([{ start: line1!.end, end: src.length }])).toHaveLength(1);
   });
 
   test('excludedMutators', () => {

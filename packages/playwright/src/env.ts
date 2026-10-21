@@ -2,7 +2,7 @@
 // runner (generated config, reporter) and its workers (fixture). The paths travel in
 // environment variables, set once when each process starts; what changes per run is in the
 // run file, written before each run.
-import type { InstrumentOptions } from '@mizchi/mutator-core';
+import type { PortableFlags } from '@mizchi/mutator-core';
 
 /** Path of the Settings file; the dev server instruments only when it is set. */
 export const SETTINGS_ENV = 'MUTATOR_PLAYWRIGHT';
@@ -10,7 +10,7 @@ export const SETTINGS_ENV = 'MUTATOR_PLAYWRIGHT';
 export const RUN_FILE_ENV = 'MUTATOR_PLAYWRIGHT_RUN_FILE';
 
 /** How the dev server instruments, so its mutant keys match the CLI's. */
-export interface Settings extends Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak'> {
+export interface Settings extends PortableFlags {
   root: string;
   /** Absolute paths of the files to instrument. */
   targets: string[];

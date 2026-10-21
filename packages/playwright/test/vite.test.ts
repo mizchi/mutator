@@ -76,5 +76,7 @@ test('a plugin module without a plugin, mutator or ignorer fails the transform',
   const settings: Settings = { root: dir, targets: [join(dir, 'src/a.ts')], pluginModules: [join(dir, 'nothing.ts')] };
   writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings));
   process.env[SETTINGS_ENV] = join(dir, 'settings.json');
-  await expect(transform(mutatorVite(), SOURCE, join(dir, 'src/a.ts'))).rejects.toThrow(`mutator: plugin ${join(dir, 'nothing.ts')} has no plugin, mutator or ignorer as its default export`);
+  await expect(transform(mutatorVite(), SOURCE, join(dir, 'src/a.ts'))).rejects.toThrow(
+    `plugin ${join(dir, 'nothing.ts')}: expected a plugin, a mutator, an ignorer or an array of them as the default export, each with a name`,
+  );
 });

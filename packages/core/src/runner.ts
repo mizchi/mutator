@@ -127,3 +127,12 @@ const FLAG_KEYS = ['arid', 'excludedMutators', 'weak', 'mutators', 'ignorers'] a
 export function instrumentFlags(options: { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined }): InstrumentFlags {
   return Object.fromEntries(FLAG_KEYS.filter((k) => options[k] !== undefined).map((k) => [k, options[k]])) as InstrumentFlags;
 }
+
+/** The instrument options that survive JSON: what a session hands a runner in another process (plugins go as module paths). */
+export type PortableFlags = Pick<InstrumentFlags, 'arid' | 'excludedMutators' | 'weak'>;
+
+/** The portable instrument options among `options` that are set. */
+export function portableFlags(options: { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined }): PortableFlags {
+  const { mutators: _mutators, ignorers: _ignorers, ...portable } = instrumentFlags(options);
+  return portable;
+}

@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator-typecheck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Type-check mutants with the project's TypeScript (6 via the compiler API, 7 via the native API)",
   "keywords": [

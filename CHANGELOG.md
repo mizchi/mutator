@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-22
 
 - The `mutation-test-loop` agent skill ships with `@mizchi/mutator`, and `mutator init-skill [--dir <dir>] [--force]` copies it into the project (default `.claude/skills`). It refuses to overwrite an edited copy unless `--force` (#12).
 - The child-process warning lists one line per test file, with the number of its spawning tests and the project files they run, instead of every command (#10).
@@ -23,6 +23,14 @@
 - Ctrl-C and SIGTERM kill every process the run started before exiting (130 / 143). A worker stuck in a mutant's loop used to keep spinning at full CPU after mutator was stopped.
 - Playwright tests of this repository no longer depend on the machine's load (the timeout test hangs on purpose; the expect-bound test compares with a passing run).
 - After a run killed with SIGKILL, the next run stops the workers it left spinning (recorded under `.mutator/processes/` with their start time; only those still orphaned and started when recorded).
+- Vite+ projects run as Vitest projects: an installed `vite-plus` selects Vitest when there is no config file (it worked only through the NODE_PATH that pnpm's bin shims set), and tests may import from `vite-plus/test`.
+- Playwright: a mutant run stopped by the hit limit is a `Timeout` (`hitLimit`); it was reported `Killed` by the test that hit it.
+- Jest: `weakMutation: false` reaches Jest's transformer; the workers still compiled weak-mutation probes.
+- One classification of mutant runs for every runner. Vitest: a test file whose only load errors come from the hit limit is a `Timeout`, not a `RuntimeError`. Jest: a test failing on the hit limit and on something else is `Killed`, not `Timeout`. `killedBy` lists the tests, then the files, without duplicates.
+- Plugin modules loaded by the Jest transformer and the Playwright Vite plugin get the CLI's checks and messages. The plugin fingerprint changes, so cached results of runs with plugins are run again once.
+- `ConditionalExpression` looks through `<T>x` assertions: `if (<boolean>(a > b))` no longer gets the same `true` / `false` mutants twice.
+- `ranges` keeps an insertion mutant on a range edge, as `--since` does.
+- `--time-budget` also stops the remaining parts of a long run split by test file; a run stopped between parts stays `Pending`. Every started run used to finish all its parts, which overran a 600 s budget by more than 30 minutes.
 
 ## 0.1.0 - 2026-10-16
 

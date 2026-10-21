@@ -20,6 +20,8 @@ export interface RuntimeState {
   cov: { static: Record<string, number>; perTest: Record<string, Record<string, number>> };
   /** Weak mutation: mutants whose value differed from the original's, per test. */
   inf?: { static: Record<string, number>; perTest: Record<string, Record<string, number>> };
+  /** Dry runs: each instrumented module's mutant keys and hit counts (sizes hit limits). */
+  modules?: [readonly string[], ArrayLike<number>][];
   /** Id of the running test; null while modules are loading (static coverage). */
   testId: string | null;
   hits: number;

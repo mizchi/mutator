@@ -5,6 +5,7 @@ const { createHash } = require('node:crypto');
 const { writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
+// Core's RUNTIME_GLOBAL, installed by setup.cjs.
 const ns = globalThis.__mutator__;
 // Duplicate full names get `#2`, `#3`, ... in execution (= declaration) order, like the session.
 const seen = new Map();

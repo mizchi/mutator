@@ -3,12 +3,14 @@
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SpawnedCommand } from '@mizchi/mutator-core';
+import type { RUNTIME_GLOBAL, RuntimeState, SpawnedCommand } from '@mizchi/mutator-core';
 import { afterAll, afterEach, beforeEach, inject } from 'vitest';
 
 import type {} from './provided.ts';
 
 const config = inject('mutator');
+// Typed against core's constant, not imported from it: core may itself be a mutation target.
+const GLOBAL: typeof RUNTIME_GLOBAL = '__mutator__';
 
 // Assigned at module top level so mutants evaluated while importing the
 // sources under test (static mutants) already see the active key.
@@ -24,8 +26,8 @@ const ns = {
   testId: null as string | null,
   hits: 0,
   hitLimit: config.hitLimit,
-};
-(globalThis as Record<string, unknown>).__mutator__ = ns;
+} satisfies Required<RuntimeState> & { spawns: Record<string, SpawnedCommand[]> };
+(globalThis as Record<string, unknown>)[GLOBAL] = ns;
 
 // Dry run only: record the processes each test starts. Mutants applied in memory are not
 // seen there, so the CLI reports these tests and the code their commands may run.
@@ -35,7 +37,7 @@ type Fn = ((...args: unknown[]) => unknown) & Record<symbol, unknown>;
 
 function recordSpawn(name: (typeof SPAWNERS)[number], args: unknown[]): void {
   // The module is patched once per process: look up the current file's state.
-  const state = (globalThis as Record<string, unknown>).__mutator__ as typeof ns | undefined;
+  const state = (globalThis as Record<string, unknown>)[GLOBAL] as typeof ns | undefined;
   if (!state?.collect || state.testId === null) return;
   try {
     const [command, second, third] = args;

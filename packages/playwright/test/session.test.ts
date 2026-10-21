@@ -193,6 +193,37 @@ describe('playwright session with several projects', { timeout: 120_000 }, () =>
   });
 });
 
+describe('playwright session hit limit', { timeout: 120_000 }, () => {
+  let root: string;
+  let session: Session;
+  beforeAll(async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    root = join(tmpRoot, `spin-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    cpSync(fixture, root, { recursive: true });
+    await assignPort(root);
+    // A loop in the page that the test calls: the hit limit error reaches the test through evaluate.
+    writeFileSync(join(root, 'src/spin.ts'), 'export function countdown(n: number): number {\n  let i = n;\n  while (i > 0) i--;\n  return i;\n}\n(globalThis as any).countdown = countdown;\n');
+    writeFileSync(join(root, 'spin.html'), '<!doctype html>\n<script type="module" src="/src/spin.ts"></script>\n');
+    writeFileSync(
+      join(root, 'tests/spin.spec.ts'),
+      "import { expect, test } from '@mizchi/mutator-playwright';\n\ntest('countdown', async ({ page }) => {\n  await page.goto('/spin.html');\n  await page.waitForFunction(() => 'countdown' in globalThis);\n  expect(await page.evaluate(() => (globalThis as any).countdown(3))).toBe(0);\n});\n",
+    );
+    session = await createPlaywrightSession({ root, targets: [join(root, 'src/spin.ts')] });
+    await session.dryRun();
+  });
+  afterAll(async () => {
+    await session?.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test('hitting the hit limit is a timeout', async () => {
+    const spin = session.mutants().find((m) => m.original === 'i--' && m.replacement === 'i++')!;
+    const result = await session.runMutant(spin.key, ['tests/spin.spec.ts#countdown'], { timeoutMs: 30_000, hitLimit: 1000 });
+    // No test failed on its own: a timeout names no killing test.
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] });
+  });
+});
+
 describe('playwright session failures', { timeout: 120_000 }, () => {
   const plain = fileURLToPath(new URL('./fixtures/plain', import.meta.url));
   let root: string;

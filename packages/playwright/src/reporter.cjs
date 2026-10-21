@@ -19,6 +19,7 @@ class MutatorReporter {
       titles: test.titlePath().slice(3),
       outcome: test.outcome(),
       durationMs: result.duration,
+      messages: result.errors.map((e) => e.message || String(e.value || 'error')),
     });
   }
 

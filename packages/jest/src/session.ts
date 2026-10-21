@@ -9,15 +9,15 @@ import {
   type DryRunResult,
   type InstrumentOptions,
   type Mutant,
-  type MutantRunResult,
+  type RunReport,
   type Session,
   type SpawnedCommand,
   type TestInfo,
   type TestLocation,
   DEFAULT_HIT_LIMIT,
+  classifyRun,
   emptyDryRun,
   hash,
-  HIT_LIMIT_MESSAGE,
   instrument,
   instrumentFlags,
   numberDuplicates,
@@ -237,7 +237,7 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
       const report = outcome.report ?? bailedReport(outcome.partial);
       if (!report) return { status: 'RuntimeError', killedBy: [], durationMs };
       if (outcome.report) measure(outcome);
-      return { ...classify(report, root, new Set(testIds)), durationMs };
+      return { ...classifyRun(runReport(report, root, testIds)), durationMs };
     },
 
     async close() {
@@ -334,26 +334,16 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
   return dry;
 }
 
-function classify(report: JsonReport, root: string, selected: ReadonlySet<string>): Omit<MutantRunResult, 'durationMs'> {
-  const killedBy: string[] = [];
-  const messages: string[] = [];
-  let suiteError = false;
+/** The run as classifyRun reads it. */
+function runReport(report: JsonReport, root: string, testIds: readonly string[]): RunReport {
+  const tests: RunReport['tests'][number][] = [];
+  const fileErrors: RunReport['fileErrors'][number][] = [];
   for (const suite of report.testResults) {
-    const failedTests = suite.assertionResults.some((a) => a.status === 'failed');
-    if (suite.status === 'failed' && !failedTests) {
-      suiteError = true;
-      killedBy.push(relative(root, suite.name));
-      messages.push(suite.message ?? '');
+    // A file that failed with no failing test failed outside its tests (it did not load).
+    if (suite.status === 'failed' && !suite.assertionResults.some((a) => a.status === 'failed')) {
+      fileErrors.push({ file: relative(root, suite.name), message: suite.message ?? '' });
     }
-    for (const { id, assertion } of identify(suite, root)) {
-      if (assertion.status !== 'failed' || !selected.has(id)) continue;
-      killedBy.push(id);
-      messages.push((assertion.failureMessages ?? []).join('\n'));
-    }
+    for (const { id, assertion } of identify(suite, root)) tests.push({ id, failed: assertion.status === 'failed', messages: assertion.failureMessages ?? [] });
   }
-  if (killedBy.length === 0) return { status: 'Survived', killedBy };
-  // The hit limit guards against endless loops: a run stopped only by it is a timeout.
-  if (messages.every((m) => m.includes(HIT_LIMIT_MESSAGE))) return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
-  if (suiteError && killedBy.every((k) => !k.includes('#'))) return { status: 'RuntimeError', killedBy };
-  return { status: 'Killed', killedBy };
+  return { tests, fileErrors, runErrors: [], selected: new Set(testIds) };
 }

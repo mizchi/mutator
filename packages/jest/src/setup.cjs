@@ -1,6 +1,8 @@
 'use strict';
 // Prepended to `setupFiles`: runs in each test file's environment before any
 // module under test, so static (module-level) mutants already see the active key.
+// Core's RUNTIME_GLOBAL and RuntimeState, written out: Jest requires this file into
+// each test environment, where the ESM core cannot be loaded (test/worker.test.ts keeps them equal).
 const limit = Number(process.env.MUTATOR_HIT_LIMIT);
 globalThis.__mutator__ = {
   active: process.env.MUTATOR_ACTIVE || null,

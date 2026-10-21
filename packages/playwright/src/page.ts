@@ -3,6 +3,7 @@
 // index.ts so they can be tested in process.
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { RUNTIME_GLOBAL, RuntimeState } from '@mizchi/mutator-core';
 import type { RunConfig, TestRecord } from './env.ts';
 
 /** The parts of Playwright's BrowserContext used here. */
@@ -36,6 +37,8 @@ export interface PageConfig {
 /** Runs in every document of the context, before any of its scripts. Self-contained. */
 export function pageSetup(config: PageConfig): void {
   const STORE = '__mutator_pw';
+  // Serialised into the page, so core's constant cannot be imported; the type keeps them equal.
+  const GLOBAL: typeof RUNTIME_GLOBAL = '__mutator__';
   const g = globalThis as Record<string, unknown>;
   const state = {
     active: config.active,
@@ -46,8 +49,8 @@ export function pageSetup(config: PageConfig): void {
     testId: config.id,
     hits: 0,
     hitLimit: config.hitLimit,
-  };
-  g.__mutator__ = state;
+  } satisfies Required<RuntimeState>;
+  g[GLOBAL] = state;
   if (!config.collect) return;
   const own = (): { hits: Record<string, number>; infected: Record<string, number>; counts: Record<string, number> } => {
     const counts: Record<string, number> = {};

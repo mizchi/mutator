@@ -2,10 +2,14 @@ import { writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
-/** A port nothing listens on now (the OS picks it). */
+/**
+ * A port nothing listens on now (the OS picks it). Bound on the unspecified address (`::`,
+ * IPv4 included, or `0.0.0.0` without IPv6), so a listener on either stack keeps its port:
+ * probing 127.0.0.1 alone handed out ports a server held on `::`.
+ */
 export async function freePort(): Promise<number> {
   const server = createServer();
-  await new Promise<void>((done) => server.listen(0, 'localhost', done));
+  await new Promise<void>((done) => server.listen(0, done));
   const { port } = server.address() as { port: number };
   await new Promise((done) => server.close(done));
   return port;

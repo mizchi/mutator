@@ -53,7 +53,7 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
   const retries = new RetryCounts();
-  const neverStarted = await runSharded({
+  const unsettled = await runSharded({
     workers: workers.length,
     jobs: sharded,
     shouldStop: () => performance.now() >= deadline,
@@ -82,8 +82,8 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
       tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
     },
   });
-  // Over the time budget: the jobs never started.
-  for (const { index, entry } of neverStarted) {
+  // Over the time budget: the jobs never started, or stopped between shards.
+  for (const { index, entry } of unsettled) {
     notRun.budget++;
     tally.skip(index, entry.mutant, report[index]!.coveredBy);
   }

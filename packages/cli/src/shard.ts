@@ -34,10 +34,11 @@ export interface ShardedJob {
  * any job gets a second one; after that, idle workers take the remaining shards of
  * started jobs. A Killed / Timeout / RuntimeError shard settles its job (its other
  * shards are dropped, results still in flight are ignored); a job survives when all
- * its shards survive. Once `shouldStop` is true no new job starts, but started jobs finish.
+ * its shards survive. Once `shouldStop` is true no shard starts, not even one of a started
+ * job: only the shards in flight finish, so a deadline is overrun by one shard at most.
  * With `allShards` (kill matrix) only a Timeout settles a job early: every other shard runs,
  * and the job's failing tests are those of all its shards.
- * Returns the jobs that never started.
+ * Returns the jobs left unsettled: never started, or stopped between shards.
  */
 export async function runSharded<J extends ShardedJob>(input: {
   workers: number;
@@ -50,7 +51,8 @@ export async function runSharded<J extends ShardedJob>(input: {
   const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false, outcomes: [] as MutantRunResult[] }));
   let unstarted = 0;
   const take = () => {
-    if (unstarted < state.length && !input.shouldStop?.()) return state[unstarted++]!;
+    if (input.shouldStop?.()) return undefined;
+    if (unstarted < state.length) return state[unstarted++]!;
     return state.find((s) => s.next > 0 && !s.settled && s.next < s.job.shards.length);
   };
   const settle = (s: (typeof state)[number], outcome: MutantRunResult) => {
@@ -75,7 +77,7 @@ export async function runSharded<J extends ShardedJob>(input: {
       }
     }),
   );
-  return state.slice(unstarted).map((s) => s.job);
+  return state.filter((s) => !s.settled).map((s) => s.job);
 }
 
 /** Shards of one job, none timed out: the failing tests of all of them, under the strongest verdict. */

@@ -121,4 +121,40 @@ describe('runSharded', () => {
     });
     expect(done).toEqual(['j1']);
   });
+
+  test('once `shouldStop` says so, started jobs get no further shards and are returned unsettled', async () => {
+    const ran: string[] = [];
+    const done: string[] = [];
+    const left = await runSharded({
+      workers: 1,
+      jobs: [{ id: 'j1', shards: [['a'], ['b']] }, { id: 'j2', shards: [['c'], ['d']] }],
+      run: async (_w, job, shard) => {
+        ran.push(`${job.id}:${shard.join()}`);
+        return { status: 'Survived', killedBy: [], durationMs: 1 };
+      },
+      onDone: (job) => done.push(job.id),
+      shouldStop: () => ran.length >= 2,
+    });
+    expect(ran).toEqual(['j1:a', 'j2:c']);
+    expect(done).toEqual([]);
+    expect(left.map((j) => j.id)).toEqual(['j1', 'j2']);
+  });
+
+  test('a shard in flight when `shouldStop` turns true still settles its job', async () => {
+    const done = new Map<string, Outcome>();
+    let stop = false;
+    const left = await runSharded({
+      workers: 2,
+      jobs: [{ id: 'j', shards: [['a'], ['b']] }],
+      run: async (_w, _job, shard) => {
+        await tick();
+        stop = true;
+        return shard[0] === 'b' ? { status: 'Killed', killedBy: ['b'], durationMs: 1 } : { status: 'Survived', killedBy: [], durationMs: 1 };
+      },
+      onDone: (job, outcome) => done.set(job.id, outcome),
+      shouldStop: () => stop,
+    });
+    expect(done.get('j')).toMatchObject({ status: 'Killed', killedBy: ['b'] });
+    expect(left).toEqual([]);
+  });
 });

@@ -425,7 +425,7 @@ npx mutator --since origin/main --mutants-per-line 1 --time-budget 600
 ```
 
 - `--mutants-per-line <n>` runs at most `n` mutants per source line, as in Google's [Practical Mutation Testing at Scale](https://arxiv.org/abs/2102.11378): within a line the most productive mutators win (equality / conditional / arithmetic / logical operators before literals and structural mutators, custom mutators last), ties broken by a hash of the mutant key. The selection is deterministic and independent of the cache, so cached verdicts stay usable across runs.
-- `--time-budget <seconds>` stops starting new mutant runs once the budget (measured from the start of the run) is spent; runs already in flight finish. Under a budget, mutants run cheapest first (summed duration of their selected tests), so the budget settles as many mutants as possible.
+- `--time-budget <seconds>` stops starting new mutant runs once the budget (measured from the start of the run) is spent; runs already in flight finish. A long run split by test file also gets no further parts after that, and its mutant stays `Pending` unless a part that finished already decided it, so the overrun is at most one part. Under a budget, mutants run cheapest first (summed duration of their selected tests), so the budget settles as many mutants as possible.
 
 Mutants left out by either option are reported as `Pending` (excluded from the score, never cached as a verdict) and the text summary says how many, e.g. `not run: 63 sampled out (--mutants-per-line), 12 over the time budget (--time-budget)`. A later run without the options executes them.
 

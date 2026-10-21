@@ -2,6 +2,7 @@ import vm from 'node:vm';
 import { describe, expect, test } from 'vitest';
 import { applyMutant, instrument, scanImports } from '../src/instrument.ts';
 import { lineRanges, selectMutants } from '../src/diff.ts';
+import { defineMutator } from '../src/plugin.ts';
 import type { Mutant } from '../src/types.ts';
 
 const RUNTIME = '__mutator__';
@@ -433,5 +434,20 @@ describe('scope dependency info', () => {
 
   test('scanImports lists the modules loaded for their side effects too, without types', () => {
     expect(scanImports('m.ts', "import './side.ts';\nimport type { T } from './t.ts';\nimport { type U } from './u.ts';\nexport {};").loads).toEqual(['./side.ts', './u.ts']);
+  });
+});
+
+describe('placement', () => {
+  test('a mutant of a super() call is unplaceable: neither the call nor its statement can be wrapped', () => {
+    const superArg = defineMutator({
+      name: 'SuperArg',
+      visit: (node) => {
+        if (node.type !== 'CallExpression' || node.callee.type !== 'Super') return undefined;
+        const [arg] = node.arguments;
+        return [{ range: { start: arg.start, end: arg.end }, replacement: '0' }];
+      },
+    });
+    const { mutants } = instrument('a.js', 'class B extends A { constructor(i) { super(i); this.i = i; } }', { mutators: [superArg] });
+    expect(mutants.map((m) => [m.mutator, m.original, m.ignored])).toEqual([['SuperArg', 'i', 'unplaceable']]);
   });
 });

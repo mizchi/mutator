@@ -16,6 +16,7 @@ describe('intersects', () => {
     }
     expect(intersects(r(10, 10), r(2, 9))).toBe(false);
     expect(intersects(r(2, 9), r(1, 1))).toBe(false);
+    expect(intersects(r(2, 9), r(10, 10))).toBe(false);
   });
 });
 

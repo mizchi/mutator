@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,6 @@ import { detectRunner } from '../src/runner.ts';
 
 // Inside the workspace: `vitest` resolves from the root node_modules, `jest` does not.
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
-const runnerModule = fileURLToPath(new URL('../src/runner.ts', import.meta.url));
 const created: string[] = [];
 afterAll(() => {
   for (const dir of created) rmSync(dir, { recursive: true, force: true });
@@ -25,11 +24,28 @@ function project(files: Record<string, string>, root = tmpRoot): string {
   return dir;
 }
 
-function detectIsolated(root: string): string {
-  const { NODE_PATH: _, ...env } = process.env;
-  const script = `import { detectRunner } from ${JSON.stringify(runnerModule)}; process.stdout.write(detectRunner(${JSON.stringify(root)}));`;
-  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env, encoding: 'utf8' });
-  return result.stdout || result.stderr;
+// pnpm's bin shims (vitest's own included) put the hoisted store on NODE_PATH, so every runner
+// resolves from anywhere. Outside the workspace and without it, only what the project installs
+// resolves: Node reads NODE_PATH again on `_initPaths`.
+function withoutNodePath<T>(fn: () => T): T {
+  const saved = process.env.NODE_PATH;
+  const initPaths = () => (Module as unknown as { _initPaths(): void })._initPaths();
+  delete process.env.NODE_PATH;
+  initPaths();
+  try {
+    return fn();
+  } finally {
+    if (saved !== undefined) process.env.NODE_PATH = saved;
+    initPaths();
+  }
+}
+
+/** A project outside the workspace that installs just these packages. */
+function installing(...names: string[]): string {
+  return project(
+    Object.fromEntries(names.map((name) => [`node_modules/${name}/package.json`, JSON.stringify({ name, exports: { './package.json': './package.json' } })])),
+    tmpdir(),
+  );
 }
 
 describe('detectRunner', () => {
@@ -52,10 +68,17 @@ describe('detectRunner', () => {
     expect(detectRunner(project({}))).toBe('vitest');
   });
 
-  // Outside the workspace and without the NODE_PATH that pnpm's bin shims set (vitest's own
-  // included), only what the project installs resolves.
-  test('vite-plus, which bundles vitest, selects vitest', () => {
-    const vitePlus = JSON.stringify({ name: 'vite-plus', exports: { './package.json': './package.json' } });
-    expect(detectIsolated(project({ 'node_modules/vite-plus/package.json': vitePlus }, tmpdir()))).toBe('vitest');
+  test('without configs, vite-plus (which bundles vitest) selects vitest', () => {
+    expect(withoutNodePath(() => detectRunner(installing('vite-plus')))).toBe('vitest');
+  });
+
+  test('without configs, an installed jest or @playwright/test selects that runner', () => {
+    expect(withoutNodePath(() => detectRunner(installing('jest')))).toBe('jest');
+    expect(withoutNodePath(() => detectRunner(installing('@playwright/test')))).toBe('playwright');
+  });
+
+  test('without configs or an installed runner, detection fails naming the root', () => {
+    const root = installing();
+    expect(() => withoutNodePath(() => detectRunner(root))).toThrow(`no test runner found: none of vitest (or vite-plus), jest or @playwright/test resolves from ${root}`);
   });
 });

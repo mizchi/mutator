@@ -192,6 +192,34 @@ describe('edge cases', () => {
   });
 });
 
+describe('test files that fail to load under a mutant', () => {
+  const loadRoot = fileURLToPath(new URL('./fixtures/load', import.meta.url));
+  let session: Session;
+  beforeAll(async () => {
+    session = await createSession({ root: loadRoot, include: (file) => file.includes('/load/src/') });
+    expect((await session.dryRun()).failed).toEqual([]);
+  });
+  afterAll(async () => {
+    await session?.close();
+  });
+
+  const find = (original: string, replacement: string) => {
+    const m = session.mutants().find((m) => m.original === original && m.replacement === replacement);
+    if (!m) throw new Error(`mutant ${original} -> ${replacement} not found`);
+    return m;
+  };
+
+  test('a file that throws while loading is a runtime error naming the file', async () => {
+    const result = await session.runMutant(find('i === 0', 'false').key, ['test/boot.test.ts#boots'], { timeoutMs: 10_000, isStatic: true });
+    expect(result).toMatchObject({ status: 'RuntimeError', killedBy: ['test/boot.test.ts'] });
+  });
+
+  test('a file stopped by the hit limit while loading is a timeout', async () => {
+    const result = await session.runMutant(find('i--', 'i++').key, ['test/boot.test.ts#boots'], { timeoutMs: 10_000, isStatic: true, hitLimit: 1000 });
+    expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] });
+  });
+});
+
 describe('process hygiene', () => {
   const descendants = (): number[] => {
     const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8' })

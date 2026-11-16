@@ -16,10 +16,13 @@ jobs:
         with:
           node-version: 24
       - run: npm ci                 # install as the project does (pnpm install --frozen-lockfile, ...)
-      - uses: mizchi/mutator@v0
+      - uses: mizchi/mutator@v0.3.0
         with:
+          version: '0.3.0'
           args: --time-budget 600
 ```
+
+Pin the action to a full version tag and update it explicitly when upgrading. Tags are immutable; existing major-version tags such as `v0` are no longer advanced.
 
 | input | default | |
 |---|---|---|

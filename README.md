@@ -410,8 +410,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0
+      - uses: mizchi/mutator@v0.3.0
         with:
+          version: '0.3.0'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -486,7 +487,9 @@ pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exe
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a `v<version>` tag. The `release` workflow checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), creates the GitHub release from the changelog section, and moves the major tag (`v0`) that `uses: mizchi/mutator@v0` follows.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.3.0`, and update the reference explicitly when upgrading.
+
+The `release` workflow runs only for newly created tags. It checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
 The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
 

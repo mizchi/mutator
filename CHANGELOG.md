@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.3.0 - 2026-11-17
+
+### Added
+
+- `--include-test-changes` extends `--since` to code covered or imported by added, edited or removed tests. Reports include the tests that selected each mutant, and unresolved findings remain visible when the same diff is checked again.
+- `--shared-cache` reuses validated snapshots across Git worktrees, separated by package, source scope and environment.
+- JSON and agent reports expose severity-tagged `findings`, `selectionReasons`, `testChanges` and `comparison`. Detection-regression findings identify unchanged code that tests detected before but no longer detect; an unavailable previous snapshot is reported explicitly.
+- `--kill-matrix` includes an `observations` record for every collected test: `detected`, `noKills`, `notReached` or `incomplete`. New tests with no kills and tests whose detection power was not measured are reported separately.
+- The opt-in `numericMutations` plugin adds `MathRounding` and `NumericConstant` mutants for rounding methods and explicitly configured constants, including negative values. Custom mutator factories can set `cacheKey` to invalidate results when captured configuration changes.
+
+### Changed
+
+- Type-check verdicts, including `CompileError` and equivalence decisions, are cached against the source and compiler inputs. Unchanged reruns skip the checker; declaration, configuration, resolution and file-discovery changes invalidate the cache. The exported `TypeChecker` contract now exposes these inputs.
+- Each include/exclude scope keeps its own snapshot under `.mutator/scopes/`, so alternating between scopes preserves their results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts.
+- The snapshot version is bumped: the first run after upgrading rebuilds incompatible cached results.
+
+### Fixed
+
+- Changes to enclosing workspace manifests and lockfiles invalidate package caches in pnpm/npm monorepos. Workspace discovery stops at the repository boundary.
+- Unresolved regressions caused by removed killing tests remain reported on subsequent `--since` runs instead of disappearing after the first recheck.
+- Incomplete kill matrices no longer establish that a test detects nothing or is subsumed by another test. Early exits, timeouts and pending work are distinguished from complete measurements.
+- Snapshot writes and updates to the latest-run snapshot are atomic, preventing readers from observing partially written JSON.
+
+These changes incorporate feedback from [mizchi/mutator を入れてみた](https://zenn.dev/polyco/articles/e05cb28c569801) ([#18](https://github.com/mizchi/mutator/pull/18)).
+
 ## 0.2.0 - 2026-10-22
 
 - The `mutation-test-loop` agent skill ships with `@mizchi/mutator`, and `mutator init-skill [--dir <dir>] [--force]` copies it into the project (default `.claude/skills`). It refuses to overwrite an edited copy unless `--force` (#12).

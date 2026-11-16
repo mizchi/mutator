@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- Directory-existence probes track existence separately from entry listings, so parallel work in sibling projects no longer invalidates an unchanged project's type-check results.
 - Changes to enclosing workspace manifests and lockfiles invalidate package caches in pnpm/npm monorepos. Workspace discovery stops at the repository boundary.
 - Unresolved regressions caused by removed killing tests remain reported on subsequent `--since` runs instead of disappearing after the first recheck.
 - Incomplete kill matrices no longer establish that a test detects nothing or is subsumed by another test. Early exits, timeouts and pending work are distinguished from complete measurements.

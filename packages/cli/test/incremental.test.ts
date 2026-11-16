@@ -247,6 +247,9 @@ describe('type checking', { timeout: 120_000 }, () => {
     expect(status('[]', '["Stryker was here!"]')).toMatchObject({ status: 'CompileError' });
     expect(report.entries.filter((e) => e.status === 'CompileError').every((e) => e.killedBy.length === 0)).toBe(true);
 
+    // Parallel tests may create sibling projects. An existence probe of the parent
+    // must not make their directory entries part of this project's type inputs.
+    project({ 'src/unrelated.ts': 'export const unrelated = 1;\n' });
     const logs: string[] = [];
     const unchanged = await runMutation({ root, concurrency: 1, log: (message) => logs.push(message) });
     expect(verdicts(unchanged)).toEqual(verdicts(report));

@@ -29,7 +29,10 @@ export interface TypeChecker {
 
 export interface TypecheckInputs {
   files: string[];
+  /** Directories whose entries were enumerated. */
   directories: string[];
+  /** Directories checked only for existence, without depending on their entries. */
+  directoryChecks: string[];
   /** Replay these searches to notice newly included files, with the compiler's exact glob rules. */
   searches: TypecheckSearch[];
 }

@@ -9,12 +9,13 @@ import type { CheckerOptions, TypeChecker, TypecheckSearch } from './types.ts';
 export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions): TypeChecker {
   const files = new Set<string>([tsconfig]);
   const directories = new Set<string>();
+  const directoryChecks = new Set<string>();
   const searches: TypecheckSearch[] = [];
   const sys: typeof ts.sys = {
     ...ts.sys,
     readFile: (file, encoding) => { files.add(file); return ts.sys.readFile(file, encoding); },
     fileExists: (file) => { files.add(file); return ts.sys.fileExists(file); },
-    directoryExists: (directory) => { directories.add(directory); return ts.sys.directoryExists(directory); },
+    directoryExists: (directory) => { directoryChecks.add(directory); return ts.sys.directoryExists(directory); },
     getDirectories: (directory) => { directories.add(directory); return ts.sys.getDirectories(directory); },
     readDirectory: (directory, extensions, excludes, includes, depth) => {
       searches.push({ directory, ...(extensions ? { extensions } : {}), ...(excludes ? { excludes } : {}), ...(includes ? { includes } : {}), ...(depth !== undefined ? { depth } : {}) });
@@ -47,7 +48,7 @@ export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions
 
   return {
     version: ts.version,
-    get inputs() { return { files: [...files], directories: [...directories], searches }; },
+    get inputs() { return { files: [...files], directories: [...directories], directoryChecks: [...directoryChecks], searches }; },
     check(mutants) {
       return checkEach(
         mutants,

@@ -1,5 +1,5 @@
 // A type verdict is reusable only while every compiler input and resolution directory agrees.
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import { type Mutant, hash } from '@mizchi/mutator-core';
@@ -38,6 +38,10 @@ export function typeInputHash(root: string, inputs: TypecheckInputs): string | u
       return [file, '<missing>'];
     }
   });
+  const directoryChecks = inputs.directoryChecks.map((directory) => {
+    try { return [directory, statSync(join(root, directory)).isDirectory()]; }
+    catch { return [directory, false]; }
+  });
   const searches: string[][] = [];
   if (inputs.searches.length) {
     try {
@@ -49,16 +53,16 @@ export function typeInputHash(root: string, inputs: TypecheckInputs): string | u
       }
     } catch { return undefined; }
   }
-  return hash(JSON.stringify([files, directories, searches]));
+  return hash(JSON.stringify([files, directories, directoryChecks, searches]));
 }
 
 export function portableTypeInputs(root: string, inputs: readonly TypecheckInputs[]): TypecheckInputs {
-  const collect = (key: 'files' | 'directories') => [...new Set(inputs.flatMap((input) => input[key].map((file) => relative(root, file))))].sort();
+  const collect = (key: 'files' | 'directories' | 'directoryChecks') => [...new Set(inputs.flatMap((input) => input[key].map((file) => relative(root, file))))].sort();
   const searches = new Map(inputs.flatMap((input) => input.searches.map((search) => {
     const portable = { ...search, directory: relative(root, search.directory) };
     return [JSON.stringify(portable), portable] as const;
   })));
-  return { files: collect('files'), directories: collect('directories'), searches: [...searches.values()] };
+  return { files: collect('files'), directories: collect('directories'), directoryChecks: collect('directoryChecks'), searches: [...searches.values()] };
 }
 
 export function cachedTypechecks(root: string, previous: TypecheckCache | undefined, mutants: readonly Mutant[]) {

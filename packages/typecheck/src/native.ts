@@ -9,10 +9,11 @@ export function createNativeChecker(native: typeof Native, { root, tsconfig }: C
   const overlay = new Map<string, string>();
   const files = new Set<string>([tsconfig]);
   const directories = new Set<string>();
+  const directoryChecks = new Set<string>();
   const api = new native.API({ cwd: root, fs: {
     readFile: (file) => { files.add(file); return overlay.get(file); },
     fileExists: (file) => { files.add(file); return undefined; },
-    directoryExists: (directory) => { directories.add(directory); return undefined; },
+    directoryExists: (directory) => { directoryChecks.add(directory); return undefined; },
     getAccessibleEntries: (directory) => { directories.add(directory); return undefined; },
   } });
   let snapshot = api.updateSnapshot({ openProjects: [tsconfig] });
@@ -25,7 +26,7 @@ export function createNativeChecker(native: typeof Native, { root, tsconfig }: C
 
   return {
     version,
-    get inputs() { return { files: [...files], directories: [...directories], searches: [] }; },
+    get inputs() { return { files: [...files], directories: [...directories], directoryChecks: [...directoryChecks], searches: [] }; },
     check(mutants) {
       return checkEach(
         mutants,

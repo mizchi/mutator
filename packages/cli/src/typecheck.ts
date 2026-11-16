@@ -47,6 +47,7 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
   const inputs: TypecheckInputs[] = cached.valid && cache ? [{
     files: cache.inputs.files.map((f) => join(root, f)),
     directories: cache.inputs.directories.map((f) => join(root, f)),
+    directoryChecks: cache.inputs.directoryChecks.map((f) => join(root, f)),
     searches: cache.inputs.searches.map((search) => ({ ...search, directory: join(root, search.directory) })),
   }] : [];
   for (const [key, result] of cached.hits) {

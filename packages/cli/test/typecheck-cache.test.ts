@@ -14,7 +14,7 @@ test('adding an ambient declaration invalidates compiler discovery inputs', () =
   mkdirSync(join(root, 'src'));
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(fileURLToPath(new URL('../../typecheck/node_modules/typescript6', import.meta.url)), join(root, 'node_modules/typescript'), 'dir');
-  const inputs = { files: [], directories: [], searches: [{ directory: 'src', extensions: ['.ts'], excludes: [], includes: ['**/*'] }] };
+  const inputs = { files: [], directories: [], directoryChecks: [], searches: [{ directory: 'src', extensions: ['.ts'], excludes: [], includes: ['**/*'] }] };
   const before = typeInputHash(root, inputs);
   expect(before).toBeTypeOf('string');
   writeFileSync(join(root, 'src/global.d.ts'), 'declare const version: number;');
@@ -24,7 +24,7 @@ test('adding an ambient declaration invalidates compiler discovery inputs', () =
 test('newly resolvable imports invalidate previously missing file inputs', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-types-'));
   roots.push(root);
-  const inputs = { files: ['missing.d.ts'], directories: [], searches: [] };
+  const inputs = { files: ['missing.d.ts'], directories: [], directoryChecks: [], searches: [] };
   const before = typeInputHash(root, inputs);
   writeFileSync(join(root, 'missing.d.ts'), 'export type Value = string;');
   expect(typeInputHash(root, inputs)).not.toBe(before);
@@ -35,7 +35,7 @@ test('compiler searches respect explicit node_modules includes and exclusions', 
   roots.push(root);
   mkdirSync(join(root, 'node_modules/custom'), { recursive: true });
   symlinkSync(fileURLToPath(new URL('../../typecheck/node_modules/typescript6', import.meta.url)), join(root, 'node_modules/typescript'), 'dir');
-  const inputs = { files: [], directories: [], searches: [{ directory: '.', extensions: ['.ts'], excludes: [], includes: ['node_modules/custom/**/*.ts'] }] };
+  const inputs = { files: [], directories: [], directoryChecks: [], searches: [{ directory: '.', extensions: ['.ts'], excludes: [], includes: ['node_modules/custom/**/*.ts'] }] };
   const before = typeInputHash(root, inputs);
   expect(before).toBeTypeOf('string');
   writeFileSync(join(root, 'node_modules/custom/global.d.ts'), 'declare const version: number;');
@@ -43,4 +43,25 @@ test('compiler searches respect explicit node_modules includes and exclusions', 
   expect(after).not.toBe(before);
   writeFileSync(join(root, 'unrelated.d.ts'), 'declare const other: number;');
   expect(typeInputHash(root, inputs)).toBe(after);
+});
+
+test('existence probes ignore entry changes but notice a directory disappearing', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mutator-types-'));
+  roots.push(root);
+  mkdirSync(join(root, 'resolution'));
+  const inputs = { files: [], directories: [], directoryChecks: ['resolution'], searches: [] };
+  const before = typeInputHash(root, inputs);
+  writeFileSync(join(root, 'resolution/unrelated.ts'), 'export const unrelated = 1;');
+  expect(typeInputHash(root, inputs)).toBe(before);
+  rmSync(join(root, 'resolution'), { recursive: true });
+  expect(typeInputHash(root, inputs)).not.toBe(before);
+});
+
+test('enumerated directories still invalidate when entries change', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mutator-types-'));
+  roots.push(root);
+  const inputs = { files: [], directories: ['.'], directoryChecks: [], searches: [] };
+  const before = typeInputHash(root, inputs);
+  writeFileSync(join(root, 'new.d.ts'), 'declare const version: number;');
+  expect(typeInputHash(root, inputs)).not.toBe(before);
 });

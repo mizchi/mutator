@@ -25,6 +25,14 @@
       "description": "Git ref: only run mutants inside `git diff <since>`.",
       "type": "string"
     },
+    "includeTestChanges": {
+      "description": "With since, also select mutants covered or imported by changed tests.",
+      "type": "boolean"
+    },
+    "sharedCache": {
+      "description": "Store snapshots in the Git common directory for reuse across worktrees; separate scopes and environments.",
+      "type": "boolean"
+    },
     "scope": {
       "description": "Diff granularity: changed nodes, or whole enclosing functions.",
       "enum": [

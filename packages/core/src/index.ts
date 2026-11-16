@@ -28,5 +28,6 @@ export { mergeCoverage, plan, toResult } from './plan.ts';
 export { type CallGraph, type CallGraphSource, buildCallGraph, relatedScopes } from './callgraph.ts';
 export { DEFAULT_ARID_CALLEES } from './arid.ts';
 export { defineIgnorer, defineMutator, definePlugin } from './plugin.ts';
+export { type NumericMutationOptions, numericMutations } from './numeric.ts';
 export { BUILTIN_MUTATOR_NAMES } from './types.ts';
 export { MUTATOR_PRODUCTIVITY, estimatedCost, orderByCost, selectPerLine } from './sample.ts';

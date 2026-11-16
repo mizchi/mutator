@@ -31,12 +31,15 @@ export function diffTouched(root: string, lines: ReadonlyMap<string, number[] | 
  * before by tests that are all gone now (removed or renamed), so a deleted test cannot hide.
  * Code a changed test merely covers is left out: its survivors predate the change.
  */
-export function sinceFocus(touched: ReadonlySet<string>, previous: readonly MutantResult[], tests: readonly { id: string }[]): Map<string, 'diff' | 'recheck'> {
+export function sinceFocus(touched: ReadonlySet<string>, previous: readonly MutantResult[], tests: readonly { id: string }[], history: readonly { key: string; previousKillers: readonly string[] }[] = []): Map<string, 'diff' | 'recheck'> {
   const focus = new Map<string, 'diff' | 'recheck'>([...touched].map((k) => [k, 'diff']));
   const present = new Set(tests.map((t) => t.id));
   for (const r of previous) {
     if (focus.has(r.key) || r.status !== 'Killed' || r.killedBy.length === 0) continue;
     if (r.killedBy.every((t) => !present.has(t))) focus.set(r.key, 'recheck');
+  }
+  for (const r of history) {
+    if (!focus.has(r.key) && r.previousKillers.length > 0 && r.previousKillers.every((t) => !present.has(t))) focus.set(r.key, 'recheck');
   }
   return focus;
 }

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import type { MutantResult, MutantStatus, ResultReason, RunSnapshot } from '@mizchi/mutator-core';
 
@@ -63,5 +64,20 @@ export function writeSnapshot(path: string, snapshot: RunSnapshot, root: string)
   });
   const compact: Compact = { format: 2, ids: [...ids.keys()], strings: [...strings.keys()], rows };
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ ...rest, ...compact })}\n`);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify({ ...rest, ...compact })}\n`, { flag: 'wx' });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
+}
+
+/** Keep the established snapshot.json path as the latest run, without serializing it twice. */
+export function publishSnapshot(path: string, latest: string): void {
+  if (path === latest) return;
+  mkdirSync(dirname(latest), { recursive: true });
+  const temporary = `${latest}.${randomUUID()}.tmp`;
+  try {
+    copyFileSync(path, temporary, constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL);
+    renameSync(temporary, latest);
+  } finally { rmSync(temporary, { force: true }); }
 }

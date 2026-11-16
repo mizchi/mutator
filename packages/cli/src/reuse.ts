@@ -2,20 +2,37 @@
 // (Node, lockfiles, tsconfig, runner config, mutation settings), and keeps the results of
 // mutants this run did not decide.
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapshot, hash } from '@mizchi/mutator-core';
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, scopeTable } from './coverage-cache.ts';
 import type { RunOptions } from './run.ts';
 import type { Runner } from './runner.ts';
 import { collectSources, resolveSetup } from './setup.ts';
 import { readSnapshot } from './snapshot.ts';
+import { snapshotFiles } from './snapshot-store.ts';
 
 // Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
 // no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
 // without the tests that reached them while running), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.8';
+export const SNAPSHOT_VERSION = '0.0.9';
 
-export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'tsconfig.json'];
+export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', 'tsconfig.json', 'pnpm-workspace.yaml'];
+
+/** Environment files of this package and its enclosing workspaces, relative to the package. */
+export function environmentFiles(root: string, extra: readonly string[] = []): string[] {
+  const files = new Set([...ENV_FILES, ...extra]);
+  let directory = resolve(root);
+  while (!existsSync(join(directory, '.git'))) {
+    const parent = dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+    const manifest = readIfExists(join(directory, 'package.json'));
+    let workspace = existsSync(join(directory, 'pnpm-workspace.yaml'));
+    try { workspace ||= Boolean(JSON.parse(manifest).workspaces); } catch { /* No workspace manifest. */ }
+    if (workspace) for (const file of ENV_FILES) files.add(relative(root, join(directory, file)));
+  }
+  return [...files].sort();
+}
 
 /** Mutation settings change which mutants are placed (and thus covered): part of the environment. */
 export function mutationSettings(options: RunOptions, setup: { runner: Runner; arid: InstrumentOptions['arid']; plugins: { fingerprint: unknown } }): string {
@@ -25,7 +42,7 @@ export function mutationSettings(options: RunOptions, setup: { runner: Runner; a
 
 /** Node version, mutation settings, and the content of the environment files (relative to root). */
 export function environmentHash(root: string, settings: string, envFiles: readonly string[]): string {
-  return hash([process.version, settings, ...envFiles.flatMap((f) => [f, readIfExists(join(root, f))])].join('\0'));
+  return hash([process.version, settings, ...environmentFiles(root, envFiles).flatMap((f) => [f, readIfExists(join(root, f))])].join('\0'));
 }
 
 /** The snapshot cannot be used: missing, or written by another tool version or environment. */
@@ -39,8 +56,13 @@ export class SnapshotError extends Error {}
  */
 export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[] }> {
   const root = resolve(options.root);
-  const snapshotPath = options.snapshotPath ?? join(root, '.mutator', 'snapshot.json');
   const setup = await resolveSetup(root, options, () => {});
+  const candidates = snapshotFiles(root, options);
+  const settings = mutationSettings(options, setup);
+  const snapshotPath = candidates.find((path) => {
+    const cached = readSnapshot(path, root) as CliSnapshot | undefined;
+    return cached?.toolVersion === SNAPSHOT_VERSION && cached.envFiles && cached.envHash === environmentHash(root, settings, cached.envFiles);
+  }) ?? candidates[0] ?? join(root, '.mutator/snapshot.json');
   const snapshot = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
   const rel = relative(process.cwd(), snapshotPath) || snapshotPath;
   if (!snapshot) throw new SnapshotError(`no snapshot at ${rel}: run \`mutator\` once first`);

@@ -173,6 +173,15 @@ describe('large-run options', () => {
 });
 
 describe('kill matrix', () => {
+  test('test change selection and shared cache can be enabled and negated', async () => {
+    const root = project({ includeTestChanges: true, sharedCache: true });
+    expect((await resolve(root)).run).toMatchObject({ includeTestChanges: true, sharedCache: true });
+    const disabled = (await resolve(root, '--no-include-test-changes', '--no-shared-cache')).run;
+    expect(disabled.includeTestChanges).toBeUndefined();
+    expect(disabled.sharedCache).toBeUndefined();
+    expect((await resolve(project(), '--include-test-changes', '--shared-cache')).run).toMatchObject({ includeTestChanges: true, sharedCache: true });
+  });
+
   test('off by default; from the config file, or --kill-matrix / --no-kill-matrix', async () => {
     expect((await resolve(project())).run.killMatrix).toBeUndefined();
     expect((await resolve(project(), '--kill-matrix')).run.killMatrix).toBe(true);

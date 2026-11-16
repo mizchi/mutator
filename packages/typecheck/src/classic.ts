@@ -4,10 +4,24 @@ import { dirname } from 'node:path';
 import type * as TS from 'typescript6';
 import { checkEach } from './diff.ts';
 import { type AstNode, provenEquivalent } from './equivalent.ts';
-import type { CheckerOptions, TypeChecker } from './types.ts';
+import type { CheckerOptions, TypeChecker, TypecheckSearch } from './types.ts';
 
 export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions): TypeChecker {
-  const parsed = ts.getParsedCommandLineOfConfigFile(tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} });
+  const files = new Set<string>([tsconfig]);
+  const directories = new Set<string>();
+  const searches: TypecheckSearch[] = [];
+  const sys: typeof ts.sys = {
+    ...ts.sys,
+    readFile: (file, encoding) => { files.add(file); return ts.sys.readFile(file, encoding); },
+    fileExists: (file) => { files.add(file); return ts.sys.fileExists(file); },
+    directoryExists: (directory) => { directories.add(directory); return ts.sys.directoryExists(directory); },
+    getDirectories: (directory) => { directories.add(directory); return ts.sys.getDirectories(directory); },
+    readDirectory: (directory, extensions, excludes, includes, depth) => {
+      searches.push({ directory, ...(extensions ? { extensions } : {}), ...(excludes ? { excludes } : {}), ...(includes ? { includes } : {}), ...(depth !== undefined ? { depth } : {}) });
+      return ts.sys.readDirectory(directory, extensions, excludes, includes, depth);
+    },
+  };
+  const parsed = ts.getParsedCommandLineOfConfigFile(tsconfig, {}, { ...sys, onUnRecoverableConfigFileDiagnostic: () => {} });
   if (!parsed) throw new Error(`cannot parse ${tsconfig}`);
   const overrides = new Map<string, string>();
   const versions = new Map<string, number>();
@@ -17,22 +31,23 @@ export function createClassicChecker(ts: typeof TS, { tsconfig }: CheckerOptions
     getScriptFileNames: () => parsed.fileNames,
     getScriptVersion: (file) => String(versions.get(file) ?? 0),
     getScriptSnapshot: (file) => {
-      const text = overrides.get(file) ?? ts.sys.readFile(file);
+      const text = overrides.get(file) ?? sys.readFile(file);
       return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
     },
     getCurrentDirectory: () => dirname(tsconfig),
     getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-    fileExists: (file) => overrides.has(file) || ts.sys.fileExists(file),
-    readFile: (file) => overrides.get(file) ?? ts.sys.readFile(file),
-    readDirectory: ts.sys.readDirectory,
-    directoryExists: ts.sys.directoryExists,
-    getDirectories: ts.sys.getDirectories,
+    fileExists: (file) => overrides.has(file) || sys.fileExists(file),
+    readFile: (file) => overrides.get(file) ?? sys.readFile(file),
+    readDirectory: sys.readDirectory,
+    directoryExists: sys.directoryExists,
+    getDirectories: sys.getDirectories,
   };
   const service = ts.createLanguageService(host, ts.createDocumentRegistry());
   const message = (d: TS.Diagnostic) => `${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, '\n')}`;
 
   return {
     version: ts.version,
+    get inputs() { return { files: [...files], directories: [...directories], searches }; },
     check(mutants) {
       return checkEach(
         mutants,

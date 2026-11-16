@@ -10,6 +10,8 @@ import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
 import { isUndetected } from './status.ts';
 import { VERSION } from './version.ts';
+import { type WorkflowFinding, workflowFindings } from './workflow-findings.ts';
+import type { SelectionReason, TestChanges } from './test-impact.ts';
 
 /** mutation-testing-elements release loaded by the HTML report (and the schema version tests validate against). */
 export const MTE_VERSION = '3.9.0';
@@ -38,6 +40,10 @@ export interface MteReport {
   warnings?: ({ kind: 'uncollectedTest'; file: string; message: string } | { kind: 'childProcessTest'; test: string; command: string; message: string })[];
   /** mutator extension, with --kill-matrix: tests that kill nothing, are subsumed, or duplicate another. */
   killMatrix?: KillMatrixAnalysis;
+  findings: WorkflowFinding[];
+  comparison: 'available' | 'unavailable';
+  selectionReasons?: SelectionReason[];
+  testChanges?: TestChanges;
 }
 
 const CRITICAL_REASON = 'critical region: must be killed or accepted';
@@ -95,6 +101,10 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
   ];
   return {
     schemaVersion: '2',
+    comparison: report.comparison ?? 'unavailable',
+    findings: workflowFindings(report),
+    ...(report.selectionReasons ? { selectionReasons: report.selectionReasons } : {}),
+    ...(report.testChanges ? { testChanges: report.testChanges } : {}),
     thresholds: { high: thresholds.high, low: thresholds.low },
     projectRoot: root,
     framework: { name: 'mutator', version: VERSION },

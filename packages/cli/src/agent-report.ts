@@ -8,6 +8,8 @@ import { type Gap, NO_COVERAGE_MESSAGE, gapOf, skippedMessage, uncollectedMessag
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
 import { type RemovalKind, isSimplifyCandidate, removalKind } from './simplify.ts';
+import { type WorkflowFinding, workflowFindings } from './workflow-findings.ts';
+import type { SelectionReason, TestChanges } from './test-impact.ts';
 
 /** Scopes longer than this many lines are cut to CONTEXT lines on each side of the mutant. */
 const MAX_SCOPE_LINES = 80;
@@ -69,6 +71,10 @@ export interface AgentReport {
   acceptance?: { killed: string[]; stale: string[] };
   /** With --kill-matrix: tests that kill nothing, are subsumed by another test, or duplicate one. */
   killMatrix?: KillMatrixAnalysis;
+  findings: WorkflowFinding[];
+  comparison: 'available' | 'unavailable';
+  selectionReasons?: SelectionReason[];
+  testChanges?: TestChanges;
 }
 
 export function formatAgentReport(report: Report, root: string): AgentReport {
@@ -118,6 +124,10 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
   return {
     version: 1,
     scope: report.scope,
+    comparison: report.comparison ?? 'unavailable',
+    findings: workflowFindings(report),
+    ...(report.selectionReasons ? { selectionReasons: report.selectionReasons } : {}),
+    ...(report.testChanges ? { testChanges: report.testChanges } : {}),
     ...(report.selection ? { selection: report.selection } : {}),
     score: report.score,
     counts,

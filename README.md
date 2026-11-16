@@ -66,7 +66,13 @@ npx mutator                # full run, writes .mutator/snapshot.json
 npx mutator                # second run reuses unchanged results
 npx mutator --since main   # PR mode
 npx mutator --root <dir>   # another project directory
+npx mutator --since main --include-test-changes --kill-matrix  # also review changed tests
+npx mutator --shared-cache  # reuse validated results across Git worktrees
 ```
+
+`--include-test-changes` extends `--since` to mutants covered by added, edited or removed tests. Tests without reached mutants fall back to the files in their observed import graph. `selectionReasons` in the JSON/agent report records the tests that selected each mutant. A compatible previous snapshot also enables detection-regression warnings: a mutant in unchanged code was Killed before, but is Survived or NoCoverage now. Without that snapshot, `comparison` is `unavailable`; no regression claim is made. The default `--since` continues to report changed code and rechecks for removed killers only.
+
+Cache validation includes enclosing pnpm/npm workspace manifests and lockfiles, stopping at the repository boundary. Each `--include`/`--exclude` scope keeps its snapshot under `.mutator/scopes/`, so alternating between scopes preserves each scope's results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts. `--shared-cache` stores snapshots under Git's common directory, separated by package, scope and environment, so worktrees can reuse them without a copy script. `select-tests` accepts the same flag. Snapshot writes are atomic.
 
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
@@ -179,6 +185,8 @@ Only mutants with a full matrix count: Killed results from a matrix run, and sur
 The mode costs 1.1-2.5x a normal cold run on the benchmark projects (every covering test runs, and many of them fail), so it is meant for occasional runs and combines with `--mutants-per-line` and `--time-budget`. Results stay reusable both ways. A normal run reuses matrix verdicts like any other. A matrix run reuses survivors, timeouts and full matrices whose covering tests are all unchanged, and re-runs kills recorded with early exit. A matrix whose covering tests changed loses its mark, even when a normal run keeps its verdict. A snapshot written by a matrix run also gives `select-tests` every killer instead of the first.
 
 Subsumption is measured on today's mutants, not on future faults. A row of a test table, or a test of another function that shares a helper, is often subsumed while still pinning a behaviour worth keeping. Read the lists as candidates for review, not for deletion. Jest runs the mode too (without `--bail`).
+
+The matrix also includes an `observations` record for every collected test: `detected`, `noKills`, `notReached` (no viable mutant reached), or `incomplete` (early exit, timeout or pending work prevents a conclusion). A test with incomplete measurements is excluded from no-kill and subsumption claims. In JSON and agent reports, `findings` distinguishes critical errors, ordinary gaps, detection regressions, new tests with no kills, and tests whose detection power was not measured. Findings carry `kind`, `severity` and the mutant key or test id; review warnings do not fail the gate automatically.
 
 ### Thresholds and exit codes
 
@@ -294,6 +302,20 @@ export default defineIgnorer({
 
 Plugins may export `ignorers` next to `mutators`. Disable comments take precedence over ignorers, and ignorers over arid suppression.
 
+For optional numeric fault models, create a plugin module:
+
+```ts
+// mutators/numeric.ts; enable with --plugin ./mutators/numeric.ts
+import { numericMutations } from '@mizchi/mutator';
+
+export default numericMutations({
+  rounding: true, // Math.floor / ceil / round / trunc -> each other method
+  constants: [{ from: 0.1, to: [0.08] }],
+});
+```
+
+`MathRounding` and `NumericConstant` are independently enabled by these options and can also be excluded by name. Numeric replacements must be finite and are applied only to configured values, including negative values. They add first-order mutants; statement reordering and simultaneous edits are still outside this model. Compare the reported mutant counts and execution time when enabling a rule. A custom mutator factory that captures configuration in its closure should set the mutator's `cacheKey` to a serialization of that configuration, so changing it invalidates cached results.
+
 A mutation replaces the visited node (or a `range` inside it) with text. Placement (mutation switching, parentheses, ASI), identity, disable comments and arid suppression are handled by the engine exactly as for built-in mutators; output that no longer parses is rejected with the mutator's name. Plugins can be relative paths or package names (published plugins must ship JavaScript: Node does not strip types under `node_modules`). Editing a plugin invalidates cached results. CLI: `--plugin <module>`, `--exclude-mutator <name>`.
 
 ## Weak mutation
@@ -308,6 +330,8 @@ Mutants of TypeScript files are type-checked with the project's own `typescript`
 - TypeScript ≥ 7: the native API (`typescript/unstable/sync`) with a virtual file system, about 3–7× faster
 
 `typecheck: 'auto'` (default) enables it when `typescript` and `tsconfig.json` are present; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
+
+Type verdicts, including CompileError and equivalence decisions, are cached with the source and the compiler's observed files, configurations and resolution directories. Changes to imported declarations, previously missing imports or discovered source files invalidate this cache. Unchanged reruns can reuse type verdicts without starting the checker.
 
 The same pass drops mutants the types prove equivalent, on both backends: `a?.b` → `a.b` (and `a?.()` → `a()`, `a?.[k]` → `a[k]`) when the type of `a` excludes `null` and `undefined`. They are reported `Ignored` with `statusReason: equivalent: a is never nullish`, are not run, stay outside the score and `--fail-on-survived`, and the summary counts them (`equivalent by types: N`). This needs both `strictNullChecks` (or `strict`) and `noUncheckedIndexedAccess`: without the latter `xs[0]` is typed `string` but is `undefined` for `[]`, and on ufo all four mutants of that kind were killed. Types can still be wrong (a cast, an `any` assigned to a typed variable, a test passing `undefined as any`, `globalThis.process` in a browser); a dropped mutant is then one a test could have killed. `??` mutants are not dropped: the `??` → `&&` mutant differs whenever the left side is truthy. Only mutants that would otherwise run or be decided by weak mutation are considered; `NoCoverage` ones stay as they are.
 

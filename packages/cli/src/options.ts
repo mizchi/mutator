@@ -19,6 +19,8 @@ export interface ResolvedOptions {
 
 const OPTIONS = {
   since: { type: 'string' },
+  'include-test-changes': { type: 'boolean' },
+  'shared-cache': { type: 'boolean' },
   scope: { type: 'string' },
   include: { type: 'string', multiple: true },
   exclude: { type: 'string', multiple: true },
@@ -91,6 +93,8 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     include: values.include,
     exclude: values.exclude,
     since: values.since,
+    includeTestChanges: values['include-test-changes'],
+    sharedCache: values['shared-cache'],
     scope: values.scope,
     concurrency: numeric(values.concurrency),
     runner: values.runner,
@@ -177,6 +181,8 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
     run: {
       scope: config.scope ?? 'node',
       ...(config.since !== undefined ? { since: config.since } : {}),
+      ...(config.includeTestChanges ? { includeTestChanges: true } : {}),
+      ...(config.sharedCache ? { sharedCache: true } : {}),
       ...(config.include ? { include: config.include } : {}),
       ...(config.exclude ? { exclude: config.exclude } : {}),
       runner: config.runner ?? 'auto',

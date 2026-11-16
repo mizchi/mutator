@@ -59,6 +59,16 @@ describe.each(backends)('%s', (_name, create) => {
       checker.close();
     }
   });
+
+  test('records type inputs, including imported declarations and configuration', () => {
+    const checker = create();
+    try {
+      checker.equivalent([replace('type-input', 's.length', 's.length + 1')]);
+      checker.check([replace('type-input', 's.length', 's.length + 1')]);
+      expect(checker.inputs.files).toContain(file);
+      expect(checker.inputs.files).toContain(`${root}/tsconfig.json`);
+    } finally { checker.close(); }
+  });
 });
 
 const chainFile = `${root}/src/chain.ts`;

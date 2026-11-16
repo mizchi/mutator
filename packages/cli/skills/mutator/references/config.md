@@ -28,6 +28,8 @@ export default defineConfig({
 | `include` | `--include <glob>` | sources to mutate (default `src/**/*.{ts,tsx,js,...}`), relative to the root |
 | `exclude` | `--exclude <glob>` | sources to skip |
 | `since` | `--since <ref>` | only run and report mutants inside `git diff <ref>` |
+| `includeTestChanges` | `--include-test-changes` | with `since`, also select mutants covered or imported by changed tests; report detection regressions when a compatible snapshot exists |
+| `sharedCache` | `--shared-cache` | reuse snapshots across worktrees via Git's common directory, separated by package, scope and environment |
 | `scope` | `--scope node\|scope` | diff granularity: changed nodes (default) or whole enclosing functions |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
 | `runner` | `--runner <name>` | `vitest`, `jest`, `playwright` or `auto` |

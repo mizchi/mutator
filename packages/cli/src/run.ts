@@ -18,16 +18,19 @@ import { applyAcceptance } from './accepted.ts';
 import { type SpawningTest, childProcessReach, possiblyInChildProcess } from './child-process.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
 import { executeJobs } from './execute.ts';
+import { changedFiles } from './git.ts';
 import { type KillMatrixAnalysis, analyzeKillMatrix } from './kill-matrix.ts';
 import type { PluginSpec } from './plugins.ts';
-import { ENV_FILES, SNAPSHOT_VERSION, buildSnapshot, environmentHash, mutationSettings } from './reuse.ts';
+import { SNAPSHOT_VERSION, buildSnapshot, environmentFiles, environmentHash, mutationSettings } from './reuse.ts';
 import { type Runner, createRunnerSession } from './runner.ts';
 import { collectSources, importResolver, resolveSetup } from './setup.ts';
 import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
-import { readSnapshot, writeSnapshot } from './snapshot.ts';
+import { publishSnapshot, readSnapshot, writeSnapshot } from './snapshot.ts';
+import { snapshotFiles } from './snapshot-store.ts';
 import { score } from './status.ts';
 import { applyTypecheck, classifyPlan } from './tally.ts';
 import type { TimeoutRetries } from './timeout-retry.ts';
+import { type DetectionRegression, type SelectionReason, type TestChanges, changedTestIds, compareTests, detectionRegressions, reviewTestChanges, testChangeSelection } from './test-impact.ts';
 import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
 
 export interface RunOptions {
@@ -37,8 +40,12 @@ export interface RunOptions {
   exclude?: readonly string[];
   /** Git ref: only mutants inside `git diff <since>` (plus mutants covered by changed tests) are executed. */
   since?: string;
+  /** With --since, also select mutants reached or imported by added, edited or removed tests. */
+  includeTestChanges?: boolean;
   scope?: SelectMode;
   snapshotPath?: string;
+  /** Store validated snapshots in Git's common directory, shared by worktrees. */
+  sharedCache?: boolean;
   /** Test runner (default 'auto': see `detectRunner`). */
   runner?: Runner | 'auto';
   /** Vitest config file. */
@@ -158,6 +165,11 @@ export interface Report {
   criticalMutants?: string[];
   /** With --kill-matrix: tests that kill nothing or are subsumed, over the mutants with a full matrix. */
   killMatrix?: KillMatrixAnalysis;
+  selectionReasons?: SelectionReason[];
+  /** Previously Killed mutants in unchanged code that are undetected now. */
+  regressions?: DetectionRegression[];
+  testChanges?: TestChanges;
+  comparison?: 'available' | 'unavailable';
 }
 
 export class BaselineError extends Error {}
@@ -202,7 +214,6 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
   const root = resolve(options.root);
   const log = options.log ?? (() => {});
-  const snapshotPath = options.snapshotPath ?? join(root, '.mutator', 'snapshot.json');
   const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
   const session = await createRunnerSession(runner, sessionOptions);
   const sessions = [session];
@@ -213,9 +224,15 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
     const { mutants, sources, graphSources } = collectSources(root, files, instrumentOptions);
     const mutated = new Set(files.map((f) => relative(root, f)));
-    const envFiles = [...new Set([...ENV_FILES, ...session.configFiles().map((f) => relative(root, f))])].sort();
+    const envFiles = environmentFiles(root, session.configFiles().map((f) => relative(root, f)));
     const envHash = environmentHash(root, mutationSettings(options, { runner, arid, plugins }), envFiles);
-    const previous = readSnapshot(snapshotPath, root) as CliSnapshot | undefined;
+    const paths = snapshotFiles(root, options, envHash);
+    const snapshotPath = paths[0]!;
+    let previous: CliSnapshot | undefined;
+    for (const path of paths) {
+      previous = readSnapshot(path, root) as CliSnapshot | undefined;
+      if (previous) break;
+    }
     const valid = previous !== undefined && previous.toolVersion === SNAPSHOT_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // The previous snapshot when it can be reused; every consumer below goes through this.
     const reusable = valid ? previous : undefined;
@@ -232,7 +249,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const skipped = lines && skippedInDiff(root, lines);
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
-    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key)))) : undefined;
+    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
     const dryStarted = performance.now();
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
@@ -263,19 +280,57 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(options.killMatrix ? { killMatrix: true } : {}),
     });
 
-    const since = touched ? sinceFocus(touched, reusable?.results ?? [], merged.tests) : undefined;
+    const diffFiles = options.includeTestChanges && options.since ? new Set(changedFiles(root, options.since, { untracked: true })) : undefined;
+    const priorSelection: SelectionReason[] = [
+      ...(reusable?.testReview?.selection ?? []),
+      ...(reusable?.testReview?.regressions ?? []).map((r) => ({ key: r.key, reason: 'changedTest' as const, tests: r.previousKillers })),
+    ];
+    const changedTests = reusable ? changedTestIds(reusable.tests, merged.tests) : new Set<string>();
+    if (diffFiles) {
+      const helpers = new Set([...diffFiles].filter((file) => !mutated.has(file)));
+      const ids = [...merged.tests.map((t) => t.id), ...(reusable?.tests.map((t) => t.id) ?? []), ...priorSelection.flatMap((s) => s.tests)];
+      for (const id of ids) {
+        const file = testFileOf(id);
+        if (diffFiles.has(file) || (merged.deps.get(file) ?? []).some((dep) => helpers.has(dep))) changedTests.add(id);
+      }
+    }
+    const selectionReasons = diffFiles ? testChangeSelection({
+      root, mutants, coverage: merged.coverage, previous: reusable?.results ?? [], deps: merged.deps,
+      changed: changedTests,
+      prior: priorSelection,
+    }) : [];
+    const testChanges = diffFiles && reusable ? reviewTestChanges(reusable.tests, merged.tests, diffFiles, reusable.testReview?.tests)
+      : reusable ? compareTests(reusable.tests, merged.tests) : undefined;
+    const selected = touched && new Set([...touched, ...selectionReasons.map((r) => r.key)]);
+    const since = selected ? sinceFocus(selected, reusable?.results ?? [], merged.tests, reusable?.testReview?.regressions) : undefined;
     const unknownKeys = options.only ? [...options.only].filter((k) => !mutants.some((m) => m.key === k)) : [];
     const inScope = options.only ? selectOnly(options.only, since, mutants) : since;
     const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
-    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early);
+    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early, reusable?.typecheck);
     applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
     const { executed, timeoutRetries, runtimeErrorRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
+    const regressions = detectionRegressions(reusable?.results ?? [], report, reusable?.testReview?.regressions);
+    if (diffFiles || regressions.length || reusable?.testReview) {
+      const current = new Map(report.map((e) => [e.mutant.key, e]));
+      const history = new Map((reusable?.testReview?.regressions ?? []).filter((r) => {
+        const entry = current.get(r.key);
+        return entry?.status === 'Pending' && entry.mutant.scope.hash === r.scopeHash;
+      }).map((r) => [r.key, r]));
+      for (const regression of regressions) history.set(regression.key, { ...regression, scopeHash: current.get(regression.key)!.mutant.scope.hash });
+      snapshot.testReview = {
+        selection: diffFiles ? selectionReasons : reusable?.testReview?.selection ?? [],
+        tests: diffFiles ? testChanges ?? { added: [], changed: [], removed: [] } : reusable?.testReview?.tests ?? { added: [], changed: [], removed: [] },
+        regressions: [...history.values()],
+      };
+    }
+    if (typecheck.cache) snapshot.typecheck = typecheck.cache;
     writeSnapshot(snapshotPath, snapshot, root);
+    if (!options.snapshotPath) publishSnapshot(snapshotPath, join(root, '.mutator/snapshot.json'));
     if (inScope) {
       for (const e of report) {
         const focus = inScope.get(e.mutant.key);
@@ -298,6 +353,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
       notRun,
+      comparison: reusable ? 'available' : 'unavailable',
+      ...(testChanges ? { testChanges } : {}),
+      ...(selectionReasons.length ? { selectionReasons } : {}),
+      ...(reusable ? { regressions: inScope ? regressions.filter((r) => inScope.has(r.key)) : regressions } : {}),
       ...(timeoutRetries.retried ? { timeoutRetries } : {}),
       ...(runtimeErrorRetries.retried ? { runtimeErrorRetries } : {}),
       ...(options.only ? { selection: 'only' as const } : {}),
@@ -308,7 +367,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
       ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),
       // Before acceptance: an accepted survivor still shows which tests kill nothing.
-      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key }))) } : {}),
+      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
     };
   } finally {
     early?.cancel();

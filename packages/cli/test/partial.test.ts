@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { type Report, runMutation } from '../src/run.ts';
+import { readSnapshot } from '../src/snapshot.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/multi', import.meta.url));
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -68,6 +69,45 @@ describe('partial dry run', { timeout: 60_000 }, () => {
 });
 
 describe('portable snapshot', { timeout: 60_000 }, () => {
+  test('--shared-cache reuses results in another worktree', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const a = join(tmpRoot, `shared-a-${process.pid}`);
+    const b = join(tmpRoot, `shared-b-${process.pid}`);
+    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: a, env });
+    try {
+      cpSync(fixture, a, { recursive: true });
+      writeFileSync(join(a, '.gitignore'), '.mutator/\n');
+      git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'base');
+      git('worktree', 'add', '-qb', 'other', b);
+      await runMutation({ root: a, concurrency: 1, sharedCache: true });
+      const report = await runMutation({ root: b, concurrency: 1, sharedCache: true });
+      expect(report.executed).toBe(0);
+      expect(report.dryRunFiles).toEqual([]);
+    } finally {
+      rmSync(a, { recursive: true, force: true }); rmSync(b, { recursive: true, force: true });
+    }
+  });
+
+  test('alternating include scopes preserves each scope cache', async () => {
+    mkdirSync(tmpRoot, { recursive: true });
+    const root = join(tmpRoot, `scopes-${process.pid}`);
+    try {
+      cpSync(fixture, root, { recursive: true });
+      await runMutation({ root, concurrency: 1 });
+      const first = await runMutation({ root, include: ['src/a.ts'], concurrency: 1 });
+      expect(new Set(readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.map((r) => r.file))).toEqual(new Set([join(root, 'src/a.ts')]));
+      await runMutation({ root, include: ['src/b.ts'], concurrency: 1 });
+      const again = await runMutation({ root, include: ['src/a.ts'], concurrency: 1 });
+      expect(again.executed).toBe(0);
+      expect(again.dryRunFiles).toEqual([]);
+      expect(statuses(again)).toEqual(statuses(first));
+      const full = await runMutation({ root, concurrency: 1 });
+      expect(full.executed).toBe(0);
+      expect(full.dryRunFiles).toEqual([]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('a snapshot restored in another checkout is reused', async () => {
     mkdirSync(tmpRoot, { recursive: true });
     const a = join(tmpRoot, `portable-a-${process.pid}`);
@@ -173,6 +213,40 @@ describe('--since runs the diff only', { timeout: 60_000 }, () => {
     }
   });
 
+  test('--include-test-changes selects changed tests and reports weakened assertions', async () => {
+    const { root, first } = await setup('since-test-changes');
+    try {
+      edit(root, 'test/a.test.ts', 'expect(isPositive(NEGATIVE)).toBe(false);', 'isPositive(NEGATIVE);');
+      const report = await runMutation({ root, concurrency: 1, since: 'HEAD', includeTestChanges: true, weakMutation: false });
+      expect(report.entries.some((e) => e.focus && e.mutant.scope.id === 'isPositive')).toBe(true);
+      expect(report.regressions?.length).toBeGreaterThan(0);
+      for (const regression of report.regressions!) {
+        expect(first.entries.find((e) => e.mutant.key === regression.key)?.status).toBe('Killed');
+        expect(regression.previousKillers).toContain('test/a.test.ts#isPositive');
+        expect(['Survived', 'NoCoverage']).toContain(regression.status);
+      }
+      expect(report.selectionReasons?.some((s) => s.reason === 'changedTest' && s.tests.includes('test/a.test.ts#isPositive'))).toBe(true);
+      const again = await runMutation({ root, concurrency: 1, since: 'HEAD', includeTestChanges: true, weakMutation: false });
+      expect(again.selectionReasons).toEqual(report.selectionReasons);
+      expect(statuses(again)).toEqual(statuses(report));
+      expect(again.regressions).toEqual(report.regressions);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('without a snapshot, test-change selection still stays within the Git diff', async () => {
+    const { root } = await setup('since-cold-test-changes');
+    try {
+      rmSync(join(root, '.mutator'), { recursive: true, force: true });
+      edit(root, 'src/a.ts', 'return n * 2;', 'return n + n;');
+      const report = await runMutation({ root, concurrency: 1, since: 'HEAD', includeTestChanges: true, weakMutation: false });
+      expect(report.comparison).toBe('unavailable');
+      expect(report.selectionReasons).toBeUndefined();
+      expect(new Set(report.entries.filter((e) => e.focus).map((e) => e.mutant.scope.id))).toEqual(new Set(['double']));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   test('a changed test file the runner does not collect is reported', async () => {
     const { root, first } = await setup('since-uncollected');
     try {
@@ -203,6 +277,11 @@ describe('--since runs the diff only', { timeout: 60_000 }, () => {
       const rechecked = since.entries.filter((e) => e.focus === 'recheck').map((e) => e.mutant.key);
       expect(rechecked.sort()).toEqual(orphaned.sort());
       expect(since.entries.filter((e) => e.source === 'run').every((e) => e.focus === 'recheck')).toBe(true);
+      const again = await runMutation({ root, concurrency: 1, since: 'HEAD', weakMutation: false });
+      const unresolved = since.entries.filter((e) => e.focus === 'recheck' && (e.status === 'Survived' || e.status === 'NoCoverage')).map((e) => e.mutant.key).sort();
+      expect(unresolved.length).toBeGreaterThan(0);
+      expect(again.entries.filter((e) => e.focus === 'recheck').map((e) => e.mutant.key).sort()).toEqual(unresolved);
+      expect(again.regressions).toEqual(since.regressions);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

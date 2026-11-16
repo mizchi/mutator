@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PluginError, defineIgnorer, defineMutator, definePlugin } from '@mizchi/mutator-core';
+import { PluginError, defineIgnorer, defineMutator, definePlugin, numericMutations } from '@mizchi/mutator-core';
 import { afterEach, describe, expect, test } from 'vitest';
 import { ConfigError } from '../src/config.ts';
 import { type PluginSpec, loadPlugins } from '../src/plugins.ts';
@@ -47,6 +47,18 @@ afterEach(() => {
 });
 
 describe('plugins', { timeout: 60_000 }, () => {
+  test('the numeric plugin detects a wrong tax constant and rounding method', async () => {
+    const root = project({
+      'src/a.ts': 'export function tax(n: number) { return Math.floor(n * 0.1); }\n',
+      'mutators/numeric.ts': `import { numericMutations } from ${JSON.stringify(core)};\nexport default numericMutations({ rounding: true, constants: [{ from: 0.1, to: [0.08] }] });\n`,
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { tax } from '../src/a.ts';\ntest('tax', () => { expect(tax(199)).toBe(19); expect(tax(-199)).toBe(-20); });\n",
+    });
+    const report = await runMutation({ root, concurrency: 1, plugins: ['./mutators/numeric.ts'] });
+    const numeric = report.entries.filter((e) => e.mutant.mutator === 'MathRounding' || e.mutant.mutator === 'NumericConstant');
+    expect(numeric).toHaveLength(4);
+    expect(numeric.every((e) => e.status === 'Killed')).toBe(true);
+  });
+
   const dropFallback = (r: Awaited<ReturnType<typeof runMutation>>) => r.entries.find((e) => e.mutant.mutator === 'DropFallback');
 
   test('without plugins only built-in mutators run', async () => {
@@ -116,6 +128,12 @@ export default defineIgnorer({
 });
 
 describe('loadPlugins', () => {
+  test('numeric constants captured in a plugin factory invalidate its fingerprint', async () => {
+    const first = await loadPlugins(tmpRoot, [numericMutations({ constants: [{ from: 0.1, to: [0.08] }] })]);
+    const next = await loadPlugins(tmpRoot, [numericMutations({ constants: [{ from: 0.1, to: [0.05] }] })]);
+    expect(first.fingerprint).not.toBe(next.fingerprint);
+  });
+
   const drop = defineMutator({ name: 'Drop', visit: () => undefined });
   const skip = defineIgnorer({ name: 'skip', shouldIgnore: () => undefined });
 

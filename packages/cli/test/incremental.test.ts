@@ -221,6 +221,20 @@ describe('worker crashes', () => {
 });
 
 describe('type checking', { timeout: 120_000 }, () => {
+  test('type cache is invalidated by imported declarations without changing the function', async () => {
+    const root = project({
+      'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noUncheckedIndexedAccess: true, noEmit: true, target: 'es2022', module: 'nodenext', moduleResolution: 'nodenext' }, include: ['src'] }),
+      'src/types.d.ts': 'export type Box = { n: number } | undefined;\n',
+      'src/a.ts': "import type { Box } from './types.js';\nexport function size(o: Box): number | undefined { return o?.n; }\n",
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { size } from '../src/a.ts';\ntest('size', () => { expect(size({ n: 1 })).toBe(1); });\n",
+    });
+    const unchained = (report: Report) => report.entries.find((e) => e.mutant.original === '?.')!;
+    expect(unchained(await runMutation({ root, concurrency: 1 })).status).toBe('CompileError');
+    write(root, 'src/types.d.ts', 'export type Box = { n: number };\n');
+    const report = await expectSameAsCold(root);
+    expect(unchained(report)).toMatchObject({ status: 'Ignored', reason: 'equivalent: o is never nullish' });
+  });
+
   test('mutants that do not type-check are CompileError and are not run', async () => {
     const root = project({
       'tsconfig.json': JSON.stringify({ compilerOptions: { strict: true, noEmit: true, target: 'es2022', module: 'nodenext', moduleResolution: 'nodenext', allowImportingTsExtensions: true }, include: ['src'] }),
@@ -232,6 +246,11 @@ describe('type checking', { timeout: 120_000 }, () => {
     expect(status('?.', '.')).toMatchObject({ status: 'CompileError', source: 'static' });
     expect(status('[]', '["Stryker was here!"]')).toMatchObject({ status: 'CompileError' });
     expect(report.entries.filter((e) => e.status === 'CompileError').every((e) => e.killedBy.length === 0)).toBe(true);
+
+    const logs: string[] = [];
+    const unchanged = await runMutation({ root, concurrency: 1, log: (message) => logs.push(message) });
+    expect(verdicts(unchanged)).toEqual(verdicts(report));
+    expect(logs.some((message) => message.startsWith('typecheck ('))).toBe(false);
 
     // Not re-collected after an unrelated edit: the type checker still sees them as covered.
     write(root, 'src/b.ts', 'export function inc(n: number): number {\n  return n + 1;\n}\n');

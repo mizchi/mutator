@@ -1,6 +1,8 @@
 // Type checking of mutants with the project's TypeScript, before any of them runs.
+import { join } from 'node:path';
 import type { Mutant } from '@mizchi/mutator-core';
-import { checkInWorker, createTypeChecker } from '@mizchi/mutator-typecheck';
+import { type TypecheckInputs, checkInWorker, createTypeChecker } from '@mizchi/mutator-typecheck';
+import { type TypecheckCache, cachedTypechecks, storeTypechecks } from './typecheck-cache.ts';
 
 export const TS_FILE = /\.(c|m)?tsx?$/;
 
@@ -8,19 +10,21 @@ export const TS_FILE = /\.(c|m)?tsx?$/;
 export interface TypecheckResult {
   errors: Map<string, string>;
   equivalent: Map<string, `equivalent: ${string}`>;
+  cache?: TypecheckCache;
 }
 
 /** Type checking of the mutants in `keys`, started on a worker thread while the dry run goes on. */
 export interface EarlyTypecheck {
   keys: ReadonlySet<string>;
-  result: Promise<({ version: string; durationMs: number } & TypecheckResult) | undefined>;
+  result: Promise<({ version: string; durationMs: number; inputs: TypecheckInputs } & TypecheckResult) | undefined>;
   cancel: () => void;
 }
 
 const EMPTY = (): TypecheckResult => ({ errors: new Map(), equivalent: new Map() });
 
 /** Type-check `mutants` on a worker thread; a failure there leaves them to `typecheckJobs`. */
-export function startTypecheck(root: string, mutants: readonly Mutant[]): EarlyTypecheck | undefined {
+export function startTypecheck(root: string, mutants: readonly Mutant[], cache?: TypecheckCache): EarlyTypecheck | undefined {
+  mutants = cachedTypechecks(root, cache, mutants).missing;
   if (mutants.length === 0) return undefined;
   const started = performance.now();
   const abort = new AbortController();
@@ -31,7 +35,7 @@ export function startTypecheck(root: string, mutants: readonly Mutant[]): EarlyT
   return { keys: new Set(mutants.map((m) => m.key)), result, cancel: () => abort.abort() };
 }
 
-export async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void, early?: EarlyTypecheck): Promise<TypecheckResult> {
+export async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void, early?: EarlyTypecheck, cache?: TypecheckCache): Promise<TypecheckResult> {
   const all = mutants.filter((m) => TS_FILE.test(m.file));
   if (setting === false || all.length === 0) {
     early?.cancel();
@@ -39,7 +43,18 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
   }
   const pre = await early?.result;
   const { errors, equivalent } = EMPTY();
+  const cached = cachedTypechecks(root, cache, all);
+  const inputs: TypecheckInputs[] = cached.valid && cache ? [{
+    files: cache.inputs.files.map((f) => join(root, f)),
+    directories: cache.inputs.directories.map((f) => join(root, f)),
+    searches: cache.inputs.searches.map((search) => ({ ...search, directory: join(root, search.directory) })),
+  }] : [];
+  for (const [key, result] of cached.hits) {
+    if (result.error !== undefined) errors.set(key, result.error);
+    if (result.equivalent !== undefined) equivalent.set(key, result.equivalent);
+  }
   if (pre) {
+    inputs.push(pre.inputs);
     for (const m of all) {
       const error = pre.errors.get(m.key);
       if (error !== undefined) errors.set(m.key, error);
@@ -48,8 +63,12 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
     }
     log(`typecheck (TypeScript ${pre.version}): ${early!.keys.size} mutants in ${(pre.durationMs / 1000).toFixed(1)}s, alongside the dry run`);
   }
-  const candidates = pre ? all.filter((m) => !early!.keys.has(m.key)) : all;
-  if (candidates.length === 0) return { errors, equivalent };
+  const candidates = cached.missing.filter((m) => !pre || !early!.keys.has(m.key));
+  const finish = (): TypecheckResult => {
+    const next = storeTypechecks(root, inputs, all, errors, equivalent, cached.valid ? cache : undefined);
+    return { errors, equivalent, ...(next ? { cache: next } : {}) };
+  };
+  if (candidates.length === 0) return finish();
   const checker = await createTypeChecker({ root });
   if (!checker) {
     if (setting === true) throw new Error('typecheck: no typescript package or tsconfig.json found in the project');
@@ -61,7 +80,10 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
     const proven = checker.equivalent(candidates) as TypecheckResult['equivalent'];
     const result = checker.check(candidates);
     log(`typecheck (TypeScript ${checker.version}): ${candidates.length} mutants in ${((performance.now() - started) / 1000).toFixed(1)}s`);
-    return { errors: new Map([...errors, ...result]), equivalent: new Map([...equivalent, ...proven]) };
+    for (const [key, value] of result) errors.set(key, value);
+    for (const [key, value] of proven) equivalent.set(key, value);
+    inputs.push(checker.inputs);
+    return finish();
   } finally {
     checker.close();
   }

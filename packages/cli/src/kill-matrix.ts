@@ -28,6 +28,40 @@ export interface KillMatrixAnalysis {
   subsumed: { test: string; kills: number; by: string[] }[];
   /** Groups of tests with the same (non-empty) kill set. */
   duplicates: { tests: string[]; kills: number }[];
+  /** Every collected test, including tests that reach no viable mutant. */
+  observations?: TestObservation[];
+}
+
+export interface TestObservation {
+  test: string;
+  status: 'detected' | 'noKills' | 'notReached' | 'incomplete';
+  kills: number;
+  measured: number;
+  incomplete: number;
+}
+
+function observeTests(rows: readonly MatrixRow[], tests: readonly string[]): TestObservation[] {
+  const observations = new Map<string, TestObservation>();
+  const get = (test: string) => {
+    let observation = observations.get(test);
+    if (!observation) observations.set(test, observation = { test, status: 'notReached', kills: 0, measured: 0, incomplete: 0 });
+    return observation;
+  };
+  for (const test of tests) get(test);
+  for (const row of rows) {
+    if (row.status === 'CompileError' || row.status === 'Ignored' || row.status === 'NoCoverage') continue;
+    const full = hasFullMatrix(row);
+    const killedBy = new Set(row.killedBy);
+    for (const test of new Set([...row.coveredBy, ...row.killedBy])) {
+      if (!test.includes('#')) continue;
+      const observation = get(test);
+      if (full) observation.measured++;
+      else observation.incomplete++;
+      if (row.status === 'Killed' && killedBy.has(test)) observation.kills++;
+    }
+  }
+  for (const o of observations.values()) o.status = o.kills ? 'detected' : o.incomplete ? 'incomplete' : o.measured ? 'noKills' : 'notReached';
+  return [...observations.values()].sort((a, b) => compare(a.test, b.test));
 }
 
 /**
@@ -40,7 +74,9 @@ export function hasFullMatrix(r: MatrixRow): boolean {
   return r.status === 'Killed' && r.matrix === true && r.killedBy.every((t) => t.includes('#'));
 }
 
-export function analyzeKillMatrix(rows: readonly MatrixRow[]): KillMatrixAnalysis {
+export function analyzeKillMatrix(rows: readonly MatrixRow[], tests?: readonly string[]): KillMatrixAnalysis {
+  const observations = observeTests(rows, tests ?? []);
+  const observed = new Map(observations.map((o) => [o.test, o]));
   const mutants = { full: 0, timeout: 0, incomplete: 0 };
   const covering = new Set<string>();
   /** test -> mutants it kills */
@@ -63,7 +99,9 @@ export function analyzeKillMatrix(rows: readonly MatrixRow[]): KillMatrixAnalysi
     killers.set(r.key, r.killedBy);
   }
 
-  const noKills = [...covering].filter((t) => !kills.has(t)).sort();
+  const noKills = [...covering].filter((t) => observed.get(t)?.status === 'noKills').sort();
+  // Incomplete measurements cannot establish that one test's full kill set includes another's.
+  for (const test of kills.keys()) if (observed.get(test)?.incomplete) kills.delete(test);
   const subsumed: KillMatrixAnalysis['subsumed'] = [];
   for (const [test, own] of kills) {
     // A test that kills all of `own` must be among the killers of each of them: start from the rarest.
@@ -74,7 +112,7 @@ export function analyzeKillMatrix(rows: readonly MatrixRow[]): KillMatrixAnalysi
       if (next.size === 0) break;
     }
     // Candidates kill a superset; the same size means the same set (a duplicate, grouped below).
-    const by = [...(candidates ?? [])].filter((other) => kills.get(other)!.size > own.size);
+    const by = [...(candidates ?? [])].filter((other) => (kills.get(other)?.size ?? 0) > own.size);
     if (by.length > 0) subsumed.push({ test, kills: own.size, by: by.sort((a, b) => kills.get(b)!.size - kills.get(a)!.size || compare(a, b)) });
   }
 
@@ -89,7 +127,7 @@ export function analyzeKillMatrix(rows: readonly MatrixRow[]): KillMatrixAnalysi
     .map((tests) => ({ tests: tests.sort(), kills: kills.get(tests[0]!)!.size }))
     .sort((a, b) => compare(a.tests[0]!, b.tests[0]!));
 
-  return { mutants, tests: covering.size, noKills, subsumed: subsumed.sort((a, b) => compare(a.test, b.test)), duplicates };
+  return { mutants, tests: tests ? observations.length : covering.size, noKills, subsumed: subsumed.sort((a, b) => compare(a.test, b.test)), duplicates, ...(tests ? { observations } : {}) };
 }
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

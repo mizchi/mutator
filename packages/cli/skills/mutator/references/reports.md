@@ -15,6 +15,10 @@
 
 Score = detected / (detected + undetected). With `--since` it covers the mutants in the diff.
 
+`--include-test-changes` adds mutants related to changed tests to that scope. JSON/agent `selectionReasons` lists the tests selecting each mutant, and `comparison` says whether a compatible previous snapshot was available. `findings` carries typed results with `kind`, `severity` and a mutant key or test id: critical errors, ordinary gaps, detection regressions, new tests with no kills, and unmeasured new tests. Regression comparisons require unchanged function code; an unavailable baseline establishes no claim about preserved detection power.
+
+With `--kill-matrix`, `killMatrix.observations` includes every collected test. `detected` means a known kill, `noKills` means no kills over complete measurements, `notReached` means no viable mutant reached, and `incomplete` means early exit, timeout or pending work prevents a conclusion. A no-kill or duplicate finding is a review candidate; check the test's purpose and enabled mutators before changing it.
+
 ## Undetected groups
 
 | group | means | fix |

@@ -30,6 +30,8 @@ const USAGE = `usage: mutator [options]
 
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
+  --include-test-changes  with --since, also check code covered or imported by changed tests
+  --shared-cache       reuse snapshots across worktrees through Git's common directory
   --include <glob>     sources to mutate, repeatable (default: src/**/*.{ts,tsx,js,...})
   --exclude <glob>     sources to skip, repeatable
   --runner <name>      vitest, jest (experimental, native ESM only), playwright (experimental,

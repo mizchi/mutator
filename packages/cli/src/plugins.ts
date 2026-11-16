@@ -50,7 +50,7 @@ export async function loadPlugins(root: string, specs: readonly PluginSpec[]): P
   }
   const { mutators, ignorers, aridCallees } = parts;
   // Plugin objects have no module to hash: their code is the fingerprint.
-  prints.push(...mutators.map((m) => `${m.name}:${m.visit.toString()}`), ...ignorers.map((i) => `ignorer:${i.name}:${i.shouldIgnore.toString()}`), `arid:${aridCallees.join(',')}`);
+  prints.push(...mutators.map((m) => JSON.stringify([m.name, m.cacheKey ?? null, m.visit.toString()])), ...ignorers.map((i) => `ignorer:${i.name}:${i.shouldIgnore.toString()}`), `arid:${aridCallees.join(',')}`);
   return { mutators, ignorers, aridCallees, modules, hasObjects, fingerprint: hash(prints.join('\0')) };
 }
 

@@ -60,6 +60,29 @@ test('warns first when the tests reached no mutant at all', () => {
   expect(formatAgentReport(report, root).warnings[0]).toEqual({ kind: 'noCoverage', message: NO_COVERAGE_MESSAGE });
 });
 
+test('workflow findings distinguish critical gaps, regressions and unmeasured new tests', () => {
+  const report: Report = {
+    entries: [entry('Survived', { focus: 'diff' })],
+    executed: 1, dryRunFiles: [], scope: 'diff', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 },
+    criticalMutants: ['k1'],
+    testChanges: { added: ['new#weak', 'new#outside'], changed: [], removed: [] },
+    regressions: [{ key: 'k1', status: 'Survived', previousKillers: ['old#test'] }],
+    killMatrix: {
+      mutants: { full: 1, timeout: 0, incomplete: 0 }, tests: 2, noKills: ['new#weak'], subsumed: [], duplicates: [],
+      observations: [
+        { test: 'new#weak', status: 'noKills', kills: 0, measured: 1, incomplete: 0 },
+        { test: 'new#outside', status: 'notReached', kills: 0, measured: 0, incomplete: 0 },
+      ],
+    },
+  };
+  expect(formatAgentReport(report, root).findings).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: 'criticalGap', severity: 'error', key: 'k1' }),
+    expect.objectContaining({ kind: 'detectionRegression', severity: 'warning', key: 'k1', previousKillers: ['old#test'] }),
+    expect.objectContaining({ kind: 'newTestNoKills', severity: 'warning', test: 'new#weak' }),
+    expect.objectContaining({ kind: 'testNotMeasured', severity: 'info', test: 'new#outside', reason: 'notReached' }),
+  ]));
+});
+
 test('flags gaps possibly reached in a child process, and warns about the spawning tests', () => {
   const report: Report = {
     entries: [entry('NoCoverage'), entry('Survived', { mutant: { ...mutant, key: 'k2' } })],

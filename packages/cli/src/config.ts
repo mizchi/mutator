@@ -20,6 +20,8 @@ export interface MutatorConfig {
   include?: string[];
   exclude?: string[];
   since?: string;
+  includeTestChanges?: boolean;
+  sharedCache?: boolean;
   scope?: 'node' | 'scope';
   concurrency?: number;
   /** Test runner (default 'auto': vitest, jest or playwright, from the project's config files / dependencies). */
@@ -89,6 +91,8 @@ const properties = {
   include: strings('Globs (relative to the root) of sources to mutate.'),
   exclude: strings('Globs of sources to skip.'),
   since: { description: 'Git ref: only run mutants inside `git diff <since>`.', type: 'string' },
+  includeTestChanges: { description: 'With since, also select mutants covered or imported by changed tests.', type: 'boolean' },
+  sharedCache: { description: 'Store snapshots in the Git common directory for reuse across worktrees; separate scopes and environments.', type: 'boolean' },
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
   runner: { description: 'Test runner; auto picks vitest, jest or playwright from config files and installed packages.', enum: ['vitest', 'jest', 'playwright', 'auto'] },

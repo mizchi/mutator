@@ -7,7 +7,14 @@ import type { CheckerOptions, TypeChecker } from './types.ts';
 
 export function createNativeChecker(native: typeof Native, { root, tsconfig }: CheckerOptions, version: string): TypeChecker {
   const overlay = new Map<string, string>();
-  const api = new native.API({ cwd: root, fs: { readFile: (file) => overlay.get(file) } });
+  const files = new Set<string>([tsconfig]);
+  const directories = new Set<string>();
+  const api = new native.API({ cwd: root, fs: {
+    readFile: (file) => { files.add(file); return overlay.get(file); },
+    fileExists: (file) => { files.add(file); return undefined; },
+    directoryExists: (directory) => { directories.add(directory); return undefined; },
+    getAccessibleEntries: (directory) => { directories.add(directory); return undefined; },
+  } });
   let snapshot = api.updateSnapshot({ openProjects: [tsconfig] });
   const project = () => {
     const p = snapshot.getProject(tsconfig);
@@ -18,6 +25,7 @@ export function createNativeChecker(native: typeof Native, { root, tsconfig }: C
 
   return {
     version,
+    get inputs() { return { files: [...files], directories: [...directories], searches: [] }; },
     check(mutants) {
       return checkEach(
         mutants,

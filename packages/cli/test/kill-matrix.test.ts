@@ -79,4 +79,30 @@ describe('analyzeKillMatrix', () => {
   test('no full matrix: nothing to report', () => {
     expect(analyzeKillMatrix([])).toEqual({ mutants: { full: 0, timeout: 0, incomplete: 0 }, tests: 0, noKills: [], subsumed: [], duplicates: [] });
   });
+
+  test('includes every collected test and separates no reach from incomplete measurement', () => {
+    const analysis = analyzeKillMatrix([
+      killed('m1', ['t#strong'], ['t#strong', 't#weak']),
+      survived('m2', ['t#partial']),
+      { key: 'm3', status: 'Pending', killedBy: [], coveredBy: ['t#partial'] },
+    ], ['t#strong', 't#weak', 't#partial', 't#outside']);
+    expect(analysis.tests).toBe(4);
+    expect(analysis.noKills).toEqual(['t#weak']);
+    expect(analysis.observations).toEqual([
+      { test: 't#outside', status: 'notReached', kills: 0, measured: 0, incomplete: 0 },
+      { test: 't#partial', status: 'incomplete', kills: 0, measured: 1, incomplete: 1 },
+      { test: 't#strong', status: 'detected', kills: 1, measured: 1, incomplete: 0 },
+      { test: 't#weak', status: 'noKills', kills: 0, measured: 1, incomplete: 0 },
+    ]);
+  });
+
+  test('an early-exit run does not prove that its other covering tests kill nothing', () => {
+    const analysis = analyzeKillMatrix([
+      survived('m1', ['t#weak']),
+      { key: 'm2', status: 'Killed', killedBy: ['t#strong'], coveredBy: ['t#strong', 't#weak'] },
+    ], ['t#strong', 't#weak']);
+    expect(analysis.noKills).toEqual([]);
+    expect(analysis.observations?.find((t) => t.test === 't#weak')?.status).toBe('incomplete');
+    expect(analysis.observations?.find((t) => t.test === 't#strong')?.status).toBe('detected');
+  });
 });

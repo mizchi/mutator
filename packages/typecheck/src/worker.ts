@@ -11,7 +11,8 @@ if (!checker) {
   try {
     // Equivalence first: it reads the original program, before any mutant is swapped in.
     const equivalent = checker.equivalent(mutants);
-    parentPort!.postMessage({ version: checker.version, errors: checker.check(mutants), equivalent });
+    const errors = checker.check(mutants);
+    parentPort!.postMessage({ version: checker.version, errors, equivalent, inputs: checker.inputs });
   } finally {
     checker.close();
   }

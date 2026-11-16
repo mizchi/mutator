@@ -296,6 +296,8 @@ export interface MutationSpec {
  */
 export interface MutatorDefinition {
   name: string;
+  /** Configuration captured by visit's closure; change it to invalidate cached results. */
+  cacheKey?: string;
   visit(node: AstNode, context: MutatorVisitContext): readonly MutationSpec[] | undefined | void;
 }
 

@@ -7,7 +7,7 @@ import { createClassicChecker } from './classic.ts';
 import { createNativeChecker } from './native.ts';
 import type { TypeChecker, TypecheckMutant } from './types.ts';
 
-export type { CheckerOptions, TypeChecker, TypecheckMutant } from './types.ts';
+export type { CheckerOptions, TypeChecker, TypecheckMutant, TypecheckInputs, TypecheckSearch } from './types.ts';
 
 /**
  * A type checker backed by the project's own `typescript`: the compiler API for
@@ -27,11 +27,19 @@ export async function createTypeChecker(options: { root: string; tsconfig?: stri
   }
   const version: string = JSON.parse(readFileSync(manifest, 'utf8')).version;
   const load = (specifier: string) => import(pathToFileURL(require.resolve(specifier)).href);
-  if (Number.parseInt(version, 10) >= 7) {
-    return createNativeChecker(await load('typescript/unstable/sync'), { root, tsconfig }, version);
+  let checker: TypeChecker;
+  if (Number.parseInt(version, 10) >= 7) checker = createNativeChecker(await load('typescript/unstable/sync'), { root, tsconfig }, version);
+  else {
+    const ts = await load('typescript');
+    checker = createClassicChecker(ts.default ?? ts, { root, tsconfig });
   }
-  const ts = await load('typescript');
-  return createClassicChecker(ts.default ?? ts, { root, tsconfig });
+  return {
+    version,
+    get inputs() { const inputs = checker.inputs; return { ...inputs, files: [...inputs.files, manifest] }; },
+    check: (mutants) => checker.check(mutants),
+    equivalent: (mutants) => checker.equivalent(mutants),
+    close: () => checker.close(),
+  };
 }
 
 // Published builds ship worker.js next to index.js.
@@ -44,7 +52,7 @@ const WORKER_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './w
 export function checkInWorker(
   options: { root: string; tsconfig?: string; signal?: AbortSignal },
   mutants: readonly TypecheckMutant[],
-): Promise<{ version: string; errors: Map<string, string>; equivalent: Map<string, string> } | undefined> {
+): Promise<{ version: string; errors: Map<string, string>; equivalent: Map<string, string>; inputs: import('./types.ts').TypecheckInputs } | undefined> {
   const { signal, ...data } = options;
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_FILE, { workerData: { ...data, mutants } });

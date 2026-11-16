@@ -106,6 +106,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   list(lines, `accepted, but detected now - remove from ${ACCEPTED_FILE}:`, report.entries.filter((e) => detected.has(e.mutant.key)), root, true);
   if (stale.length > 0) lines.push('', `accepted, but the mutant no longer exists - remove from ${ACCEPTED_FILE}:`, ...stale.map((key) => `  ${key}`));
   if (report.killMatrix) killMatrixSection(lines, report.killMatrix);
+  if (report.regressions?.length) lines.push('', 'detection regressed - unchanged code was detected before, review the tests:', ...report.regressions.slice(0, MAX_LISTED).map((r) => `  ${r.key}  ${r.status}, previously killed by ${r.previousKillers.join(', ')}`));
   return lines.join('\n');
 }
 
@@ -121,6 +122,8 @@ function killMatrixSection(lines: string[], k: KillMatrixAnalysis): void {
     if (items.length > MAX_LISTED) lines.push(`  … ${items.length - MAX_LISTED} more (see --reporter json or agent)`);
   };
   section('detects nothing - covers mutants, but kills none of them:', k.noKills);
+  section('no viable mutant reached - detection power is not measured:', (k.observations ?? []).filter((o) => o.status === 'notReached').map((o) => o.test));
+  section('measurement incomplete - no conclusion about detection power:', (k.observations ?? []).filter((o) => o.status === 'incomplete').map((o) => o.test));
   section(
     'subsumed - another test kills every mutant it kills, and more:',
     k.subsumed.map(({ test, kills, by }) => `${test}  subsumed by ${by[0]}${by.length > 1 ? ` (+${by.length - 1} more)` : ''}  (${plural(kills, 'kill')})`),

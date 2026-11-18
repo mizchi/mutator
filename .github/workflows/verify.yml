@@ -23,15 +23,15 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc -p .
-      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
-      - name: Full test suite (Linux)
-        if: runner.os == 'Linux'
-        run: pnpm exec vitest run
       # The remaining Windows test portability issues are tracked in #25.
       # Run the native-path regressions explicitly; the packed CLI below exercises
       # every runtime adapter on both operating systems.
       - name: Native Windows path regression tests
         if: runner.os == 'Windows'
-        run: pnpm exec vitest run packages/vitest/test/native-paths.test.ts
+        run: pnpm exec vitest run packages/vitest/test/native-paths.test.ts packages/cli/test/native-paths.test.ts packages/playwright/test/native-paths.test.ts
+      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
+      - name: Full test suite (Linux)
+        if: runner.os == 'Linux'
+        run: pnpm exec vitest run
       - name: Packed CLI (Vitest, Vite+, Jest, Playwright and skills)
         run: pnpm run pack-smoke

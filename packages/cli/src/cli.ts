@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { RunnerSetupError } from '@mizchi/mutator-core';
 import { formatAgentReport } from './agent-report.ts';
@@ -106,7 +106,8 @@ try {
     await exit(0);
   }
   const options = await resolveValues(values, process.cwd());
-  const { root, reporters } = options;
+  const { reporters } = options;
+  const root = realpathSync.native(options.root);
   // Workers a killed run (SIGKILL) left spinning; then record this run's, for the next one.
   // In the CLI process only: tests run it as a child process, never with mutated code.
   const processes = join(root, '.mutator');
@@ -185,7 +186,8 @@ async function exit(code: number): Promise<never> {
 async function accept(argv: string[]): Promise<void> {
   const { keys, reason, values } = parseAcceptCli(argv);
   if (keys.length === 0 || !reason) throw new ConfigError('accept: give the mutant keys (from --reporter agent, or the `id`s in mutation.json) and --reason <text>');
-  const { root, run } = await resolveValues(values, process.cwd());
+  const { root: requestedRoot, run } = await resolveValues(values, process.cwd());
+  const root = realpathSync.native(requestedRoot);
   const byKey = new Map((await listMutants({ root, ...run })).map((m) => [m.key, m]));
   const unknown = keys.filter((k) => !byKey.has(k));
   if (unknown.length > 0) throw new ConfigError(`accept: no mutant with key ${unknown.join(', ')}`);
@@ -206,7 +208,8 @@ async function selectTestsCommand(argv: string[]): Promise<void> {
     console.log(USAGE);
     return;
   }
-  const { root, run } = await resolveValues(values, process.cwd());
+  const { root: requestedRoot, run } = await resolveValues(values, process.cwd());
+  const root = realpathSync.native(requestedRoot);
   const selection = await selectTestsSince({ root, ...run, since: values.since! });
   const files = selectionFiles(selection);
   if (format === 'json') console.log(JSON.stringify({ files, ...selection }, null, 2));

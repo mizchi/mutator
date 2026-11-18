@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { delimiter, join, relative, resolve } from 'node:path';
 import {
   type InstrumentOptions,
@@ -223,7 +223,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
   const shard = options.shard && validateShard(options.shard);
   const owns = (key: string) => !shard || ownsMutant(key, shard);
-  const root = resolve(options.root);
+  // Vite resolves junctions and Windows 8.3 names before transforming modules.
+  // Scan and instrument from that same root so include filters and mutant keys agree.
+  const root = realpathSync.native(resolve(options.root));
   const log = options.log ?? (() => {});
   const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
   const session = await createRunnerSession(runner, sessionOptions);
@@ -426,7 +428,7 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 
 /** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
 export async function listMutants(options: RunOptions): Promise<Mutant[]> {
-  const root = resolve(options.root);
+  const root = realpathSync.native(resolve(options.root));
   const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
   return collectSources(root, files, instrumentOptions).mutants;
 }

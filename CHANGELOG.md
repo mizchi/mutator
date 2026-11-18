@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Vitest/Vite+ runtimes installed next to the Vitest config file (`vitestConfig` / `--config`) resolve when the project root has no runner, as in a toolchain isolated in a sibling directory. Since 0.3.0 such projects failed with `neither vite-plus/test/node nor vitest/node resolves from <root>`. The root still wins when it has a runner, and the setup file's `vitest` import resolves from the same place as the runtime.
+
 ## 0.4.1 - 2026-11-19
 
 Patch fixes for Vitest/Vite+ project coverage, cold include performance and Windows execution. All six npm packages share version **0.4.1**.

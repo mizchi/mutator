@@ -78,7 +78,10 @@ describe('portable snapshot', { timeout: 60_000 }, () => {
     try {
       cpSync(fixture, a, { recursive: true });
       writeFileSync(join(a, '.gitignore'), '.mutator/\n');
-      git('init', '-q'); git('add', '-A'); git('commit', '-qm', 'base');
+      git('init', '-q');
+      // These worktrees must have identical bytes for cache reuse, regardless of the host's Git defaults.
+      git('config', 'core.autocrlf', 'false');
+      git('add', '-A'); git('commit', '-qm', 'base');
       git('worktree', 'add', '-qb', 'other', b);
       await runMutation({ root: a, concurrency: 1, sharedCache: true });
       const report = await runMutation({ root: b, concurrency: 1, sharedCache: true });

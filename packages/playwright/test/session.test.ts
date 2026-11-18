@@ -135,7 +135,7 @@ test('optional V8 coverage records original scopes per test and flags navigation
 });
 
 describe('playwright session instrument options', { timeout: 120_000 }, () => {
-  const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
+  const core = new URL('../../core/src/index.ts', import.meta.url).href;
   const PLUGIN = `import { defineIgnorer, defineMutator, definePlugin } from ${JSON.stringify(core)};
 export default definePlugin({
   name: 'fallbacks',
@@ -176,6 +176,7 @@ export default definePlugin({
       // the CLI would otherwise decide them as not infected without running them.
       expect(mutants.some((m) => m.weak)).toBe(false);
       const dry = await session.dryRun();
+      expect(dry.failed).toEqual([]);
       expect([...dry.coverage.keys()].filter((k) => !keys.has(k))).toEqual([]);
       // The dev server instrumented the same way: both are reached in the page.
       expect(dry.coverage.has(logged.key)).toBe(true);

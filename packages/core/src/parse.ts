@@ -1,8 +1,11 @@
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
 
 /** Keep the JSON parser available when the experimental transfer cannot reserve memory. */
-export function createParser(parser: typeof parseSync, rawSupported: boolean): typeof parseSync {
-  let raw = rawSupported;
+export function createParser(parser: typeof parseSync, rawSupported: boolean, platform: NodeJS.Platform = process.platform): typeof parseSync {
+  // Raw transfer reserves a 6 GiB ArrayBuffer per worker. On Windows this can
+  // exhaust the system commit limit and crash other Node processes before a
+  // recoverable allocation error reaches this parser.
+  let raw = rawSupported && platform !== 'win32';
   return (file, source, options) => {
     try {
       return parser(file, source, { ...options, experimentalRawTransfer: raw } as ParserOptions);

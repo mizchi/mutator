@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Vitest inline `test.projects` receive instrumentation and keep their own setup, test identities and cached project locations (#19). Snapshot compatibility is bumped to discard older project/path verdicts.
+- Cold explicit `include` scopes in Vitest and Vite+ collect only related tests. Computed imports, CommonJS, child processes, workers and unsupported transforms retain a full dry run; `--full-dry-run` always collects all tests (#20).
+- Filesystem transform caching stays disabled in every Vitest project, with regression coverage for alternating include sets (#22).
+- Relative test IDs, mutant identities, cache keys and reports consistently use `/` on Windows. TypeScript 6/7 virtual file overlays normalize compiler paths; Jest and Playwright terminate server/process trees with Windows APIs (#25).
+- Installed Vitest/Vite+ runtime paths resolve filesystem aliases and Windows 8.3 paths consistently. Playwright coverage accepts Windows source-map paths and native test locations.
+- OXC uses the regular parser on Windows to avoid large raw-transfer reservations exhausting the system commit limit. On other platforms it falls back when the buffer cannot be reserved.
+
+### CI
+
+- npm publishing waits for complete Linux and Windows verification, shared with pull requests. Both OSes install the six packed packages outside the workspace in paths containing spaces and exercise Vitest, Vite+, Jest, Playwright, shipped skills and Playwright source coverage. POSIX-only signal/orphan tests remain on Linux.
+
 ## 0.4.0 - 2026-11-18
 
 This release brings Vite+ (`vp test`) compatibility and opt-in Playwright source coverage, alongside runtime estimates and CI sharding. All six npm packages share version **0.4.0**; these are the changes since 0.3.0.

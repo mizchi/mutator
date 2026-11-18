@@ -13,7 +13,7 @@ test.each([
     calls.push(raw);
     if (raw) throw failure;
     return parseSync(file, source, options);
-  }, true);
+  }, true, 'linux');
   expect(parse('a.ts', 'export const a = 1;').errors).toEqual([]);
   expect(parse('b.ts', 'export const b = 2;').program.body).toHaveLength(1);
   expect(calls).toEqual([true, false, false]);
@@ -23,4 +23,14 @@ test('does not swallow unrelated parser exceptions', () => {
   const failure = new Error('parser failed');
   const parse = createParser(() => { throw failure; }, true);
   expect(() => parse('a.ts', '')).toThrow(failure);
+});
+
+test.each(['win32', 'linux', 'darwin'] as const)('avoids the large raw-transfer reservation on Windows (%s)', (platform) => {
+  const calls: boolean[] = [];
+  const parse = createParser((file, source, options) => {
+    calls.push((options as { experimentalRawTransfer?: boolean } | undefined)?.experimentalRawTransfer === true);
+    return parseSync(file, source);
+  }, true, platform);
+  expect(parse('a.ts', 'export const a = 1;').errors).toEqual([]);
+  expect(calls).toEqual([platform !== 'win32']);
 });

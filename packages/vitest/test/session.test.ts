@@ -232,8 +232,9 @@ describe('process hygiene', () => {
       const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
       session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
       await session.dryRun();
+      rmSync(pidFile, { force: true });
       const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
-      const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
+      const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 1500, hitLimit: Number.MAX_SAFE_INTEGER });
       expect(result.status).toBe('Timeout');
       const pid = Number(readFileSync(pidFile, 'utf8'));
       expect(pid).toBeGreaterThan(0);

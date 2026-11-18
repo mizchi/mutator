@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
+import { relativePath } from '@mizchi/mutator-core';
 import { fileURLToPath } from 'node:url';
 import { ConfigError } from './config.ts';
 
@@ -42,7 +43,10 @@ export function initSkills(dir: string, force = false): InitSkillResult[] {
   });
   if (!force) {
     for (const { target } of plan.flatMap((p) => p.stale)) {
-      if (existsSync(target)) throw new ConfigError(`init-skill: ${target} differs from the shipped skill; rerun with --force to overwrite it`);
+      if (existsSync(target)) {
+        const shown = isAbsolute(target) ? target : relativePath('.', target);
+        throw new ConfigError(`init-skill: ${shown} differs from the shipped skill; rerun with --force to overwrite it`);
+      }
     }
   }
   return plan.map(({ skill, path, stale }) => {

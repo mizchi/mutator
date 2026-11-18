@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-11-19
+
+Patch fixes for Vitest/Vite+ project coverage, cold include performance and Windows execution. All six npm packages share version **0.4.1**.
 
 ### Fixed
 
+- Windows source include and test-file matching accept both native and Vite path separators (#24, PR #26).
 - Vitest inline `test.projects` receive instrumentation and keep their own setup, test identities and cached project locations (#19). Snapshot compatibility is bumped to discard older project/path verdicts.
 - Cold explicit `include` scopes in Vitest and Vite+ collect only related tests. Computed imports, CommonJS, child processes, workers and unsupported transforms retain a full dry run; `--full-dry-run` always collects all tests (#20).
 - Filesystem transform caching stays disabled in every Vitest project, with regression coverage for alternating include sets (#22).

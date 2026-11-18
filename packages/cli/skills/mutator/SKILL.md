@@ -65,9 +65,9 @@ Put lasting options in `mutator.config.json` (or `.ts` / `.mjs` with `defineConf
 On pull requests, run on the diff with the cache kept between runs. The repository ships a GitHub Action:
 
 ```yaml
-- uses: mizchi/mutator@v0.4.0
+- uses: mizchi/mutator@v0.4.1
   with:
-    version: '0.4.0'
+    version: '0.4.1'
     args: --time-budget 600
 ```
 

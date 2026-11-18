@@ -3,14 +3,16 @@
 // (rather than launching a POSIX .bin shim or a Windows .cmd file).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
-const work = mkdtempSync(join(tmpdir(), 'mutator pack-'));
+// Windows tmpdir() may contain an 8.3 alias such as RUNNER~1. Installing through
+// that alias embeds it in pnpm's junctions and can load two copies of Vitest.
+const work = realpathSync.native(mkdtempSync(join(tmpdir(), 'mutator pack-')));
 const pack = join(work, 'pack');
 mkdirSync(pack);
 const packages = ['core', 'vitest', 'jest', 'playwright', 'typecheck', 'cli'];

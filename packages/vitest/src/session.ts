@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, matchesGlob, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { debuglog } from 'node:util';
@@ -26,7 +26,7 @@ import { resolveTestRuntime } from './runtime.ts';
 export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLocation } from '@mizchi/mutator-core';
 
 // Published builds ship setup.js next to session.js.
-const SETUP_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url));
+const SETUP_FILE = realpathSync.native(fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url)));
 const debug = debuglog('mutator');
 
 export interface SessionOptions extends PluginOptions {

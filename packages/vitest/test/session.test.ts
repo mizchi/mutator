@@ -338,4 +338,14 @@ describe('native path separators', () => {
       await session.close();
     }
   });
+
+  test('a dry run does not match an undiscovered path by collapsing parent segments', async () => {
+    const session = await createSession({ root: pathsRoot, include: () => false });
+    try {
+      const undiscoveredPath = `${pathsRoot}/missing/../test/add.test.ts`;
+      expect((await session.dryRun([undiscoveredPath])).tests).toEqual([]);
+    } finally {
+      await session.close();
+    }
+  });
 });

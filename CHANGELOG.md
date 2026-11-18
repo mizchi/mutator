@@ -1,16 +1,87 @@
 # Changelog
 
-## 0.3.1 - 2026-11-18
+## 0.4.0 - 2026-11-18
+
+This release brings Vite+ (`vp test`) compatibility and opt-in Playwright source coverage, alongside runtime estimates and CI sharding. All six npm packages share version **0.4.0**; these are the changes since 0.3.0.
 
 ### Added
 
-- Opt-in `playwrightSourceCoverage` collects Chromium V8 coverage in dry runs, maps inline source maps back to original function scopes, and persists test correspondence for incremental dry runs and `select-tests`, including scopes without mutants. Incomplete observations retain conservative candidates. A reproducible benchmark measures time, sampled CPU, process-tree RSS and recording size.
+#### Vite+ (`vp test`)
+
+Projects using `vp test` can use the existing Vitest adapter. Runner detection recognizes the project's Vite+ installation or Vite config; configuration stays in `vite.config.ts` and tests import their API from `vite-plus/test`:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite-plus';
+
+export default defineConfig({
+  test: { include: ['test/**/*.test.ts'] },
+});
+```
+
+```ts
+// test/example.test.ts
+import { expect, test } from 'vite-plus/test';
+```
+
+Install `@mizchi/mutator@0.4.0` in the existing Vite+ project and run `pnpm exec mutator`. The adapter resolves the project's `vite-plus/test/node` API before standalone Vitest and injects setup through the matching `vite-plus/test` API, so another installed Vitest version does not split the runtimes. Integration tests cover Vite+ 1.7.0 alongside standalone Vitest 5.1.0. See the [Vite+ setup notes](https://github.com/mizchi/mutator#vite-vite-plus).
+
+#### Playwright E2E: explicit opt-in and original-source coverage
+
+Browser mutation testing through a Vite dev server is experimental and must now be enabled explicitly. Installing Playwright or adding its config no longer selects it automatically; `runner: 'auto'` selects Vitest or Jest.
+
+For an existing Playwright + Vite app, install the CLI and adapter:
+
+```sh
+pnpm add -D @mizchi/mutator@0.4.0 @mizchi/mutator-playwright@0.4.0
+pnpm exec playwright install chromium
+```
+
+The app needs `mutatorVite()` from `@mizchi/mutator-playwright/vite`, and the Playwright config must start Vite through `webServer`. Tests use the adapter's fixture:
+
+```ts
+import { expect, test } from '@mizchi/mutator-playwright';
+```
+
+The [setup guide](https://github.com/mizchi/mutator#playwright-experimental) covers the complete wiring. Enable the runner in `mutator.config.ts`:
+
+```ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'playwright',
+  playwrightConfig: 'playwright.config.ts',
+  include: ['src/**/*.ts', 'src/**/*.tsx'],
+  concurrency: 2,
+  timeBudget: 300,
+  playwrightSourceCoverage: true, // optional; Chromium only, default false
+});
+```
+
+The optional `playwrightSourceCoverage` collector maps Chromium V8 execution ranges through inline source maps back to original function scopes. It records which E2E executed each function, including functions with no mutation candidates. The snapshot stores this correspondence for incremental dry runs and `mutator select-tests --since main`; source-only edits also invalidate mutation verdicts from affected tests. Missing/stale maps, navigations, frames and workers retain conservative candidates. New sources without historical dependencies fall back to all E2Es.
+
+**Runtime cost:** browser mutation testing can take many minutes or hours on a large app because each mutant starts a Playwright process. The additional V8 collector runs in dry runs only and is disabled by default. In the synthetic large benchmark (16,392 mutants, 32 E2Es; median of three runs), enabling it increased dry-run time from **5.00s to 8.82s** with one worker and **3.32s to 4.88s** with four workers. The function correspondence index is about **244kB**. See the [measurements and reproduction commands](https://github.com/mizchi/mutator/blob/main/docs/playwright-coverage-benchmark.md).
+
+The [runnable cart/profile sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md) includes all configs and a verifier. It checks ordinary E2Es, source correspondence, unchanged cache reuse, source-only edits and agreement between incremental and cold full runs. From a repository checkout:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --dir examples/playwright-source-coverage exec playwright install chromium
+pnpm --dir examples/playwright-source-coverage run verify
+```
+
+The verified sample kills all 9 mutants initially, reuses all 9 unchanged, then re-tests 5 and reuses 4 after editing a helper without mutants. README and packaged skills link to the sample.
+
+#### Large runs and CI
+
 - Runtime estimates after the baseline and type checking. Large mutation runs show an ETA calibrated from observed timings and a progress heartbeat every 15 seconds.
 - `--shard INDEX/COUNT` partitions mutant keys deterministically across CI jobs. Each shard keeps independent snapshots and default report directories; scores and quality gates cover that shard.
 - The GitHub Action accepts a `shard` input that also separates its cache keys.
 
 ### Changed
 
+- **Upgrade note:** Playwright users must set `runner: 'playwright'` or `playwrightConfig` in `mutator.config.ts`, or pass an explicit `--runner playwright` / `--playwright-config` flag. Keep browser specs outside the unit runner's include patterns. Chromium is required only for the optional V8 source collector; the regular Playwright adapter remains available without it.
+- The snapshot version is bumped: the first run after upgrading rebuilds incompatible cached coverage and verdicts.
 - The repository's mutation workflow runs four shards and uploads a report artifact for each, even when a quality gate fails.
 - Update Vitest to 5.1.0, Playwright to 1.65.1, Vite to 8.3.8, oxc-parser to 0.159.0, magic-string to 1.4.5, Secretlint to 14.0.1 and Node type definitions to 26.6.6. Secretlint's recommended preset is built in, so the separate deprecated package is removed. TypeScript 6 compatibility tests are retained.
 - Releases use newly created full-version tags only. Existing tags remain immutable.

@@ -500,9 +500,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.3.1
+      - uses: mizchi/mutator@v0.4.0
         with:
-          version: '0.3.1'
+          version: '0.4.0'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -563,10 +563,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Install @mizchi/mutator 0.3.1 or later in the project.
-      - uses: mizchi/mutator@v0.3.1
+      # Install @mizchi/mutator 0.4.0 or later in the project.
+      - uses: mizchi/mutator@v0.4.0
         with:
-          version: '0.3.1'
+          version: '0.4.0'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -621,7 +621,7 @@ pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exe
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.3.1`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.0`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. It checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 

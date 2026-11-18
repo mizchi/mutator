@@ -16,9 +16,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci                 # install as the project does (pnpm install --frozen-lockfile, ...)
-      - uses: mizchi/mutator@v0.3.0
+      - uses: mizchi/mutator@v0.4.0
         with:
-          version: '0.3.0'
+          version: '0.4.0'
           args: --time-budget 600
 ```
 

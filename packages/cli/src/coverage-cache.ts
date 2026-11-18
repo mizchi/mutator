@@ -27,7 +27,7 @@ export interface CliSnapshot extends RunSnapshot {
   /** test file (relative) -> content hash */
   testFiles: Record<string, string>;
   /** test id -> location (module relative to root) */
-  index: Record<string, { module: string; taskId: string }>;
+  index: Record<string, { module: string; taskId: string; projectName?: string }>;
   /** test file (relative) -> mutant keys hit while loading its modules */
   staticByFile: Record<string, string[]>;
   /** test file (relative) -> local files it imports, including mutated sources */
@@ -229,7 +229,7 @@ export function mergeDryRun(input: {
     const location = previous?.index[test.id];
     if (location && keptModule(location.module)) {
       tests.push(test);
-      index.set(test.id, { moduleId: join(root, location.module), taskId: location.taskId });
+      index.set(test.id, { moduleId: join(root, location.module), taskId: location.taskId, ...(location.projectName === undefined ? {} : { projectName: location.projectName }) });
     } else {
       dropped.push(test.id);
     }

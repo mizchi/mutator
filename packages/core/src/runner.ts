@@ -8,6 +8,8 @@ import type { InstrumentOptions, Mutant, MutantStatus, TestInfo } from './types.
 export interface TestLocation {
   moduleId: string;
   taskId: string;
+  /** Runner project owning this specification; absent in older single-project indexes. */
+  projectName?: string;
 }
 
 export interface DryRunResult {

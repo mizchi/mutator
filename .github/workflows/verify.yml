@@ -33,6 +33,5 @@ jobs:
       # The smoke harness installs the matching Chromium before its Playwright run.
       - name: Packed CLI (Vitest, Vite+, Jest, Playwright and skills)
         run: pnpm run pack-smoke --install-browser
-      - name: Full test suite (Linux)
-        if: runner.os == 'Linux'
+      - name: Full test suite
         run: pnpm exec vitest run

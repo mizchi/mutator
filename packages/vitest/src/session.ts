@@ -17,7 +17,8 @@ import {
   numberDuplicates,
   testFingerprint,
 } from '@mizchi/mutator-core';
-import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
+import type { TestCase, TestModule, TestProject, TestRunResult, Vitest } from 'vitest/node';
+import type { Plugin, UserWorkspaceConfig } from 'vitest/config';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
 import type {} from './provided.ts';
 import { resolveTestRuntime } from './runtime.ts';
@@ -91,11 +92,12 @@ export async function createSession(options: SessionOptions): Promise<Session> {
     locations.set(id, location);
     byTask.set(location.taskId, id);
   };
-  const idOf = (test: TestCase) => byTask.get(test.id) ?? testId(options.root, test);
+  const idOf = (test: TestCase) => byTask.get(test.id) ?? testId(options.root, test, vitest.projects.length > 1);
 
   const sessionEarlyExit = options.earlyExit !== false;
   const run = async (active: string | null, hitLimit: number, specs: Parameters<Vitest['runTestSpecifications']>[0], earlyExit = sessionEarlyExit) => {
     vitest.provide('mutator', { active, hitLimit, earlyExit });
+    for (const project of vitest.projects) project.provide('mutator', { active, hitLimit, earlyExit });
     return vitest.runTestSpecifications(specs);
   };
 
@@ -127,7 +129,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const testPathKey = (file: string) => process.platform === 'win32' ? file.replaceAll('\\', '/') : file;
       const wanted = files && new Set(files.map(testPathKey));
       const specs = wanted ? all.filter((s) => wanted.has(testPathKey(s.moduleId))) : all;
-      const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root) : emptyDryRun();
+      const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root, vitest.projects.length > 1) : emptyDryRun();
       dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options);
       for (const [id, location] of dry.index) locate(id, location);
       return dry;
@@ -140,16 +142,18 @@ export async function createSession(options: SessionOptions): Promise<Session> {
     },
 
     async runMutant(key, testIds, { timeoutMs, stallMs, isStatic = false, hitLimit = DEFAULT_HIT_LIMIT, earlyExit = sessionEarlyExit }) {
-      const byModule = new Map<string, string[]>();
+      const byModule = new Map<string, { project: TestProject; moduleId: string; taskIds: string[] }>();
       for (const id of testIds) {
         const location = locations.get(id);
         if (!location) continue;
-        const ids = byModule.get(location.moduleId) ?? [];
-        ids.push(location.taskId);
-        byModule.set(location.moduleId, ids);
+        const project = location.projectName === undefined ? vitest.getRootProject() : vitest.projects.find((p) => p.name === location.projectName);
+        if (!project) continue;
+        const groupKey = JSON.stringify([project.name, location.moduleId]);
+        const group = byModule.get(groupKey) ?? { project, moduleId: location.moduleId, taskIds: [] };
+        group.taskIds.push(location.taskId);
+        byModule.set(groupKey, group);
       }
-      const project = vitest.getRootProject();
-      const specs = [...byModule].map(([moduleId, taskIds]) =>
+      const specs = [...byModule.values()].map(({ project, moduleId, taskIds }) =>
         project.createSpecification(moduleId, isStatic ? undefined : { testIds: taskIds }),
       );
       const started = performance.now();
@@ -194,6 +198,20 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
   const runtime = resolveTestRuntime(options.root);
   const { createVitest } = await import(pathToFileURL(runtime.node).href) as typeof import('vitest/node');
   const watch = new FailureWatch();
+  // Programmatic Vite plugins are not inherited by inline Vitest projects.
+  // Each project needs fresh plugin instances attached before its Vite server starts.
+  const plugins = (): Plugin[] => [
+    {
+      name: 'mutator:test-runtime',
+      enforce: 'pre',
+      resolveId(source, importer) {
+        if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
+        return this.resolve(runtime.setup, resolve(options.root, 'package.json'), { skipSelf: true });
+      },
+    },
+    mutatorPlugin(registry, options),
+  ];
+  const withPlugins = (project: UserWorkspaceConfig): UserWorkspaceConfig => ({ ...project, plugins: [...(project.plugins ?? []), ...plugins()] });
   const vitest = await createVitest(
     'test',
     {
@@ -215,21 +233,25 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
     {
       plugins: [
         {
-          name: 'mutator:test-runtime',
-          enforce: 'pre',
-          resolveId(source, importer) {
-            if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
-            // Resolve as ESM from the project: require.resolve('vitest') selects its CJS stub.
-            return this.resolve(runtime.setup, resolve(options.root, 'package.json'), { skipSelf: true });
+          name: 'mutator:projects',
+          config(config) {
+            if (!config.test?.projects) return;
+            config.test.projects = config.test.projects.map((project) => {
+              if (typeof project === 'string') return project;
+              if (typeof project === 'function') return async (env) => withPlugins(await project(env));
+              if (project instanceof Promise) return project.then(withPlugins);
+              return withPlugins(project);
+            });
           },
         },
-        mutatorPlugin(registry, options),
+        ...plugins(),
       ],
     },
   );
   vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT, earlyExit: false });
   for (const project of vitest.projects) {
     project.config.setupFiles = [SETUP_FILE, ...project.config.setupFiles];
+    project.config.fsModuleCache = false;
   }
   return { vitest, watch };
 }
@@ -247,11 +269,11 @@ async function closeQuietly(vitest: Vitest): Promise<void> {
   await within(2000, vitest.close());
 }
 
-function testId(root: string, test: TestCase): string {
-  return `${relative(root, test.module.moduleId)}#${test.fullName}`;
+function testId(root: string, test: TestCase, multiProject = false): string {
+  return `${relative(root, test.module.moduleId)}#${multiProject ? `[${test.module.project.name}] ` : ''}${test.fullName}`;
 }
 
-function collectDryRun(result: TestRunResult, root: string): DryRunResult {
+function collectDryRun(result: TestRunResult, root: string, multiProject = false): DryRunResult {
   const tests: TestInfo[] = [];
   const coverage = new Map<string, string[]>();
   const hits = new Map<string, number>();
@@ -265,8 +287,9 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
 
   for (const module of result.testModules) {
     const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorConcurrentSpawns?: SpawnedCommand[]; mutatorCounts?: Record<string, number> };
-    const moduleStatic = new Set<string>();
-    staticByFile.set(relative(root, module.moduleId), moduleStatic);
+    const moduleFile = relative(root, module.moduleId);
+    const moduleStatic = staticByFile.get(moduleFile) ?? new Set<string>();
+    staticByFile.set(moduleFile, moduleStatic);
     for (const key of Object.keys(moduleMeta.mutatorStatic ?? {})) {
       staticKeys.add(key);
       moduleStatic.add(key);
@@ -278,8 +301,8 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
     }
     const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
     for (const test of module.children.allTests()) {
-      const id = distinct(testId(root, test));
-      index.set(id, { moduleId: module.moduleId, taskId: test.id });
+      const id = distinct(testId(root, test, multiProject));
+      index.set(id, { moduleId: module.moduleId, taskId: test.id, ...(module.project.isRootProject() ? {} : { projectName: module.project.name }) });
       const state = test.result().state;
       if (state === 'skipped') continue;
       if (state === 'failed') failed.push(id);

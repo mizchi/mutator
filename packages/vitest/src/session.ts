@@ -199,7 +199,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
 }
 
 async function start(options: SessionOptions, registry: MutantRegistry): Promise<{ vitest: Vitest; watch: FailureWatch }> {
-  const runtime = resolveTestRuntime(options.root);
+  const runtime = resolveTestRuntime(options.root, options.configFile);
   const { createVitest } = await import(pathToFileURL(runtime.node).href) as typeof import('vitest/node');
   const watch = new FailureWatch();
   // Programmatic Vite plugins are not inherited by inline Vitest projects.
@@ -210,7 +210,7 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
       enforce: 'pre',
       resolveId(source, importer) {
         if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
-        return this.resolve(runtime.setup, resolve(options.root, 'package.json'), { skipSelf: true });
+        return this.resolve(runtime.setup, runtime.importer, { skipSelf: true });
       },
     },
     mutatorPlugin(registry, options),

@@ -6,6 +6,8 @@ test.each([
   "const load = () => import(`./${name}.ts`);",
   "const x = require('./local.js');",
   "import { createRequire } from 'node:module'; const load = createRequire(import.meta.url);",
+  "import { execFileSync } from 'node:child_process';",
+  "import { Worker } from 'node:worker_threads';",
   'const = ;',
 ])('marks module loads outside the static ESM graph: %s', (source) => {
   expect(scanImports('module.ts', source).opaqueLoads).toBe(true);

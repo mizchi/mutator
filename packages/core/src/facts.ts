@@ -31,6 +31,7 @@ export function reexportBindings(program: Node): ImportBinding[] {
 }
 
 const moduleExportName = (node: Node): string => node.name ?? node.value;
+const OUT_OF_PROCESS = new Set(['node:child_process', 'child_process', 'node:worker_threads', 'worker_threads']);
 
 /**
  * Value imports and re-exports of a module, without instrumenting it, and the specifiers of
@@ -44,7 +45,8 @@ export function scanImports(file: string, source: string): ImportScan {
     if (st.source && kind !== 'type' && !loads.includes(st.source.value)) loads.push(st.source.value);
   }
   const imports = importBindings(program);
-  let opaque = errors.length > 0 || imports.some((binding) => ['node:module', 'module'].includes(binding.source) && ['createRequire', '*', 'default'].includes(binding.imported));
+  let opaque = errors.length > 0 || imports.some((binding) => OUT_OF_PROCESS.has(binding.source)
+    || ['node:module', 'module'].includes(binding.source) && ['createRequire', '*', 'default'].includes(binding.imported));
   walk(program as unknown as Node, ({ node }) => {
     if (node.type === 'ImportExpression' && (node.source.type !== 'Literal' || typeof node.source.value !== 'string')) opaque = true;
     if (node.type === 'CallExpression' && ['require', 'module.require', 'createRequire', 'module.createRequire'].includes(calleeName(node.callee) ?? '')) opaque = true;

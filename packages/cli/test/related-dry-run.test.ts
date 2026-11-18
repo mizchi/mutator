@@ -59,3 +59,13 @@ test('a computed import in a transitive helper also falls back to all tests', as
   expect(report.dryRunFiles?.sort()).toEqual([file('a'), file('b')].sort());
   expect(report.entries.some((e) => e.status === 'Killed')).toBe(true);
 });
+
+test('an unsupported source transform falls back instead of hiding computed imports', async () => {
+  const code = "export async function load() { const name = '../src/a.ts'; return import(/* @vite-ignore */ name); }";
+  writeFileSync(join(root, 'vitest.config.ts'), `export default { plugins: [{ name: 'views', enforce: 'pre', transform(code, id) { if (id.endsWith('.view')) return ${JSON.stringify(code)}; } }], test: { include: ['test/**/*.test.ts'] } };\n`);
+  writeFileSync(join(root, 'test/helper.view'), 'a custom source language');
+  writeFileSync(join(root, 'test/a.test.ts'), "import { test, expect } from 'vitest';\nimport { load } from './helper.view';\ntest('a', async () => { const { a } = await load(); expect(a(2)).toBe(3); });\n");
+  const report = await runMutation({ root, include: ['src/a.ts'], typecheck: false });
+  expect(report.dryRunFiles?.sort()).toEqual([file('a'), file('b')].sort());
+  expect(report.entries.some((e) => e.status === 'Killed')).toBe(true);
+});

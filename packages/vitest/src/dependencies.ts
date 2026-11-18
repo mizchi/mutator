@@ -33,7 +33,13 @@ export async function relatedTestFiles(vitest: Vitest, sources: readonly string[
     const deps = collectDeps(vitest, roots, options.root);
     const files = new Set([...roots, ...[...deps.values()].flat().map((file) => resolve(options.root, file))]);
     for (const file of files) {
-      if (normalize(file) === options.setupFile || /[/\\]node_modules[/\\]/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) continue;
+      if (normalize(file) === options.setupFile || /[/\\]node_modules[/\\]/.test(file)) continue;
+      if (!/\.[cm]?[jt]sx?$/.test(file)) {
+        // Custom source languages can conceal dynamic loading from their original
+        // text. Known data/style assets do not execute JavaScript themselves.
+        if (!/\.(?:json|css|scss|sass|less|styl|svg|png|jpe?g|gif|webp|ico|txt|woff2?|ttf)$/.test(file)) return undefined;
+        continue;
+      }
       if (scanImports(file, readFileSync(file, 'utf8')).opaqueLoads) return undefined;
     }
     return [...new Set(relevant.map((s) => s.moduleId))].sort();

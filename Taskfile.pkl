@@ -34,7 +34,7 @@ local build: Task = new {
 local packSmoke: Task = new {
   name = "pack-smoke"
   description = "Install the packed tarballs in a throwaway project and run the CLI"
-  cmd = "./scripts/pack-smoke.sh"
+  cmd = "pnpm run pack-smoke"
   cache = false
   deps { build }
 }

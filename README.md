@@ -618,12 +618,13 @@ Stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every 
 ```sh
 pnpm install
 pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exec vitest run)
+pnpm run pack-smoke      # install the packed packages and test all runtime adapters
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
 Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.0`, and update the reference explicitly when upgrading.
 
-The `release` workflow runs only for newly created tags. It checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
+The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright on both operating systems, the full test suite on Linux, and native-path regression tests on Windows. The remaining Windows test-suite portability issues are tracked in [#25](https://github.com/mizchi/mutator/issues/25). Both operating systems must pass before the Linux publish job checks the tag against the package versions, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
 The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
 

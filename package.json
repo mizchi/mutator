@@ -9,7 +9,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p .",
-    "build": "pnpm -r --filter \"./packages/*\" run build"
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "pack-smoke": "node scripts/pack-smoke.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

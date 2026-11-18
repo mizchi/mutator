@@ -1,0 +1,11 @@
+{
+  "name": "mutator-vite-plus-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "vite-plus": "1.7.0"
+  }
+}

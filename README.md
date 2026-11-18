@@ -339,7 +339,7 @@ The same pass drops mutants the types prove equivalent, on both backends: `a?.b`
 
 A [Vite+](https://viteplus.dev/guide/test) project uses the Vitest adapter. Its `vite.config.ts` (`defineConfig` from `vite-plus`) makes `auto` pick Vitest, and so does an installed `vite-plus` when there is no config file. Run `mutator` as usual; no separate runner option or direct `vitest` dependency is needed.
 
-The adapter resolves `vite-plus/test/node` from the project before `vitest/node`, matching `vp test`'s precedence. Its injected setup uses `vite-plus/test`, so it shares the project's runtime even when another Vitest version is installed. Test configuration stays in `vite.config.ts`, and tests can import from `vite-plus/test`. Persistent module caching is disabled for mutation sessions so every session collects its own mutants. Integration tests cover vite-plus 1.7.0 (Vitest 5.1.0) alongside standalone Vitest 5.0.3.
+The adapter resolves `vite-plus/test/node` from the project before `vitest/node`, matching `vp test`'s precedence. Its injected setup uses `vite-plus/test`, so it shares the project's runtime even when another Vitest version is installed. Test configuration stays in `vite.config.ts`, and tests can import from `vite-plus/test`. Persistent module caching is disabled for mutation sessions so every session collects its own mutants. Integration tests cover vite-plus 1.7.0 (Vitest 5.1.0) alongside standalone Vitest 5.1.0.
 
 ## Jest (experimental)
 

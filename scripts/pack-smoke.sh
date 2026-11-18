@@ -8,6 +8,8 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/pack" "$work/app"
 # The packages are versioned in lockstep.
 version=$(node -p "require('$repo/packages/cli/package.json').version")
+vitest=$(node -p "require('$repo/package.json').devDependencies.vitest")
+jest=$(node -p "require('$repo/packages/jest/package.json').devDependencies.jest")
 for p in core vitest jest playwright typecheck cli; do (cd "$repo/packages/$p" && pnpm pack --pack-destination "$work/pack" >/dev/null); done
 cp -r "$repo/packages/vitest/test/fixtures/basic/"{src,test,vitest.config.ts} "$work/app/"
 cat > "$work/app/package.json" <<JSON
@@ -17,7 +19,7 @@ cat > "$work/app/package.json" <<JSON
   "type": "module",
   "devDependencies": {
     "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
-    "vitest": "5.0.3"
+    "vitest": "$vitest"
   }
 }
 JSON
@@ -83,7 +85,7 @@ cat > "$work/jest-app/package.json" <<JSON
   "type": "module",
   "devDependencies": {
     "@mizchi/mutator": "file:$work/pack/mizchi-mutator-$version.tgz",
-    "jest": "30.5.2"
+    "jest": "$jest"
   }
 }
 JSON

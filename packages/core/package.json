@@ -26,8 +26,8 @@
     "node": ">=24"
   },
   "dependencies": {
-    "magic-string": "^1.4.3",
-    "oxc-parser": "0.153.0"
+    "magic-string": "^1.4.5",
+    "oxc-parser": "0.159.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -56,6 +56,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
   const reused = report.entries.filter((e) => e.source === 'reuse').length;
   const total = `executed ${report.executed}, reused ${reused}`;
   const lines = [
+    ...(report.shard ? [`shard: ${report.shard.index}/${report.shard.total} (score covers this shard)`] : []),
     diff
       ? `mutants: ${main.length} ${report.selection === 'only' ? 'selected with --only' : 'in the diff'}${rechecked.length ? `, ${rechecked.length} rechecked` : ''} (${report.entries.length} in total; ${total})`
       : `mutants: ${report.entries.length} (${total})`,

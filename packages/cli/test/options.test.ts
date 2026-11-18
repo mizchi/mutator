@@ -154,6 +154,17 @@ describe('critical regions', () => {
 });
 
 describe('large-run options', () => {
+  test('shard is parsed from config or CLI, with independent default report directories', async () => {
+    const root = project({ shard: '1/4' });
+    expect((await resolve(root)).run.shard).toEqual({ index: 1, total: 4 });
+    const options = await resolve(root, '--shard', '2/4');
+    expect(options.run.shard).toEqual({ index: 2, total: 4 });
+    expect(options.reportDir).toBe(join(root, '.mutator/report/shard-2-of-4'));
+    expect((await resolve(root, '--report-dir', 'custom')).reportDir).toBe(join(root, 'custom'));
+    await expect(resolve(root, '--shard', '5/4')).rejects.toThrow('--shard');
+    await expect(resolve(root, '--shard', '0/4')).rejects.toThrow('--shard');
+  });
+
   test('mutantsPerLine / timeBudget from the config file; flags override', async () => {
     const root = project({ mutantsPerLine: 2, timeBudget: 300 });
     expect((await resolve(root)).run).toMatchObject({ mutantsPerLine: 2, timeBudget: 300 });

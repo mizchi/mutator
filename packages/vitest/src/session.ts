@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, matchesGlob, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isAbsolute, matchesGlob, relative, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   type DryRunResult,
   type MutantRunResult,
@@ -17,9 +17,9 @@ import {
   testFingerprint,
 } from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestRunResult, Vitest } from 'vitest/node';
-import { createVitest } from 'vitest/node';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
 import type {} from './provided.ts';
+import { resolveTestRuntime } from './runtime.ts';
 
 // The runner contract lives in core; re-exported for convenience.
 export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLocation } from '@mizchi/mutator-core';
@@ -187,6 +187,8 @@ export async function createSession(options: SessionOptions): Promise<Session> {
 }
 
 async function start(options: SessionOptions, registry: MutantRegistry): Promise<{ vitest: Vitest; watch: FailureWatch }> {
+  const runtime = resolveTestRuntime(options.root);
+  const { createVitest } = await import(pathToFileURL(runtime.node).href) as typeof import('vitest/node');
   const watch = new FailureWatch();
   const vitest = await createVitest(
     'test',
@@ -199,12 +201,27 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
       // bail is not used: vitest 5 may report a bailed run without its failed test.
       bail: 0,
       isolate: true,
+      // Every session must run our transform hook to populate its own mutant registry.
+      fsModuleCache: false,
       pool: options.pool ?? 'forks',
       includeTaskLocation: true,
       coverage: { enabled: false },
       onConsoleLog: () => false,
     },
-    { plugins: [mutatorPlugin(registry, options)] },
+    {
+      plugins: [
+        {
+          name: 'mutator:test-runtime',
+          enforce: 'pre',
+          resolveId(source, importer) {
+            if (source !== 'vitest' || importer?.split('?')[0] !== SETUP_FILE) return;
+            // Resolve as ESM from the project: require.resolve('vitest') selects its CJS stub.
+            return this.resolve(runtime.setup, resolve(options.root, 'package.json'), { skipSelf: true });
+          },
+        },
+        mutatorPlugin(registry, options),
+      ],
+    },
   );
   vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT, earlyExit: false });
   for (const project of vitest.projects) {

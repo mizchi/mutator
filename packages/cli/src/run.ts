@@ -15,6 +15,8 @@ import {
   testFingerprint,
 } from '@mizchi/mutator-core';
 import { applyAcceptance } from './accepted.ts';
+import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';
+import type { RunEstimate } from './estimate.ts';
 import { type SpawningTest, childProcessReach, possiblyInChildProcess } from './child-process.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
 import { executeJobs } from './execute.ts';
@@ -87,6 +89,8 @@ export interface RunOptions {
   fullDryRun?: boolean;
   /** Parallel runner sessions running mutants (default: half the CPUs). */
   concurrency?: number;
+  /** CI partition of mutant keys; stable across machines, cache state and test timings. */
+  shard?: Shard;
   /** Run at most this many mutants per source line (see `selectPerLine`); the rest are Pending. */
   mutantsPerLine?: number;
   /** Seconds from the start of the run after which no new mutant run starts; the rest are Pending. */
@@ -127,6 +131,9 @@ export interface ReportEntry {
 }
 
 export interface Report {
+  shard?: Shard;
+  /** Estimate made after baseline and type checking, before mutant execution. */
+  estimate?: RunEstimate;
   entries: ReportEntry[];
   executed: number;
   /** Test files (relative) whose coverage was collected in this run; the rest came from the snapshot. */
@@ -212,6 +219,8 @@ export function exposeProjectBin(root: string, env: NodeJS.ProcessEnv = process.
 
 export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
+  const shard = options.shard && validateShard(options.shard);
+  const owns = (key: string) => !shard || ownsMutant(key, shard);
   const root = resolve(options.root);
   const log = options.log ?? (() => {});
   const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
@@ -249,10 +258,11 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const skipped = lines && skippedInDiff(root, lines);
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
-    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
+    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => owns(m.key) && m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
     const dryStarted = performance.now();
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
-    if (dryFiles.size > 0) log(`dry run finished in ${((performance.now() - dryStarted) / 1000).toFixed(1)}s`);
+    const dryRunMs = performance.now() - dryStarted;
+    if (dryFiles.size > 0) log(`dry run finished in ${(dryRunMs / 1000).toFixed(1)}s`);
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
     const merged = mergeDryRun({ root, previous: reusable, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
@@ -305,13 +315,17 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const since = selected ? sinceFocus(selected, reusable?.results ?? [], merged.tests, reusable?.testReview?.regressions) : undefined;
     const unknownKeys = options.only ? [...options.only].filter((k) => !mutants.some((m) => m.key === k)) : [];
     const inScope = options.only ? selectOnly(options.only, since, mutants) : since;
-    const { tally, jobs, notInfected } = classifyPlan(entries, merged.coverage, inScope, sampled);
+    const assigned = shard ? entries.filter((e) => owns(e.mutant.key)) : entries;
+    if (shard) log(`shard ${shard.index}/${shard.total}: ${assigned.length}/${mutants.length} mutants`);
+    const { tally, jobs, notInfected } = classifyPlan(assigned, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
     const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early, reusable?.typecheck);
     applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
-    log(`${mutants.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
-    const { executed, timeoutRetries, runtimeErrorRetries } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false });
+    log(`${assigned.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
+    const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));
+    const previousDurations = new Map((reusable?.results ?? []).flatMap((r) => r.durationMs === undefined ? [] : [[r.key, r.durationMs] as const]));
+    const { executed, timeoutRetries, runtimeErrorRetries, estimate } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false, fileOverheadMs, previousDurations });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     const regressions = detectionRegressions(reusable?.results ?? [], report, reusable?.testReview?.regressions);
@@ -330,22 +344,25 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     }
     if (typecheck.cache) snapshot.typecheck = typecheck.cache;
     writeSnapshot(snapshotPath, snapshot, root);
-    if (!options.snapshotPath) publishSnapshot(snapshotPath, join(root, '.mutator/snapshot.json'));
+    if (!options.snapshotPath && !shard) publishSnapshot(snapshotPath, join(root, '.mutator/snapshot.json'));
     if (inScope) {
       for (const e of report) {
         const focus = inScope.get(e.mutant.key);
         if (focus) e.focus = focus;
       }
     }
-    const acceptance = options.accepted?.size ? applyAcceptance(report, options.accepted) : undefined;
+    const accepted = options.accepted && new Map([...options.accepted].filter(([key]) => owns(key)));
+    const acceptance = accepted?.size ? applyAcceptance(report, accepted) : undefined;
     const final = acceptance?.entries ?? report;
     const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
     // Coverage, not verdicts: a reached mutant may still be pending (time budget). The merged
     // coverage holds only mutants some test reached.
     const reached = merged.staticKeys.size > 0 || merged.coverage.size > 0;
-    const noCoverage = merged.tests.length > 0 && mutants.length > 0 && !reached;
+    const noCoverage = merged.tests.length > 0 && assigned.length > 0 && !reached;
     return {
+      ...(shard ? { shard } : {}),
+      estimate,
       entries: final,
       executed,
       dryRunFiles: [...dryFiles].sort(),

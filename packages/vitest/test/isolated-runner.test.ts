@@ -9,7 +9,8 @@ import { createSession } from '../src/session.ts';
 // project's own build toolchain, and point at that directory's config (`vitestConfig`).
 // The project root, outside this repository, cannot resolve vitest; the config directory can.
 test('runs a project whose Vitest is installed only next to its config file', { timeout: 30_000 }, async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mutator-isolated-root-')));
+  // Native realpath: tmpdir() is a symlink on macOS (/tmp) and an 8.3 short path on Windows runners.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'mutator-isolated-root-')));
   const parent = fileURLToPath(new URL('../../../.tmp', import.meta.url));
   mkdirSync(parent, { recursive: true });
   const runner = mkdtempSync(join(parent, 'isolated-runner-'));

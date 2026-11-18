@@ -27,11 +27,11 @@ const tarballs = new Map(packages.map((name) => {
   return [pkg, `file:${file.replaceAll('\\', '/')}`];
 }));
 
-function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, quiet = false): string {
+function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, quiet = false, timeout = 300_000): string {
   try {
     const out = execFileSync(command, args, {
       cwd, env: { ...process.env, ...env }, encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'], timeout: 300_000, maxBuffer: 8 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'], timeout, maxBuffer: 8 * 1024 * 1024,
     });
     if (!quiet) process.stdout.write(out);
     return out;
@@ -62,7 +62,7 @@ function app(name: string, fixture: string, files: string[], dependencies: Recor
 function cli(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
   const pkg = join(cwd, 'node_modules', '@mizchi', 'mutator');
   const entry = join(pkg, json(join(pkg, 'package.json')).bin.mutator);
-  return run(process.execPath, [entry, ...args], cwd, env);
+  return run(process.execPath, [entry, ...args], cwd, { NODE_DEBUG: [process.env.NODE_DEBUG, 'mutator'].filter(Boolean).join(','), ...env });
 }
 
 function mutation(cwd: string, args: string[], survivor: string, env: NodeJS.ProcessEnv = {}): void {
@@ -124,6 +124,10 @@ try {
     '@playwright/test': manifest('playwright').devDependencies['@playwright/test'], vite: manifest('playwright').devDependencies.vite,
   }, allowBuilds);
   assert(readFileSync(join(pw, 'node_modules', '@mizchi', 'mutator-playwright', 'skills', 'mutator-playwright', 'SKILL.md')).length > 0);
+  if (process.argv.includes('--install-browser')) {
+    console.log('pack-smoke: installing Chromium');
+    run(pnpmCommand, [...pnpmArgs, 'exec', 'playwright', 'install', '--with-deps', 'chromium'], pw, {}, false, 900_000);
+  }
   writeFileSync(join(pw, 'mutator.config.mjs'), "export default { runner: 'playwright', playwrightSourceCoverage: true };\n");
   mutation(pw, ['--runner', 'playwright', '-j', '2'], 'n >= 10 -> n > 10', { MUTATOR_TEST_PORT: String(await freePort()) });
   const snapshot = json(join(pw, '.mutator', 'snapshot.json'));

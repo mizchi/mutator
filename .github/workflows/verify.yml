@@ -29,9 +29,10 @@ jobs:
       - name: Native Windows path regression tests
         if: runner.os == 'Windows'
         run: pnpm exec vitest run packages/vitest/test/native-paths.test.ts packages/vitest/test/vite-plus.test.ts packages/cli/test/native-paths.test.ts packages/playwright/test/native-paths.test.ts
-      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
+      # Check unit adapters before spending time installing browser dependencies.
+      # The smoke harness installs the matching Chromium before its Playwright run.
+      - name: Packed CLI (Vitest, Vite+, Jest, Playwright and skills)
+        run: pnpm run pack-smoke --install-browser
       - name: Full test suite (Linux)
         if: runner.os == 'Linux'
         run: pnpm exec vitest run
-      - name: Packed CLI (Vitest, Vite+, Jest, Playwright and skills)
-        run: pnpm run pack-smoke

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, matchesGlob, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { debuglog } from 'node:util';
 import {
   type DryRunResult,
   type MutantRunResult,
@@ -26,6 +27,7 @@ export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLoca
 
 // Published builds ship setup.js next to session.js.
 const SETUP_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url));
+const debug = debuglog('mutator');
 
 export interface SessionOptions extends PluginOptions {
   root: string;
@@ -270,7 +272,10 @@ function collectDryRun(result: TestRunResult, root: string): DryRunResult {
       moduleStatic.add(key);
     }
     for (const [key, n] of Object.entries(moduleMeta.mutatorCounts ?? {})) hits.set(key, (hits.get(key) ?? 0) + n);
-    if (module.errors().length > 0) failed.push(relative(root, module.moduleId));
+    if (module.errors().length > 0) {
+      failed.push(relative(root, module.moduleId));
+      for (const error of module.errors()) debug('%s: %s\n%s', module.moduleId, error.message, error.stack ?? '');
+    }
     const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
     for (const test of module.children.allTests()) {
       const id = distinct(testId(root, test));

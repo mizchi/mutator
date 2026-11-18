@@ -41,6 +41,8 @@ export interface PlaywrightSessionOptions extends Pick<InstrumentOptions, 'arid'
   ignorers?: InstrumentOptions['ignorers'];
   /** Absolute paths of the plugin modules providing `mutators` / `ignorers`; the dev server loads them itself. */
   pluginModules?: readonly string[];
+  /** Experimental Chromium V8 coverage remapped to original source scopes. Dry runs only. */
+  sourceCoverage?: boolean;
 }
 
 const CONFIG_NAMES = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((ext) => `playwright.config.${ext}`);
@@ -177,7 +179,7 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
       if (files && files.length === 0) return emptyDryRun();
       const out = join(dir, `coverage-${runs}`);
       mkdirSync(out, { recursive: true });
-      const outcome = await playwright({ locations: files ?? [], projects: [] }, { active: null, hitLimit: DEFAULT_HIT_LIMIT, out });
+      const outcome = await playwright({ locations: files ?? [], projects: [] }, { active: null, hitLimit: DEFAULT_HIT_LIMIT, out, ...(options.sourceCoverage ? { sourceCoverage: { root, targets: settings.targets } } : {}) });
       if (!outcome.results) throw new Error(`mutator: playwright produced no results\n${outcome.stderr}`);
       measure(outcome);
       const records: TestRecord[] = readdirSync(out).flatMap((name) =>
@@ -188,6 +190,16 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
       );
       rmSync(out, { recursive: true, force: true });
       const dry = collectDryRun(outcome.results, records, { root, idOf, targets: settings.targets });
+      if (options.sourceCoverage) {
+        dry.sourceCoverage = new Map();
+        dry.sourceCoverageIncomplete = new Set();
+        const byTest = new Map(records.map((record) => [idOf(record), record.sourceCoverage]));
+        for (const test of dry.tests) {
+          const observed = byTest.get(test.id);
+          if (!observed?.complete) dry.sourceCoverageIncomplete.add(test.id);
+          for (const scope of observed?.scopes ?? []) dry.sourceCoverage.set(scope, [...(dry.sourceCoverage.get(scope) ?? []), test.id]);
+        }
+      }
       for (const [id, location] of dry.index) locations.set(id, location);
       return dry;
     },

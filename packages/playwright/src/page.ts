@@ -5,6 +5,7 @@ import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RUNTIME_GLOBAL, RuntimeState } from '@mizchi/mutator-core';
 import type { RunConfig, TestRecord } from './env.ts';
+import type { SourceObservation } from './source-coverage.ts';
 
 /** The parts of Playwright's BrowserContext used here. */
 export interface ContextLike {
@@ -100,7 +101,7 @@ export async function observed(context: Pick<ContextLike, 'pages'>): Promise<Obs
  * The fixture's body for a run (`undefined` outside mutator runs): set the page script up,
  * run the test, and in the dry run append what its pages observed to the worker's JSONL file.
  */
-export function fixtureBody(run: RunConfig | undefined) {
+export function fixtureBody(run: RunConfig | undefined, sourceCoverage?: () => Promise<SourceObservation>) {
   return async ({ context }: { context: ContextLike }, use: () => Promise<void>, testInfo: TestInfoLike): Promise<void> => {
     if (!run) return use();
     const titles = testInfo.titlePath.slice(1);
@@ -108,7 +109,7 @@ export function fixtureBody(run: RunConfig | undefined) {
     await context.addInitScript(pageSetup, { active: run.active, collect: run.active === null, hitLimit: run.hitLimit, id } satisfies PageConfig);
     await use();
     if (!run.out) return;
-    const record: TestRecord = { file: testInfo.file, project: testInfo.project.name, titles, ...(await observed(context)) };
+    const record: TestRecord = { file: testInfo.file, project: testInfo.project.name, titles, ...(await observed(context)), ...(sourceCoverage ? { sourceCoverage: await sourceCoverage() } : {}) };
     appendFileSync(join(run.out, `${testInfo.workerIndex}-${process.pid}.jsonl`), `${JSON.stringify(record)}\n`);
   };
 }

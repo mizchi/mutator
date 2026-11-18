@@ -229,7 +229,7 @@ export default defineConfig({
   exclude: ['src/generated/**'],
   scope: 'node',                          // 'node' | 'scope'
   concurrency: 4,
-  runner: 'auto',                         // 'vitest' | 'jest' | 'playwright' | 'auto'
+  runner: 'auto',                         // Vitest/Jest only; Playwright requires opt-in
   vitestConfig: 'vitest.config.ts',
   arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
   experimentalCallgraph: false,
@@ -361,36 +361,124 @@ The adapter resolves `vite-plus/test/node` from the project before `vitest/node`
 
 ## Playwright (experimental)
 
-`--runner playwright` mutates browser code that Playwright Test drives end to end, for an app served by a Vite dev server. Mutants are compiled into the served modules once (mutation switching), and the page decides which one is active, so one dev server serves every mutant.
+Playwright Test support mutates browser code in an app served by a Vite dev server. It is **opt-in**: the default `runner: 'auto'` selects Vitest or Jest, and never starts Playwright just because `playwright.config.*` or `@playwright/test` is present. Enable it explicitly in `mutator.config.ts` as shown below.
 
-Setup, in the app:
+> **Runtime warning:** Browser E2E mutation testing can take much longer than unit mutation testing. Each mutant run starts a separate Playwright Test process and executes the selected browser tests; browser startup and failing assertion waits add up. A large run can take many minutes or hours. Start with a small `include`, `--since`, sampling and a time budget. Estimates and ETA appear after the baseline and type checking; a time budget stops new runs, while in-flight runs finish.
 
-```ts
-// vite.config.ts: does nothing unless mutator starts the dev server
-import { mutatorVite } from '@mizchi/mutator-playwright/vite';
-export default defineConfig({ plugins: [mutatorVite()] });
+**Runnable example:** The [Playwright source-coverage sample](examples/playwright-source-coverage/README.md) includes a Vite app, two browser E2Es, complete configuration and a verification script. It checks source correspondence (including functions without mutants), cache reuse, test selection after an edit, and agreement between incremental and cold mutation results.
+
+From a checkout of this repository:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --dir examples/playwright-source-coverage exec playwright install chromium
+pnpm --dir examples/playwright-source-coverage run verify
 ```
 
-```ts
-// in the tests: instead of '@playwright/test' (or `base.extend(mutatorFixtures)`)
-import { expect, test } from '@mizchi/mutator-playwright';
-```
+Verification uses a disposable copy and a free port, and saves its results and logs. The sample also provides `just verify` from its directory.
+
+Install the adapter alongside the app's existing Vite and Playwright Test setup:
 
 ```sh
 pnpm add -D @mizchi/mutator @mizchi/mutator-playwright
-npx mutator --runner playwright --include 'src/**/*.ts'
+pnpm exec playwright install chromium
 ```
 
-An app with a `vite.config.*` makes `auto` pick Vitest, so pass `--runner playwright` (or set `runner` / `playwrightConfig` in the config file).
+Add the plugin to the app's Vite config. It does nothing unless mutator starts the dev server:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite'; // use 'vite-plus' in a Vite+ project
+import { mutatorVite } from '@mizchi/mutator-playwright/vite';
+
+export default defineConfig({ plugins: [mutatorVite()] });
+```
+
+Configure Playwright to start that dev server through `webServer`, and keep browser tests in a separate directory:
+
+```ts
+// playwright.config.ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './e2e',
+  use: { baseURL: 'http://127.0.0.1:4173', browserName: 'chromium' },
+  webServer: {
+    command: 'pnpm exec vite --host 127.0.0.1 --port 4173 --strictPort',
+    url: 'http://127.0.0.1:4173',
+    reuseExistingServer: false,
+  },
+});
+```
+
+For Vite+, use `pnpm exec vp dev --host 127.0.0.1 --port 4173 --strictPort` as the server command. Stop any dev server already using that URL before a mutation run. Keep the unit runner's include/exclude patterns from collecting `e2e/**` as unit tests (for example, set Vitest's `test.include` to `['test/**/*.test.ts']`).
+
+Use the adapter's fixtures in the browser tests. Projects with custom fixtures can use `base.extend(mutatorFixtures)` instead:
+
+```ts
+// e2e/counter.spec.ts (adapt the selectors and assertions to your app)
+import { expect, test } from '@mizchi/mutator-playwright';
+
+test('increments the counter', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#count').click();
+  await expect(page.locator('#count')).toHaveText('1');
+});
+```
+
+Enable browser mutation testing explicitly:
+
+```ts
+// mutator.config.ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'playwright',
+  playwrightConfig: 'playwright.config.ts',
+  include: ['src/**/*.ts'],
+  concurrency: 2,
+  mutantsPerLine: 1,
+  timeBudget: 300, // seconds; already-running tests may finish after the budget
+});
+```
+
+```sh
+pnpm exec playwright test          # establish a passing E2E baseline first
+pnpm exec mutator                  # uses the explicit Playwright configuration above
+pnpm exec mutator --since main     # later runs can focus on changed code
+```
+
+Sampling and the time budget leave unrun mutants `Pending`; raise or remove those limits for a full run. Increase concurrency only when the machine can afford more browsers. For a one-off explicit run, `--runner playwright` or `--playwright-config <file>` also enables the adapter. Without an explicit selection, browser mutation tests are never launched automatically.
 
 **How it works**
 
 - mutator starts the config's `webServer` itself, once per run, with the instrumentation enabled, and runs Playwright through a generated config (next to the project's, removed afterwards) that extends the project's without its `webServer`. Nothing must already listen on the server's url.
 - The fixture adds an init script to each test's browser context: it activates the mutant and, in the dry run, records which mutants the test reaches. What a page records survives same-origin navigations (through `sessionStorage`), and every page and frame of the context is read when the test ends.
 - Every test file is treated as depending on every mutated file, since the browser loads the sources, not the tests.
-- Each dry run and mutant run is a `playwright test` process with one worker, `--retries=0`, `--max-failures=1` unless `--kill-matrix`, and mutator's reporter. Tests are selected by `file:line` and, with several projects, `--project` (test ids then start with `[project]`).
+- Each dry run and mutant run is a `playwright test` process with `--retries=0` and mutator's reporter. Dry runs use the project's workers; mutant runs use one worker and `--max-failures=1` unless `--kill-matrix`. Tests are selected by `file:line` and, with several projects, `--project` (test ids then start with `[project]`).
 - In mutant runs an `expect` waits at most three times as long as the slowest selected test took in the dry run (at least 1 s, never longer than the config's): a mutant that breaks the page would otherwise cost the full expect timeout per assertion.
 - Weak mutation, `--since`, result reuse, `-j`, `--kill-matrix` and `--typecheck` work as with Vitest. On the fixture app a mutant run takes about 1–2 s: a killed mutant mostly waits for its failing `expect`, and starting Playwright costs about 0.6 s per run (keeping Playwright's test-server across runs saved only 4%, so every run is a process).
+
+**Optional source coverage (experimental, Chromium only)**
+
+To discover which E2E executes each original source function, including functions with no mutation candidates, enable an additional dry-run collector:
+
+```ts
+// mutator.config.ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'playwright',
+  playwrightSourceCoverage: true, // default false; additional CPU and memory cost
+  include: ['src/**/*.ts', 'src/**/*.tsx'],
+});
+```
+
+This uses Chromium's V8 execution ranges and the served modules' inline source maps with `sourcesContent`. Only sources in `include` are indexed, and their mapped content must match the files on disk. The snapshot's `sourceCoverage` maps `relative/file.ts#functionScopeId` to test ids; the existing `scopes` table stores source scope hashes. Partial dry runs replace the re-collected tests' observations and retain the others. `select-tests --since` and incremental dry-run planning can use these observations even when a function has no mutants. Changes also invalidate mutation verdicts from affected tests. The index records execution, not assertion quality.
+
+This option adds collection and remapping work to **dry runs only**; mutant runs keep their existing probes. It requires Chromium projects. Multiple navigations can lose V8 coverage; popups, closed pages, frames, workers, missing maps and stale maps are also treated conservatively. Such tests appear in `sourceCoverageIncomplete` and remain candidates for affected sources. Unknown scopes and top-level dependencies keep the existing broad fallback. Source coverage never replaces the exact mutant probes or turns missing observations into a `NoCoverage` verdict.
+
+See the [Playwright coverage benchmark](docs/playwright-coverage-benchmark.md) for measured overhead and commands to reproduce it.
 
 **Not supported (yet)**: dev servers other than Vite, a server not started through `webServer`, Node-side code run by the tests (API tests, component testing), coverage of pages closed before the test ends, and plugin objects (plugin modules reach the dev server; plugin objects cannot).
 
@@ -412,9 +500,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.3.0
+      - uses: mizchi/mutator@v0.3.1
         with:
-          version: '0.3.0'
+          version: '0.3.1'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -475,9 +563,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Use the action revision containing shard support and a matching CLI installation.
-      - uses: mizchi/mutator@main
+      # Install @mizchi/mutator 0.3.1 or later in the project.
+      - uses: mizchi/mutator@v0.3.1
         with:
+          version: '0.3.1'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -532,7 +621,7 @@ pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exe
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.3.0`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.3.1`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. It checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 

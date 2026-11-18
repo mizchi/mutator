@@ -30,6 +30,10 @@ export interface DryRunResult {
   infected?: Map<string, string[]>;
   /** test id -> processes it started (runners that support it); mutants applied in memory are not seen there. */
   spawns?: Map<string, SpawnedCommand[]>;
+  /** Original source function scope (`relative file#scopeId`) -> tests that executed it. */
+  sourceCoverage?: Map<string, string[]>;
+  /** Tests whose source coverage may be missing (navigation, closed pages, missing maps). */
+  sourceCoverageIncomplete?: Set<string>;
 }
 
 /** A process a test started through `node:child_process`. */

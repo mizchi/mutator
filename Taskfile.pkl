@@ -39,6 +39,14 @@ local packSmoke: Task = new {
   deps { build }
 }
 
+local playwrightCoverageBench: Task = new {
+  name = "bench:playwright-coverage"
+  description = "Compare Playwright dry runs with and without V8 source coverage"
+  cmd = "node scripts/playwright-coverage-bench.ts \"$@\""
+  acceptsArgs = true
+  cache = false
+}
+
 local check: Task = new {
   name = "check"
   description = "Aggregate gate"
@@ -89,4 +97,4 @@ local prePush: Task = new {
   deps { secretlint; check }
 }
 
-tasks { typecheck; test; build; packSmoke; check; secretlint; preCommit; prePush }
+tasks { typecheck; test; build; packSmoke; playwrightCoverageBench; check; secretlint; preCommit; prePush }

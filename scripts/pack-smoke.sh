@@ -117,6 +117,15 @@ JSON
 cp "$work/jest-app/pnpm-workspace.yaml" "$work/pw-app/"
 cd "$work/pw-app"
 pnpm install --prefer-offline >/dev/null
+cat > mutator.config.mjs <<'CONFIG'
+export default { runner: 'playwright', playwrightSourceCoverage: true };
+CONFIG
 MUTATOR_TEST_PORT=5391 ./node_modules/.bin/mutator --runner playwright -j 2 | tee "$work/pw-out.txt"
 grep -q 'n >= 10 -> n > 10' "$work/pw-out.txt"
+node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+const snapshot = JSON.parse(readFileSync('.mutator/snapshot.json', 'utf8'));
+if (!snapshot.sourceCoverage['src/counter.ts#inc']?.length) throw new Error('packed Playwright source coverage missing');
+if (!snapshot.sourceCoverageIncomplete.includes('tests/app.spec.ts#navigates')) throw new Error('packed incomplete coverage marker missing');
+NODE
 echo "pack-smoke: ok"

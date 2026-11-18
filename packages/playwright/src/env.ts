@@ -29,6 +29,8 @@ export interface RunConfig {
   expectTimeout?: number;
   /** Where the reporter writes the RunResults. */
   results: string;
+  /** Opt-in Chromium V8 coverage, dry runs only. */
+  sourceCoverage?: { root: string; targets: string[] };
 }
 
 /** A test as the reporter saw it run. */
@@ -65,4 +67,5 @@ export interface TestRecord {
   infected: Record<string, number>;
   /** Hits per mutant, summed (sizes hit limits). */
   counts: Record<string, number>;
+  sourceCoverage?: import('./source-coverage.ts').SourceObservation;
 }

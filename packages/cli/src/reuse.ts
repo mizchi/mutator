@@ -14,7 +14,7 @@ import { snapshotFiles } from './snapshot-store.ts';
 // Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
 // no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
 // without the tests that reached them while running), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.10';
+export const SNAPSHOT_VERSION = '0.0.11';
 
 export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', 'tsconfig.json', 'pnpm-workspace.yaml'];
 
@@ -37,7 +37,7 @@ export function environmentFiles(root: string, extra: readonly string[] = []): s
 /** Mutation settings change which mutants are placed (and thus covered): part of the environment. */
 export function mutationSettings(options: RunOptions, setup: { runner: Runner; arid: InstrumentOptions['arid']; plugins: { fingerprint: unknown } }): string {
   const { runner, arid, plugins } = setup;
-  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [] });
+  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [], ...(runner === 'playwright' ? { sourceCoverage: options.playwrightSourceCoverage ?? false } : {}) });
 }
 
 /** Node version, mutation settings, and the content of the environment files (relative to root). */
@@ -54,7 +54,7 @@ export class SnapshotError extends Error {}
  * only known to a runner session), so the snapshot must have been written by a run that
  * recorded them.
  */
-export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[] }> {
+export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[]; sources: Map<string, SourceInfo> }> {
   const root = resolve(options.root);
   const setup = await resolveSetup(root, options, () => {});
   const candidates = snapshotFiles(root, options);
@@ -72,7 +72,8 @@ export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot:
   if (snapshot.envHash !== environmentHash(root, mutationSettings(options, setup), snapshot.envFiles)) {
     throw new SnapshotError(`${rel} is from another environment (lockfile, tsconfig, runner config, node version or mutation options changed): run \`mutator\` once first`);
   }
-  return { snapshot, mutants: collectSources(root, setup.files, setup.instrumentOptions).mutants };
+  const { mutants, sources } = collectSources(root, setup.files, setup.instrumentOptions);
+  return { snapshot, mutants, sources };
 }
 
 /** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */
@@ -83,6 +84,8 @@ export function buildSnapshot(
 ): CliSnapshot {
   const { merged } = run;
   const core = mergeSnapshot(reusable, { toolVersion: SNAPSHOT_VERSION, envHash: run.envHash, results: run.results, tests: merged.tests }, run.mutants);
+  const scopes = scopeTable(root, run.sources);
+  const aliveScopes = merged.sourceCoverage ? new Set(Object.entries(scopes).flatMap(([file, entries]) => Object.keys(entries).map((id) => `${file}#${id}`))) : undefined;
   return {
     ...core,
     envFiles: run.envFiles,
@@ -92,7 +95,8 @@ export function buildSnapshot(
     staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
     hits: Object.fromEntries(merged.hits),
     spawns: Object.fromEntries(merged.spawns),
-    scopes: scopeTable(root, run.sources),
+    scopes,
+    ...(merged.sourceCoverage ? { sourceCoverage: Object.fromEntries([...merged.sourceCoverage].filter(([scope]) => aliveScopes!.has(scope))), sourceCoverageIncomplete: [...(merged.sourceCoverageIncomplete ?? [])] } : {}),
   };
 }
 

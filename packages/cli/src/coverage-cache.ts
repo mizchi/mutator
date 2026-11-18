@@ -37,6 +37,9 @@ export interface CliSnapshot extends RunSnapshot {
   spawns?: Record<string, SpawnedCommand[]>;
   /** source file (relative) -> scope id -> entry */
   scopes?: Record<string, Record<string, ScopeEntry>>;
+  /** Original source scope (`relative file#scopeId`) -> tests that executed it. */
+  sourceCoverage?: Record<string, string[]>;
+  sourceCoverageIncomplete?: string[];
 }
 
 /** A scope as recorded in the snapshot; top-level statements keep what they declare. */
@@ -83,6 +86,8 @@ export type DryRunPlan =
       stale: string[];
       /** scopes (`${absolute file}#${scopeId}`) whose code is unchanged but may behave differently */
       impacted: string[];
+      /** Source coverage sees changed functions that mutant results cannot see. */
+      affectedTests?: string[];
     };
 
 /**
@@ -113,6 +118,7 @@ export function planDryRun(input: {
   const files = new Set<string>();
   const stale = new Set<string>();
   const impacted = new Set<string>();
+  const affectedTests = new Set<string>();
   for (const [file, h] of Object.entries(testFiles)) if (previous.testFiles[file] !== h) files.add(file);
 
   const resultsByScope = new Map<string, MutantResult[]>();
@@ -126,8 +132,17 @@ export function planDryRun(input: {
   /** Re-collect the test files that ran a scope; false when there is no coverage for it. */
   const recollect = (file: string, scopeId: string): boolean => {
     const results = resultsByScope.get(`${file}#${scopeId}`);
-    if (!results) return false;
-    for (const r of results) {
+    const observed = previous.sourceCoverage?.[`${file}#${scopeId}`];
+    if (!results && !observed?.length) return false;
+    for (const id of observed ?? []) {
+      const module = previous.index[id]?.module;
+      if (module) { files.add(module); affectedTests.add(id); }
+    }
+    for (const id of previous.sourceCoverageIncomplete ?? []) {
+      const module = previous.index[id]?.module;
+      if (module && previous.deps[module]?.includes(file)) { files.add(module); affectedTests.add(id); }
+    }
+    for (const r of results ?? []) {
       for (const t of r.coveredBy) {
         const module = previous.index[t]?.module;
         if (module) files.add(module);
@@ -138,7 +153,9 @@ export function planDryRun(input: {
   };
   /** Every test file importing `file` (directly or not) re-collects, and its results are stale. */
   const invalidate = (file: string) => {
-    for (const t of loadersOf(file, previous.deps, testFiles)) files.add(t), stale.add(t);
+    const loaders = loadersOf(file, previous.deps, testFiles);
+    const candidates = previous.sourceCoverage && loaders.length === 0 ? Object.keys(testFiles) : loaders;
+    for (const t of candidates) files.add(t), stale.add(t);
   };
 
   const current = new Map([...sources].map(([file, info]) => [rel(file), new Map(info.scopes.map((s) => [s.id, s]))]));
@@ -149,6 +166,12 @@ export function planDryRun(input: {
   };
 
   for (const file of new Set([...Object.keys(previous.scopes), ...current.keys()])) {
+    if (previous.sourceCoverage && !Object.hasOwn(previous.scopes, file) && current.has(file)) {
+      // A new module can join an E2E route through glob imports or a registry;
+      // historical coverage and deps cannot prove which test will load it.
+      invalidate(file);
+      continue;
+    }
     const before = previous.scopes[file] ?? {};
     const after = current.get(file) ?? new Map<string, Scope>();
     for (const id of new Set([...Object.keys(before), ...after.keys()])) {
@@ -162,11 +185,13 @@ export function planDryRun(input: {
         if (!recollect(file, id)) invalidate(file);
       } else if (b) {
         // Removed, or renamed by an edit (same-named callbacks are told apart by content).
-        recollect(file, id);
+        if (!recollect(file, id)) invalidate(file);
+      } else if (a && previous.sourceCoverage) {
+        invalidate(file);
       }
     }
   }
-  if (seeds.length === 0) return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [] };
+  if (seeds.length === 0) return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [], ...(affectedTests.size ? { affectedTests: [...affectedTests].sort() } : {}) };
 
   const invalidated = followNames({
     scopes: current,
@@ -177,7 +202,7 @@ export function planDryRun(input: {
     skip: (file, id) => !previous.scopes![file]?.[id],
   });
   for (const file of invalidated) invalidate(file);
-  return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [...impacted].sort() };
+  return { all: false, files: sorted(files, testFiles), stale: sorted(stale, testFiles), impacted: [...impacted].sort(), ...(affectedTests.size ? { affectedTests: [...affectedTests].sort() } : {}) };
 }
 
 const sorted = (files: ReadonlySet<string>, testFiles: Readonly<Record<string, string>>) => [...files].filter((f) => f in testFiles).sort();
@@ -230,5 +255,16 @@ export function mergeDryRun(input: {
   const spawns = new Map(dry.spawns);
   for (const [id, list] of Object.entries(previous?.spawns ?? {})) if (keptModule(previous?.index[id]?.module)) spawns.set(id, list);
 
-  return { tests, coverage, staticKeys, hits, index, staticByFile, deps, spawns };
+  const sourceCoverage = previous?.sourceCoverage || dry.sourceCoverage ? new Map<string, string[]>() : undefined;
+  const sourceCoverageIncomplete = sourceCoverage ? new Set(dry.sourceCoverageIncomplete) : undefined;
+  if (sourceCoverage) {
+    for (const [scope, ids] of Object.entries(previous?.sourceCoverage ?? {})) {
+      const kept = ids.filter((id) => keptModule(previous?.index[id]?.module));
+      if (kept.length) sourceCoverage.set(scope, kept);
+    }
+    for (const [scope, ids] of dry.sourceCoverage ?? []) sourceCoverage.set(scope, [...new Set([...(sourceCoverage.get(scope) ?? []), ...ids])]);
+    for (const id of previous?.sourceCoverageIncomplete ?? []) if (keptModule(previous?.index[id]?.module)) sourceCoverageIncomplete!.add(id);
+    if (!dry.sourceCoverage) for (const test of dry.tests) sourceCoverageIncomplete!.add(test.id);
+  }
+  return { tests, coverage, staticKeys, hits, index, staticByFile, deps, spawns, ...(sourceCoverage ? { sourceCoverage, sourceCoverageIncomplete: sourceCoverageIncomplete! } : {}) };
 }

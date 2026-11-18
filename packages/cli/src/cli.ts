@@ -35,7 +35,7 @@ const USAGE = `usage: mutator [options]
   --include <glob>     sources to mutate, repeatable (default: src/**/*.{ts,tsx,js,...})
   --exclude <glob>     sources to skip, repeatable
   --runner <name>      vitest, jest (experimental, native ESM only), playwright (experimental,
-                       browser code served by Vite) or auto (default)
+                       opt-in, slower browser E2E through Vite) or auto (default: Vitest/Jest only)
   --config <file>      test runner config file (vitest or jest)
   --jest-config <file>  jest config file (implies --runner jest)
   --playwright-config <file>  playwright config file (implies --runner playwright)

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1 - 2026-11-18
+
+### Added
+
+- Opt-in `playwrightSourceCoverage` collects Chromium V8 coverage in dry runs, maps inline source maps back to original function scopes, and persists test correspondence for incremental dry runs and `select-tests`, including scopes without mutants. Incomplete observations retain conservative candidates. A reproducible benchmark measures time, sampled CPU, process-tree RSS and recording size.
+- Runtime estimates after the baseline and type checking. Large mutation runs show an ETA calibrated from observed timings and a progress heartbeat every 15 seconds.
+- `--shard INDEX/COUNT` partitions mutant keys deterministically across CI jobs. Each shard keeps independent snapshots and default report directories; scores and quality gates cover that shard.
+- The GitHub Action accepts a `shard` input that also separates its cache keys.
+
+### Changed
+
+- The repository's mutation workflow runs four shards and uploads a report artifact for each, even when a quality gate fails.
+- Update Vitest to 5.1.0, Playwright to 1.65.1, Vite to 8.3.8, oxc-parser to 0.159.0, magic-string to 1.4.5, Secretlint to 14.0.1 and Node type definitions to 26.6.6. Secretlint's recommended preset is built in, so the separate deprecated package is removed. TypeScript 6 compatibility tests are retained.
+- Releases use newly created full-version tags only. Existing tags remain immutable.
+
+### Fixed
+
+- Default runner detection no longer starts Playwright from its config files or installed package. Browser mutation testing is opt-in through an explicit runner or Playwright config option, with setup and runtime-cost guidance.
+- Vite+ sessions resolve the project's `vite-plus/test/node` and `vite-plus/test` APIs together, preventing another installed Vitest or a package exposed only through `NODE_PATH` from being selected.
+- Mutation sessions disable the persistent module cache so every session populates its own mutant registry, including repeated and parallel runs.
+
 ## 0.3.0 - 2026-11-17
 
 ### Added

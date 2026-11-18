@@ -50,7 +50,7 @@
       "type": "string"
     },
     "runner": {
-      "description": "Test runner; auto picks vitest, jest or playwright from config files and installed packages.",
+      "description": "Test runner; auto picks Vitest or Jest. Playwright browser mutation runs can be slow and require explicit opt-in.",
       "enum": [
         "vitest",
         "jest",
@@ -67,8 +67,12 @@
       "type": "string"
     },
     "playwrightConfig": {
-      "description": "Playwright config file, relative to the root (experimental: browser code served by a Vite dev server).",
+      "description": "Playwright config file, relative to the root; explicitly selects the slower browser mutation runner (experimental: Vite dev server required).",
       "type": "string"
+    },
+    "playwrightSourceCoverage": {
+      "description": "Experimental Chromium-only V8 coverage in dry runs, remapped through inline source maps to original source scopes. Adds CPU and memory overhead; default false.",
+      "type": "boolean"
     },
     "arid": {
       "description": "Arid (logging-only) code suppression: false runs those mutants too; callees replaces the logging call patterns.",

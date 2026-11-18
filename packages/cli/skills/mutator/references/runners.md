@@ -1,6 +1,6 @@
 # Runners
 
-`--runner auto` picks from the root's config files: `vitest.config.*` / `vite.config.*`, then `jest.config.*` or a `jest` field in package.json, then `playwright.config.*`; without any, the runner that resolves from the root. Pass `--runner` (or `runner` in the config) when the guess is wrong.
+`--runner auto` selects unit runners only: the root's `vitest.config.*` / `vite.config.*`, then `jest.config.*` or a `jest` field in package.json, then installed Vitest / Vite+ or Jest. Playwright is never selected automatically from its config files or installed package.
 
 ## Vitest (the reference runner)
 
@@ -20,3 +20,25 @@
 ## Playwright (experimental)
 
 Browser code an app serves through a Vite dev server, tested end to end. Needs a Vite plugin in the app and the fixture in the tests: see the `mutator-playwright` skill in `@mizchi/mutator-playwright`.
+
+The [runnable Playwright source-coverage sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md) provides the app, Vite/Playwright/mutator configs and two E2Es. Its verifier checks source correspondence, cache reuse and incremental/cold agreement, including an edit to a function without mutants. Follow its setup instructions in a repository checkout, then run `pnpm --dir examples/playwright-source-coverage run verify`.
+
+Optional `playwrightSourceCoverage: true` in `mutator.config.ts` collects Chromium V8 coverage in dry runs and remaps inline source maps to original function scopes, including those without mutants. It is off by default and adds CPU/memory cost. The snapshot's `sourceCoverage` index supports incremental dry-run planning and `select-tests --since`. Navigations, popups, closed pages, frames, workers and unusable maps make observations incomplete; those tests remain conservative candidates. Mutant selection and verdicts still use the existing exact probes. Only included source files and Chromium projects are supported.
+
+**Opt-in; potentially slow.** Each mutant run starts a separate Playwright Test process and executes the selected browser tests. Browser startup and assertion waits can make a large run take many minutes or hours. Enable it explicitly in the project:
+
+```ts
+// mutator.config.ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'playwright',
+  playwrightConfig: 'playwright.config.ts',
+  include: ['src/**/*.ts'],
+  concurrency: 2,
+  mutantsPerLine: 1,
+  timeBudget: 300,
+});
+```
+
+Then run `pnpm exec mutator`. Start with a narrow include or `--since`; sampling and the time budget leave other mutants Pending. The time budget stops new runs, while tests already in flight finish. Baseline and type checking precede the runtime estimate and ETA. Keep browser specs out of the unit runner's include patterns. Explicit CLI flags `--runner playwright` and `--playwright-config <file>` remain available for one-off runs.

@@ -27,6 +27,20 @@ test('--version prints the package version', () => {
   expect(stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../package.json'), 'utf8')).version);
 });
 
+test('a Playwright-only project stops before loading its config unless explicitly enabled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mutator-playwright-opt-in-'));
+  writeFileSync(join(root, 'playwright.config.ts'), "throw new Error('Playwright config must not be loaded');\n");
+  try {
+    const { status, stderr } = spawnSync(process.execPath, [cli, '--root', root], { encoding: 'utf8', env: { ...process.env, NODE_PATH: '' } });
+    expect(status, stderr).toBe(1);
+    expect(stderr).toContain('Playwright mutation testing is opt-in');
+    expect(stderr).toContain("runner: 'playwright'");
+    expect(stderr).not.toContain('Playwright config must not be loaded');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('--shard validates early, reports its own subset, and writes to its default report directory', () => {
   expect(run('--shard', '0/4').status).toBe(1);
   expect(run('--shard', '2/1').stderr).toContain('--shard');

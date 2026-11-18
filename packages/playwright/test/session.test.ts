@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Mutant, Session } from '@mizchi/mutator-core';
@@ -110,6 +110,30 @@ describe('playwright session', { timeout: 120_000 }, () => {
 
 });
 
+test('optional V8 coverage records original scopes per test and flags navigation as incomplete', { timeout: 120_000 }, async () => {
+  mkdirSync(tmpRoot, { recursive: true });
+  const root = join(tmpRoot, `v8-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  cpSync(fixture, root, { recursive: true });
+  await assignPort(root);
+  // Exclude ArrowFunction so these scopes have no mutation candidates.
+  writeFileSync(join(root, 'src/identity.ts'), 'export const identity = value => value;\nexport const never = value => value;\n');
+  const main = join(root, 'src/main.ts');
+  writeFileSync(main, "import { identity } from './identity.ts';\nidentity(document.title);\n" + readFileSync(main, 'utf8'));
+  const session = await createPlaywrightSession({ root, targets: ['counter.ts', 'main.ts', 'other.ts', 'identity.ts'].map((f) => join(root, 'src', f)), sourceCoverage: true, excludedMutators: ['ArrowFunction'] });
+  try {
+    const dry = await session.dryRun();
+    expect(dry.sourceCoverage?.get('src/counter.ts#inc')).toEqual(['tests/app.spec.ts#counter > increments']);
+    expect(dry.sourceCoverage?.get('src/counter.ts#unused')).toBeUndefined();
+    expect(dry.sourceCoverage?.get('src/identity.ts#identity')).toContain('tests/app.spec.ts#counter > increments');
+    expect(dry.sourceCoverage?.get('src/identity.ts#never')).toBeUndefined();
+    expect(dry.sourceCoverageIncomplete).toEqual(new Set(['tests/app.spec.ts#navigates']));
+    expect(session.mutants().filter((m) => m.file.endsWith('identity.ts'))).toEqual([]);
+    // Mutant runs keep their existing exact probes; V8 is only enabled for dry runs.
+    const mutant = session.mutants().find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!;
+    expect((await session.runMutant(mutant.key, ['tests/app.spec.ts#counter > increments'], { timeoutMs: 30_000 })).status).toBe('Killed');
+  } finally { await session.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 describe('playwright session instrument options', { timeout: 120_000 }, () => {
   const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
   const PLUGIN = `import { defineIgnorer, defineMutator, definePlugin } from ${JSON.stringify(core)};
@@ -118,6 +142,8 @@ export default definePlugin({
   mutators: [defineMutator({ name: 'DropFallback', visit(node, ctx) { if (node.type === 'LogicalExpression' && node.operator === '??') return [{ replacement: ctx.text(node.left) }]; } })],
   ignorers: [defineIgnorer({ name: 'no-unused', shouldIgnore(node) { if (node.type === 'FunctionDeclaration' && node.id?.name === 'unused') return 'never called'; } })],
 });
+
+
 `;
 
   test('reach the dev server: what the pages report are the mutants the session lists', async () => {

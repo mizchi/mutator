@@ -1,0 +1,20 @@
+set shell := ["bash", "-cu"]
+
+default:
+    @just --list
+
+dev:
+    pnpm run dev
+
+test:
+    pnpm run test
+
+typecheck:
+    pnpm run typecheck
+
+mutate:
+    pnpm run mutate
+
+# Checks cold/warm runs, source correspondence, test selection and verdict reuse.
+verify:
+    pnpm run verify

@@ -22,6 +22,8 @@ export interface SelectionInput {
   /** The snapshot's test files (relative) and the local files each imports. */
   testFiles: Readonly<Record<string, unknown>>;
   deps: Readonly<Record<string, readonly string[]>>;
+  sourceCoverage?: Readonly<Record<string, readonly string[]>>;
+  sourceCoverageIncomplete?: readonly string[];
 }
 
 /** A selected test, or a whole test file when `test` is absent. */
@@ -81,12 +83,28 @@ export function selectTests(input: SelectionInput): Selection {
     covers: covers.get(test)!,
     reason: `covers ${plural(covers.get(test)!, 'mutant')} in ${scopesOf(test)}`,
   }));
-  // Scopes the snapshot has no results for (new functions, new files): whoever imports the file.
+  // Scope coverage also sees code without mutants. Retain incomplete collectors
+  // as candidates: a missing observation is not evidence that they cannot reach it.
   for (const [file, ids] of scopes) {
     const rel = relative(root, file);
     for (const id of [...ids].sort()) {
+      const at = `${rel}#${id}`;
+      const observed = input.sourceCoverage?.[at]?.filter((t) => present.has(t));
+      for (const test of observed ?? []) {
+        if (!kills.has(test) && !covers.has(test)) covering.push({ test, file: testFileOf(test), reason: `executed ${at}` });
+      }
+      for (const test of input.sourceCoverageIncomplete ?? []) {
+        const module = testFileOf(test);
+        if (present.has(test) && input.deps[module]?.includes(rel) && !kills.has(test) && !covers.has(test) && !observed?.includes(test)) covering.push({ file: module, reason: `incomplete source coverage for ${at}` });
+      }
       if (seen.has(`${file}#${id}`)) continue;
-      for (const loader of loadersOf(rel, input.deps, input.testFiles)) covering.push({ file: loader, reason: `imports ${rel} (no snapshot data for ${id})` });
+      if (observed?.length) continue;
+      const loaders = loadersOf(rel, input.deps, input.testFiles);
+      if (input.sourceCoverage && loaders.length === 0) {
+        for (const file of Object.keys(input.testFiles).sort()) covering.push({ file, reason: `no source coverage for ${at}` });
+      } else {
+        for (const loader of loaders) covering.push({ file: loader, reason: `imports ${rel} (no snapshot data for ${id})` });
+      }
     }
   }
 
@@ -112,20 +130,34 @@ export function selectionFiles(selection: Selection): string[] {
  */
 export async function selectTestsSince(options: RunOptions & { since: string }): Promise<Selection> {
   const root = resolve(options.root);
-  const { snapshot, mutants } = await loadWarmSnapshot(options);
+  const { snapshot, mutants, sources } = await loadWarmSnapshot(options);
   const lines = diffLines(root, options.since);
   const touched = diffTouched(root, lines, mutants, 'scope');
   const scopes = new Map<string, Set<string>>();
   for (const m of mutants) if (touched.has(m.key)) scopes.set(m.file, (scopes.get(m.file) ?? new Set()).add(m.scope.id));
+  if (snapshot.sourceCoverage) {
+    // Include original scopes with no mutants, which `diffTouched` cannot see.
+    for (const [file, info] of sources) {
+      const changed = lines.get(relative(root, file));
+      if (changed === undefined) continue;
+      for (const scope of info.scopes) {
+        if (snapshot.scopes?.[relative(root, file)]?.[scope.id]?.hash === scope.hash) continue;
+        if (changed === null || changed.some((line) => scope.location.start.line <= line && line <= scope.location.end.line)) scopes.set(file, (scopes.get(file) ?? new Set()).add(scope.id));
+      }
+    }
+  }
   const selection = selectTests({
     root,
     results: snapshot.results,
     tests: snapshot.tests,
     scopes,
     changed: [...lines.keys()].sort(),
-    sources: new Set(mutants.map((m) => relative(root, m.file))),
+    // A source-only file is still an app source: treating it as a test helper
+    // would re-add every dependent E2E after the scope index narrowed the set.
+    sources: new Set((snapshot.sourceCoverage ? [...sources.keys()] : mutants.map((m) => m.file)).map((file) => relative(root, file))),
     testFiles: snapshot.testFiles,
     deps: snapshot.deps,
+    ...(snapshot.sourceCoverage ? { sourceCoverage: snapshot.sourceCoverage, sourceCoverageIncomplete: snapshot.sourceCoverageIncomplete ?? [] } : {}),
   });
   // Test files deleted since the snapshot cannot run.
   const exists = (p: Picked) => existsSync(join(root, p.file));

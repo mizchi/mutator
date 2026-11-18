@@ -22,7 +22,9 @@ pnpm add -D @mizchi/mutator    # or npm i -D / yarn add -D
 
 ## 2. Pick the runner
 
-`--runner auto` (the default) decides from the config files in the root: a `vitest.config.*` or `vite.config.*` → Vitest, a `jest.config.*` (or a `jest` field) → Jest, a `playwright.config.*` → Playwright. A Vite app with Playwright tests has a `vite.config.*`, so pass `--runner playwright` there. Details per runner: [references/runners.md](references/runners.md).
+`--runner auto` (the default) selects unit runners only: `vitest.config.*` / `vite.config.*` → Vitest, `jest.config.*` (or a `jest` field) → Jest, then installed Vitest / Vite+ or Jest. Playwright browser mutation testing is opt-in and can take much longer: enable it with `runner: 'playwright'` in `mutator.config.ts` (or an explicit `--runner playwright` / `--playwright-config` flag). Installing Playwright or adding `playwright.config.*` does not enable it. Details per runner: [references/runners.md](references/runners.md).
+
+For a complete Vite/Chromium project, see the [runnable Playwright source-coverage sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md). From a checkout of the repository, run `pnpm --dir examples/playwright-source-coverage run verify` after installing dependencies and Chromium as described there. It verifies ordinary E2Es, source-to-test correspondence, cache reuse, source-only edits and incremental/cold agreement in a disposable copy.
 
 ## 3. First run
 

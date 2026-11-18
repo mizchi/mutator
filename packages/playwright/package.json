@@ -43,6 +43,7 @@
     }
   },
   "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
     "@mizchi/mutator-core": "workspace:*"
   },
   "scripts": {

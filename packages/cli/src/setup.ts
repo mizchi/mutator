@@ -46,6 +46,7 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
     ...instrumentOptions,
     pluginModules: plugins.modules,
     hasPluginObjects: plugins.hasObjects,
+    ...(runner === 'playwright' && options.playwrightSourceCoverage !== undefined ? { sourceCoverage: options.playwrightSourceCoverage } : {}),
     ...(configFile ? { configFile } : {}),
   };
   return { files, plugins, arid, instrumentOptions, runner, sessionOptions };

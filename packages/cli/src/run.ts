@@ -56,6 +56,8 @@ export interface RunOptions {
   jestConfigFile?: string;
   /** Playwright config file. */
   playwrightConfigFile?: string;
+  /** Experimental Chromium V8 source coverage, dry runs only. */
+  playwrightSourceCoverage?: boolean;
   timeoutFactor?: number;
   timeoutMs?: number;
   /**
@@ -285,7 +287,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       toolVersion: SNAPSHOT_VERSION,
       envHash,
       ...(options.callGraph ? { related: relatedScopes(buildCallGraph(graphSources, importResolver(files))) } : {}),
-      ...(dryPlan.all ? {} : { affected: { tests: testsOf(merged.tests, new Set(dryPlan.stale)), scopes: new Set(dryPlan.impacted) } }),
+      ...(dryPlan.all ? {} : { affected: { tests: new Set([...testsOf(merged.tests, new Set(dryPlan.stale)), ...(dryPlan.affectedTests ?? [])]), scopes: new Set(dryPlan.impacted) } }),
       options: { ...(options.timeoutFactor ? { timeoutFactor: options.timeoutFactor } : {}), ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}) },
       ...(options.killMatrix ? { killMatrix: true } : {}),
     });

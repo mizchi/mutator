@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
 import { detectRunner } from '../src/runner.ts';
+import { ConfigError } from '../src/config.ts';
 
 // Inside the workspace: `vitest` resolves from the root node_modules, `jest` does not.
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -59,9 +60,13 @@ describe('detectRunner', () => {
   });
 
 
-  test('a playwright config selects playwright, unless a vitest or jest config is there too', () => {
-    expect(detectRunner(project({ 'playwright.config.ts': '' }))).toBe('playwright');
+  test('a playwright config never opts a project into browser mutation runs', () => {
+    expect(detectRunner(project({ 'playwright.config.ts': '' }))).toBe('vitest');
     expect(detectRunner(project({ 'playwright.config.ts': '', 'vitest.config.ts': '' }))).toBe('vitest');
+    expect(detectRunner(project({ 'playwright.config.ts': '', 'jest.config.js': '' }))).toBe('jest');
+    const root = project({ 'playwright.config.ts': '' }, tmpdir());
+    expect(() => withoutNodePath(() => detectRunner(root))).toThrow(ConfigError);
+    expect(() => withoutNodePath(() => detectRunner(root))).toThrow('Playwright mutation testing is opt-in');
   });
 
   test('without configs, the resolvable runner is used', () => {
@@ -72,13 +77,15 @@ describe('detectRunner', () => {
     expect(withoutNodePath(() => detectRunner(installing('vite-plus')))).toBe('vitest');
   });
 
-  test('without configs, an installed jest or @playwright/test selects that runner', () => {
+  test('without configs, installed unit runners are selected and Playwright requires opt-in', () => {
     expect(withoutNodePath(() => detectRunner(installing('jest')))).toBe('jest');
-    expect(withoutNodePath(() => detectRunner(installing('@playwright/test')))).toBe('playwright');
+    expect(withoutNodePath(() => detectRunner(installing('jest', '@playwright/test')))).toBe('jest');
+    expect(withoutNodePath(() => detectRunner(installing('vitest', '@playwright/test')))).toBe('vitest');
+    expect(() => withoutNodePath(() => detectRunner(installing('@playwright/test')))).toThrow('Playwright mutation testing is opt-in');
   });
 
   test('without configs or an installed runner, detection fails naming the root', () => {
     const root = installing();
-    expect(() => withoutNodePath(() => detectRunner(root))).toThrow(`no test runner found: none of vitest (or vite-plus), jest or @playwright/test resolves from ${root}`);
+    expect(() => withoutNodePath(() => detectRunner(root))).toThrow(`no automatic test runner found: neither vitest (or vite-plus) nor jest resolves from ${root}`);
   });
 });

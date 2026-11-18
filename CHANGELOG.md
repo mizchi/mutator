@@ -4,6 +4,7 @@
 
 ### Added
 
+- Opt-in `playwrightSourceCoverage` collects Chromium V8 coverage in dry runs, maps inline source maps back to original function scopes, and persists test correspondence for incremental dry runs and `select-tests`, including scopes without mutants. Incomplete observations retain conservative candidates. A reproducible benchmark measures time, sampled CPU, process-tree RSS and recording size.
 - Runtime estimates after the baseline and type checking. Large mutation runs show an ETA calibrated from observed timings and a progress heartbeat every 15 seconds.
 - `--shard INDEX/COUNT` partitions mutant keys deterministically across CI jobs. Each shard keeps independent snapshots and default report directories; scores and quality gates cover that shard.
 - The GitHub Action accepts a `shard` input that also separates its cache keys.
@@ -16,6 +17,7 @@
 
 ### Fixed
 
+- Default runner detection no longer starts Playwright from its config files or installed package. Browser mutation testing is opt-in through an explicit runner or Playwright config option, with setup and runtime-cost guidance.
 - Vite+ sessions resolve the project's `vite-plus/test/node` and `vite-plus/test` APIs together, preventing another installed Vitest or a package exposed only through `NODE_PATH` from being selected.
 - Mutation sessions disable the persistent module cache so every session populates its own mutant registry, including repeated and parallel runs.
 

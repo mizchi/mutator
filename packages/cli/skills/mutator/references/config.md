@@ -33,10 +33,11 @@ export default defineConfig({
 | `scope` | `--scope node\|scope` | diff granularity: changed nodes (default) or whole enclosing functions |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
 | `shard` | `--shard <index/count>` | CI partition of mutant keys, e.g. `1/4`; independent snapshots and default report directories, scores and gates cover this shard |
-| `runner` | `--runner <name>` | `vitest`, `jest`, `playwright` or `auto` |
+| `runner` | `--runner <name>` | `auto` selects Vitest/Jest only; set `playwright` explicitly for slower browser E2E mutation runs |
 | `vitestConfig` | `--config <file>` | Vitest config file |
 | `jestConfig` | `--jest-config <file>` | Jest config file (implies the Jest runner) |
-| `playwrightConfig` | `--playwright-config <file>` | Playwright config file (implies the Playwright runner) |
+| `playwrightConfig` | `--playwright-config <file>` | Playwright config file; explicitly opts into the slower browser mutation runner |
+| `playwrightSourceCoverage` | config only | Experimental Chromium V8 coverage in dry runs, remapped to original function scopes; default false, adds CPU/memory overhead |
 | `arid` | `--no-arid`, `--arid-callee <pattern>` | logging-only code is reported `Ignored` and not run (defaults: `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`); `false` runs it; `{ callees }` and `--arid-callee` replace the defaults, a plugin's `aridCallees` adds to them ([plugins.md](plugins.md)) |
 | `experimentalCallgraph` | `--experimental-callgraph` | after edits, re-run only survivors connected to changed code in a static call graph (faster, can miss effects through tests) |
 | `fullDryRun` | `--full-dry-run` | collect coverage from every test file instead of the cached coverage (after editing a test helper with Jest) |

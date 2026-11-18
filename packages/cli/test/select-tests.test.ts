@@ -43,6 +43,18 @@ const base = (over: Partial<SelectionInput> = {}): SelectionInput => ({
 });
 
 describe('selectTests', () => {
+  test('source coverage selects scopes without mutants and retains incomplete observations as conservative candidates', () => {
+    const selection = selectTests(base({
+      scopes: new Map([[`${root}/src/a.ts`, new Set(['identity'])]]),
+      sourceCoverage: { 'src/a.ts#identity': [A1] },
+      sourceCoverageIncomplete: [C1],
+    }));
+    expect(selection.covering).toEqual([
+      { test: A1, file: 'test/a.test.ts', reason: 'executed src/a.ts#identity' },
+      { file: 'test/c.test.ts', reason: 'incomplete source coverage for src/a.ts#identity' },
+    ]);
+  });
+
   test('ranks killers of mutants in the changed scopes by kills, then the other covering tests', () => {
     const selection = selectTests(base());
     expect(selection.killers).toEqual([
@@ -89,6 +101,11 @@ describe('selectTests', () => {
   test('a new source file nothing imported yet selects nothing', () => {
     const selection = selectTests(base({ scopes: new Map([[`${root}/src/new.ts`, new Set(['f'])]]), changed: ['src/new.ts'] }));
     expect(selectionFiles(selection)).toEqual([]);
+  });
+
+  test('source coverage cannot exclude E2Es for a new file with no historical dependencies', () => {
+    const selection = selectTests(base({ scopes: new Map([[`${root}/src/new.ts`, new Set(['f'])]]), sourceCoverage: {}, changed: ['src/new.ts'] }));
+    expect(selectionFiles(selection)).toEqual(['test/a.test.ts', 'test/b.test.ts', 'test/c.test.ts']);
   });
 
   test('a test file already selected for its tests is not repeated in the file list', () => {

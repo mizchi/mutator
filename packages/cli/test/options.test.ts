@@ -215,6 +215,14 @@ describe('runner config files', () => {
     expect((await resolve(root, '--playwright-config', 'pw.config.ts')).run).toMatchObject({ playwrightConfigFile: `${root}/pw.config.ts` });
     expect((await resolve(root, '--runner', 'playwright')).run.runner).toBe('playwright');
   });
+
+  test('Playwright can be enabled explicitly in mutator.config.ts', async () => {
+    const root = project();
+    writeFileSync(join(root, 'mutator.config.ts'), "export default { runner: 'playwright', playwrightConfig: 'e2e/playwright.config.ts', playwrightSourceCoverage: true, concurrency: 2, timeBudget: 300 };\n");
+    expect((await resolve(root)).run).toMatchObject({
+      runner: 'playwright', playwrightConfigFile: join(root, 'e2e/playwright.config.ts'), playwrightSourceCoverage: true, concurrency: 2, timeBudget: 300,
+    });
+  });
 });
 
 describe('weak mutation option', () => {

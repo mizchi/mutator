@@ -196,6 +196,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.vitestConfig ? { configFile: resolve(root, config.vitestConfig) } : {}),
       ...(config.jestConfig ? { jestConfigFile: resolve(root, config.jestConfig) } : {}),
       ...(config.playwrightConfig ? { playwrightConfigFile: resolve(root, config.playwrightConfig) } : {}),
+      ...(config.playwrightSourceCoverage !== undefined ? { playwrightSourceCoverage: config.playwrightSourceCoverage } : {}),
       ...(config.concurrency !== undefined ? { concurrency: config.concurrency } : {}),
       ...(shard ? { shard } : {}),
       fullDryRun: config.fullDryRun ?? false,

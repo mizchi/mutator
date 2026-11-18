@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { InstrumentOptions, Session } from '@mizchi/mutator-core';
+import { ConfigError } from './config.ts';
 
 export type Runner = 'vitest' | 'jest' | 'playwright';
 
@@ -13,18 +14,19 @@ const JEST_CONFIGS = [...EXTENSIONS, 'json'].map((ext) => `jest.config.${ext}`);
 const PLAYWRIGHT_CONFIGS = EXTENSIONS.map((ext) => `playwright.config.${ext}`);
 
 /**
- * Config files in the root decide, vitest (or vite) first, then jest, then playwright; otherwise
- * whichever runner resolves from the root, vite-plus counting as vitest (it ships vitest as its
- * own dependency). An app with a vite.config and Playwright tests therefore needs `--runner playwright`.
+ * Auto selects unit runners only: vitest (or vite) configs first, then jest configs,
+ * then installed Vitest / Vite+ or Jest. Browser mutation runs can be slow and require
+ * an explicit runner or Playwright config option.
  */
-export function detectRunner(root: string): Runner {
+export function detectRunner(root: string): Exclude<Runner, 'playwright'> {
   if (VITEST_CONFIGS.some((f) => existsSync(join(root, f)))) return 'vitest';
   if (JEST_CONFIGS.some((f) => existsSync(join(root, f))) || hasJestField(root)) return 'jest';
-  if (PLAYWRIGHT_CONFIGS.some((f) => existsSync(join(root, f)))) return 'playwright';
   if (resolves(root, 'vitest/package.json') || resolves(root, 'vite-plus/package.json')) return 'vitest';
   if (resolves(root, 'jest/package.json')) return 'jest';
-  if (resolves(root, '@playwright/test/package.json')) return 'playwright';
-  throw new Error(`no test runner found: none of vitest (or vite-plus), jest or @playwright/test resolves from ${root}`);
+  if (PLAYWRIGHT_CONFIGS.some((f) => existsSync(join(root, f))) || resolves(root, '@playwright/test/package.json')) {
+    throw new ConfigError("Playwright mutation testing is opt-in and can be slow. Set runner: 'playwright' in mutator.config.ts (or pass --runner playwright) to enable it.");
+  }
+  throw new ConfigError(`no automatic test runner found: neither vitest (or vite-plus) nor jest resolves from ${root}`);
 }
 
 function hasJestField(root: string): boolean {
@@ -55,10 +57,12 @@ export interface RunnerSessionOptions extends Pick<InstrumentOptions, 'arid' | '
   hasPluginObjects: boolean;
   /** Vitest only: worker threads per session. */
   maxWorkers?: number;
+  /** Playwright only: Chromium V8 coverage remapped to source scopes. */
+  sourceCoverage?: boolean;
 }
 
 export async function createRunnerSession(runner: Runner, options: RunnerSessionOptions): Promise<Session> {
-  const { root, targets, configFile, maxWorkers, pluginModules, hasPluginObjects, ...instrument } = options;
+  const { root, targets, configFile, maxWorkers, sourceCoverage, pluginModules, hasPluginObjects, ...instrument } = options;
   if (runner === 'vitest') {
     const { createSession } = await import('@mizchi/mutator-vitest');
     return createSession({
@@ -76,6 +80,7 @@ export async function createRunnerSession(runner: Runner, options: RunnerSession
       root,
       targets: [...targets],
       ...instrument,
+      ...(sourceCoverage !== undefined ? { sourceCoverage } : {}),
       ...(pluginModules.length ? { pluginModules } : {}),
       ...(configFile ? { configFile } : {}),
     });

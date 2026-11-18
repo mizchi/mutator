@@ -1,11 +1,12 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { assignPort } from '../../playwright/test/port.ts';
-import { runMutation } from '../src/run.ts';
+import { listMutants, runMutation } from '../src/run.ts';
+import { selectTestsSince, selectionFiles } from '../src/select-tests.ts';
 
 const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const fixture = fileURLToPath(new URL('../../playwright/test/fixtures/app', import.meta.url));
@@ -22,6 +23,27 @@ describe('runMutation with Playwright (E2E through a Vite dev server)', { timeou
   });
   afterEach(() => {
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test('mutator.config.ts explicitly enables browser mutation runs without runner flags', async () => {
+    const configApi = new URL('../src/index.ts', import.meta.url).href;
+    writeFileSync(join(root, 'mutator.config.ts'), `import { defineConfig } from ${JSON.stringify(configApi)};
+export default defineConfig({ runner: 'playwright', playwrightConfig: 'playwright.config.ts', playwrightSourceCoverage: true, include: ['src/counter.ts'], concurrency: 1, timeBudget: 60 });
+`);
+    const mutant = (await listMutants({ root, runner: 'playwright', include: ['src/counter.ts'] }))
+      .find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!;
+    const child = spawn(process.execPath, [cli, '--root', root, '--only', mutant.key, '--reporter', 'agent'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    const code = await new Promise<number | null>((done) => child.on('close', done));
+    expect(code, stderr).toBe(0);
+    expect(stderr).toContain('runner: playwright');
+    expect(JSON.parse(stdout).counts.Killed).toBe(1);
+    const snapshot = JSON.parse(readFileSync(join(root, '.mutator/snapshot.json'), 'utf8'));
+    expect(snapshot.sourceCoverage['src/counter.ts#inc']).toEqual(['tests/app.spec.ts#counter > increments']);
+    expect(snapshot.sourceCoverageIncomplete).toEqual(['tests/app.spec.ts#navigates']);
   });
 
   test('classifies mutants, then a second run reuses everything', async () => {
@@ -43,6 +65,35 @@ describe('runMutation with Playwright (E2E through a Vite dev server)', { timeou
     writeFileSync(join(root, 'tests/pages.ts'), `${readFileSync(join(root, 'tests/pages.ts'), 'utf8')}// edited\n`);
     const third = await runMutation({ root, runner: 'playwright', concurrency: 2, typecheck: false });
     expect(third.dryRunFiles).toEqual(['tests/app.spec.ts']);
+  });
+
+  test('a source-only scope edit re-collects only the E2E that executed it', async () => {
+    rmSync(join(root, 'tests/app.spec.ts'));
+    writeFileSync(join(root, 'tests/inc.spec.ts'), `import { expect, test } from '@mizchi/mutator-playwright';
+test('increments', async ({ page }) => { await page.goto('/'); await page.click('#count'); await expect(page.locator('#count')).toHaveText('1'); });\n`);
+    writeFileSync(join(root, 'tests/other.spec.ts'), `import { expect, test } from '@mizchi/mutator-playwright';
+test('other', async ({ page }) => { await page.goto('/other.html'); await expect(page.locator('#out')).toHaveText('HI'); });\n`);
+    const identity = join(root, 'src/identity.ts');
+    writeFileSync(identity, 'export const identity = (value: number) => value;\n');
+    const main = join(root, 'src/main.ts');
+    writeFileSync(main, "import { identity } from './identity.ts';\n" + readFileSync(main, 'utf8').replace('const n = inc(Number(count.textContent));', 'const n = identity(inc(Number(count.textContent)));'));
+    writeFileSync(join(root, '.gitignore'), '.mutator/\n');
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'test', GIT_COMMITTER_EMAIL: 'test@example.com' } });
+    git('init', '-q'); git('add', '.'); git('commit', '-qm', 'baseline');
+    const options = { root, runner: 'playwright' as const, playwrightSourceCoverage: true, include: ['src/*.ts'], excludedMutators: ['ArrowFunction'], typecheck: false as const, concurrency: 1, timeBudget: 60 };
+    const key = (await listMutants(options)).find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!.key;
+    const first = await runMutation({ ...options, only: new Set([key]) });
+    expect(first.executed).toBe(1);
+    expect(first.dryRunFiles).toEqual(['tests/inc.spec.ts', 'tests/other.spec.ts']);
+    const snapshot = JSON.parse(readFileSync(join(root, '.mutator/snapshot.json'), 'utf8'));
+    expect(snapshot.sourceCoverage['src/identity.ts#identity']).toEqual(['tests/inc.spec.ts#increments']);
+    expect(snapshot.sourceCoverageIncomplete).toEqual([]);
+    writeFileSync(identity, 'export const identity = (value: number) => Number(value);\n');
+    expect((await listMutants(options)).filter((mutant) => mutant.file === identity)).toEqual([]);
+    expect(selectionFiles(await selectTestsSince({ ...options, since: 'HEAD' }))).toEqual(['tests/inc.spec.ts']);
+    const next = await runMutation({ ...options, only: new Set([key]) });
+    expect(next.dryRunFiles).toEqual(['tests/inc.spec.ts']);
+    expect(next.executed).toBe(1);
   });
 
   test('a dev server port already in use is an error message with exit 1, not a crash', async () => {

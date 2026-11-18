@@ -27,14 +27,16 @@ export interface MutatorConfig {
   concurrency?: number;
   /** CI partition of mutant keys, one-based INDEX/COUNT (for example '1/4'). */
   shard?: string;
-  /** Test runner (default 'auto': vitest, jest or playwright, from the project's config files / dependencies). */
+  /** Test runner (default 'auto': Vitest or Jest; slower Playwright browser runs require explicit opt-in). */
   runner?: 'vitest' | 'jest' | 'playwright' | 'auto';
   /** Vitest config file, relative to the project root. */
   vitestConfig?: string;
   /** Jest config file, relative to the project root (experimental Jest support). */
   jestConfig?: string;
-  /** Playwright config file, relative to the root. */
+  /** Playwright config file, relative to the root; explicitly opts into browser mutation testing. */
   playwrightConfig?: string;
+  /** Experimental: collect Chromium V8 coverage in dry runs and remap to original scopes. */
+  playwrightSourceCoverage?: boolean;
   arid?: boolean | { callees?: string[] };
   experimentalCallgraph?: boolean;
   fullDryRun?: boolean;
@@ -99,10 +101,11 @@ const properties = {
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
   shard: { description: 'CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.', type: 'string' },
-  runner: { description: 'Test runner; auto picks vitest, jest or playwright from config files and installed packages.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
+  runner: { description: 'Test runner; auto picks Vitest or Jest. Playwright browser mutation runs can be slow and require explicit opt-in.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },
   jestConfig: { description: 'Jest config file, relative to the root (experimental, native ESM only).', type: 'string' },
-  playwrightConfig: { description: 'Playwright config file, relative to the root (experimental: browser code served by a Vite dev server).', type: 'string' },
+  playwrightConfig: { description: 'Playwright config file, relative to the root; explicitly selects the slower browser mutation runner (experimental: Vite dev server required).', type: 'string' },
+  playwrightSourceCoverage: { description: 'Experimental Chromium-only V8 coverage in dry runs, remapped through inline source maps to original source scopes. Adds CPU and memory overhead; default false.', type: 'boolean' },
   arid: {
     description: 'Arid (logging-only) code suppression: false runs those mutants too; callees replaces the logging call patterns.',
     anyOf: [{ type: 'boolean' }, { type: 'object', additionalProperties: false, properties: { callees: strings('Logging call patterns, e.g. "metrics.*".') } }],

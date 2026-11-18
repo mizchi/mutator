@@ -9,10 +9,28 @@ compatibility: Node.js 24+, @playwright/test 1.50+, Vite 6+, and an app served t
 
 mutator compiles every mutant of the app's sources into the modules the Vite dev server serves, and the page decides which one is active. One dev server serves every mutant; each mutant run is a `playwright test` process running only the tests that reached the mutant. For mutator in general (reports, config, CI) see the `mutator` skill in `@mizchi/mutator`.
 
+**Disabled by default.** `runner: 'auto'` selects Vitest or Jest, never Playwright. An installed `@playwright/test` or a `playwright.config.*` does not opt the project into browser mutation testing. Enable it explicitly in `mutator.config.ts`.
+
+**Runtime warning:** Each mutant run starts a new Playwright Test process and executes browser tests. Startup and failing assertion waits make this much slower than a warm unit-test runner; large runs can take many minutes or hours. Start with a small include, sampling, a time budget and modest concurrency. Estimates appear after the baseline and type checking, and a time budget stops new runs rather than interrupting tests already in flight.
+
 ## Requirements
 
 - The app is served by a **Vite** dev server, started by the Playwright config's `webServer` (with a `url` or a `port`).
 - The tests drive the app in a browser. Node-side code (API tests, component testing) is not a target.
+
+## Runnable example
+
+The [Playwright source-coverage sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md) is a complete Vite/Chromium app with cart and profile E2Es, the plugin, the fixture and `mutator.config.ts`. It explicitly enables `runner: 'playwright'` and `playwrightSourceCoverage: true`.
+
+From a checkout of `mizchi/mutator`:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --dir examples/playwright-source-coverage exec playwright install chromium
+pnpm --dir examples/playwright-source-coverage run verify
+```
+
+The verifier uses a disposable copy and a free port. It checks ordinary E2Es, per-function source correspondence (including a helper with no mutants), unchanged cache reuse, selection and re-execution after a source-only edit, and agreement with a cold full run. Results and logs are retained. The sample also provides `just verify` from its directory.
 
 ## Setup
 
@@ -20,6 +38,7 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
 
    ```sh
    pnpm add -D @mizchi/mutator @mizchi/mutator-playwright
+   pnpm exec playwright install chromium
    ```
 
 2. Add the plugin to the app's Vite config. It does nothing unless mutator starts the dev server, so it can stay there:
@@ -50,13 +69,50 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
 
    Typed fixtures chain as usual: `base.extend(mutatorFixtures).extend<{ page2: Page2 }>({ ... })`.
 
-4. Run with the runner named (the app's `vite.config.*` would make `auto` pick Vitest):
+4. Have the Playwright config start the Vite dev server, with a URL and a separate browser-test directory:
 
-   ```sh
-   npx mutator --runner playwright --include 'src/**/*.ts'
+   ```ts
+   // playwright.config.ts
+   import { defineConfig } from '@playwright/test';
+
+   export default defineConfig({
+     testDir: './e2e',
+     use: { baseURL: 'http://127.0.0.1:4173', browserName: 'chromium' },
+     webServer: {
+       command: 'pnpm exec vite --host 127.0.0.1 --port 4173 --strictPort',
+       url: 'http://127.0.0.1:4173',
+       reuseExistingServer: false,
+     },
+   });
    ```
 
-   Or put it in `mutator.config.json`: `{ "runner": "playwright", "include": ["src/**/*.ts"] }`, and `playwrightConfig` for a config file other than `playwright.config.*` in the root.
+   For Vite+, import `defineConfig` from `vite-plus` in the Vite config and use `pnpm exec vp dev --host 127.0.0.1 --port 4173 --strictPort` as the server command. Keep `e2e/**` out of the unit runner's include patterns.
+
+5. Enable the runner explicitly:
+
+   ```ts
+   // mutator.config.ts
+   import { defineConfig } from '@mizchi/mutator';
+
+   export default defineConfig({
+     runner: 'playwright',
+     playwrightConfig: 'playwright.config.ts',
+     include: ['src/**/*.ts'],
+     concurrency: 2,
+     mutantsPerLine: 1,
+     timeBudget: 300,
+   });
+   ```
+
+6. Check the ordinary E2E baseline, then run mutator:
+
+   ```sh
+   pnpm exec playwright test
+   pnpm exec mutator
+   pnpm exec mutator --since main  # later runs: changed code only
+   ```
+
+   Sampling and the budget leave unrun mutants Pending; raise or remove those limits for a full run. A one-off explicit `--runner playwright` or `--playwright-config <file>` also enables the adapter.
 
 ## How a run works
 
@@ -64,6 +120,12 @@ mutator compiles every mutant of the app's sources into the modules the Vite dev
 - In the dry run the fixture records which mutants each test reached in the page, also across same-origin navigations. Every test file counts as depending on every mutated file.
 - A mutant run uses one worker, `--retries=0` and `--max-failures=1` (all failing tests with `--kill-matrix`). Tests are selected by `file:line` and `--project`. With several projects, test ids start with `[project]` (see them in `coveredBy` / `killedBy` of `--reporter agent` or `json`); `killedBy` names only the first failing project unless `--kill-matrix`, which also shows projects that kill the same mutants. For a per-project view, run `--kill-matrix --reporter json` and group `killedBy` by the `[project]` prefix.
 - In mutant runs `expect` waits at most three times as long as the slowest selected test took in the dry run (at least 1 s, never longer than the config's timeout). A killed mutant mostly waits for its failing assertion.
+
+## Optional original-source coverage
+
+Set `playwrightSourceCoverage: true` in `mutator.config.ts` to collect Chromium V8 coverage during dry runs and map it through inline source maps with `sourcesContent` to original function scopes. It is **disabled by default** and adds CPU and memory cost. Keep all Playwright projects on Chromium when enabling it. Only sources in the mutation include are indexed.
+
+The snapshot's `sourceCoverage` is an inverse index from `relative/source.ts#scopeId` to test ids, including functions with no mutants. It is used for incremental dry-run planning and `select-tests --since`; source hashes remain in `scopes`. Unknown scopes and top-level dependencies keep the broad fallback. Navigations, popups, frames, closed pages, workers and missing/stale maps mark tests in `sourceCoverageIncomplete`; keep them as affected-source candidates. Never interpret this index as proof that assertions detect changes. Mutant runs do not collect V8 coverage and continue to use their exact probes.
 
 ## Troubleshooting
 

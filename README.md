@@ -422,6 +422,7 @@ jobs:
 |---|---|---|
 | `since` | the pull request's base commit | `--since` ref. Outside pull requests the default is a full run; pass `${{ github.event.before }}` on pushes to run only the pushed commits. |
 | `args` | | extra command-line arguments |
+| `shard` | | one-based `INDEX/COUNT`, e.g. `${{ matrix.shard }}/4`; passes `--shard` and isolates the Actions cache |
 | `working-directory` | `.` | project root |
 | `cache` | `true` | restore and save `.mutator/` (this ref first, then the base branch) |
 | `command` | `node_modules/.bin/mutator`, else `npx @mizchi/mutator@<version>` | how to run the CLI |
@@ -444,6 +445,48 @@ The base commit is fetched when the checkout is shallow. The snapshot is saved e
 Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, undetected mutants are also printed as `::warning` annotations on the diff, titled by gap (unreached ones only with `--since`).
 
 ### Large projects
+
+After the baseline and type checking, mutator prints an approximate time for the remaining mutant execution. It uses previous timings where available, otherwise selected test durations plus file-loading overhead observed in the dry run, divided by the parallel sessions. Large runs add an ETA to progress lines and print a heartbeat every 15 seconds. The ETA adapts to measured mutant timings; early kills, retries, module loading and CPU contention can change it. Discovery, the baseline and type checking have already finished when this estimate appears.
+
+Split mutant execution across CI jobs with `--shard INDEX/COUNT` (one-based):
+
+```sh
+pnpm exec mutator --shard 1/4 -j 2
+```
+
+Mutant keys are assigned by a stable hash, independently of test timings, execution order and cached results. Every mutant belongs to exactly one shard. All shards must use the same commit, options and shard count. `--since`, `--only`, `--mutants-per-line`, `--time-budget` and `--kill-matrix` still apply; sampling is computed before sharding. Each shard collects its baseline and type-checks only its assigned mutants. Its default snapshots and reports are separate (`.mutator/scopes/*-shard-1-of-4.json` and `.mutator/report/shard-1-of-4/`), and it does not overwrite the unsharded snapshot. Give each shard a different path if you override report or snapshot paths.
+
+Scores, thresholds and kill-matrix statistics cover each shard separately; `--fail-on-survived` and critical-region gates compose across the jobs. This does not produce a merged global score. Use a matrix with `fail-fast: false` so every shard can finish and upload its report. With the repository action, use the `shard` input to separate the Actions cache too:
+
+```yaml
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      CI: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Use the action revision containing shard support and a matching CLI installation.
+      - uses: mizchi/mutator@main
+        with:
+          shard: ${{ matrix.shard }}/4
+          args: --reporter text --reporter json --fail-on-survived
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: mutation-shard-${{ matrix.shard }}
+          path: .mutator/report/shard-${{ matrix.shard }}-of-4/
+          include-hidden-files: true
+```
 
 On a large codebase even the diff can hold more mutants than a PR check can afford (most of the time goes to survivors, which run every covering test). Two options bound the run:
 

@@ -32,6 +32,7 @@ export default defineConfig({
 | `sharedCache` | `--shared-cache` | reuse snapshots across worktrees via Git's common directory, separated by package, scope and environment |
 | `scope` | `--scope node\|scope` | diff granularity: changed nodes (default) or whole enclosing functions |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
+| `shard` | `--shard <index/count>` | CI partition of mutant keys, e.g. `1/4`; independent snapshots and default report directories, scores and gates cover this shard |
 | `runner` | `--runner <name>` | `vitest`, `jest`, `playwright` or `auto` |
 | `vitestConfig` | `--config <file>` | Vitest config file |
 | `jestConfig` | `--jest-config <file>` | Jest config file (implies the Jest runner) |

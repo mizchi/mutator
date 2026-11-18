@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError, DEFAULT_THRESHOLDS, type MutatorConfig, type Reporter, type Thresholds, configSchema, fail, loadConfig, schemaErrors } from './config.ts';
 import type { RunOptions } from './run.ts';
+import { type Shard, parseShard, shardName } from './ci-shard.ts';
 
 export interface ResolvedOptions {
   root: string;
@@ -31,6 +32,7 @@ const OPTIONS = {
   'config-file': { type: 'string' },
   root: { type: 'string' },
   concurrency: { type: 'string', short: 'j' },
+  shard: { type: 'string' },
   reporter: { type: 'string', multiple: true },
   only: { type: 'string', multiple: true },
   'report-dir': { type: 'string' },
@@ -59,6 +61,7 @@ const FLAGS: Record<string, string> = {
   include: '--include',
   exclude: '--exclude',
   concurrency: '--concurrency',
+  shard: '--shard',
   vitestConfig: '--config',
   jestConfig: '--jest-config',
   playwrightConfig: '--playwright-config',
@@ -110,6 +113,7 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     fullDryRun: values['full-dry-run'],
     mutantsPerLine: numeric(values['mutants-per-line']),
     timeBudget: numeric(values['time-budget']),
+    shard: values.shard,
     killMatrix: values['kill-matrix'],
     reporters: values.reporter,
     reportDir: values['report-dir'] && resolve(cwd, values['report-dir']),
@@ -173,6 +177,9 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
   const file = loaded?.config ?? {};
   const config: MutatorConfig = { ...file, ...cli, thresholds: { ...file.thresholds, ...cli.thresholds } };
   const thresholds = { ...DEFAULT_THRESHOLDS, ...config.thresholds };
+  let shard: Shard | undefined;
+  try { shard = config.shard === undefined ? undefined : parseShard(config.shard); }
+  catch (error) { throw new ConfigError(`--${(error as Error).message}`); }
 
   const { arid } = config;
   return {
@@ -190,6 +197,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.jestConfig ? { jestConfigFile: resolve(root, config.jestConfig) } : {}),
       ...(config.playwrightConfig ? { playwrightConfigFile: resolve(root, config.playwrightConfig) } : {}),
       ...(config.concurrency !== undefined ? { concurrency: config.concurrency } : {}),
+      ...(shard ? { shard } : {}),
       fullDryRun: config.fullDryRun ?? false,
       callGraph: config.experimentalCallgraph ?? false,
       ...(arid === false ? { arid } : typeof arid === 'object' ? { arid } : {}),
@@ -203,7 +211,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(values.only?.length ? { only: new Set(values.only) } : {}),
     },
     reporters: new Set(config.reporters ?? ['text']),
-    reportDir: resolve(root, config.reportDir ?? join('.mutator', 'report')),
+    reportDir: resolve(root, config.reportDir ?? join('.mutator', 'report', ...(shard ? [shardName(shard)] : []))),
     thresholds,
     failOnSurvived: config.failOnSurvived ?? false,
     critical: config.critical ?? [],

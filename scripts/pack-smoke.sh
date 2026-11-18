@@ -69,7 +69,8 @@ YAML
 cd "$work/vp-app"
 pnpm install --prefer-offline >/dev/null
 pnpm exec vp test
-./node_modules/.bin/mutator -j 1 | tee "$work/vp-out.txt"
+./node_modules/.bin/mutator --shard 1/1 -j 1 | tee "$work/vp-out.txt"
+grep -q 'shard: 1/1' "$work/vp-out.txt"
 grep -q 'age >= 18 -> age > 18' "$work/vp-out.txt"
 
 # Jest (native ESM) project

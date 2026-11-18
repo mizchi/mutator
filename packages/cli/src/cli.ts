@@ -42,6 +42,7 @@ const USAGE = `usage: mutator [options]
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)
+  --shard <index/count>  CI partition of mutant keys, e.g. 1/4 (one-based; independent cache/report)
   --full-dry-run       collect coverage from every test file (ignore the cached coverage)
   --experimental-callgraph  after edits, re-run only survivors connected to changed code
                        in the static call graph (faster, may miss value flows through tests)
@@ -69,6 +70,7 @@ const USAGE = `usage: mutator [options]
   -v, --version
 
 Boolean flags can be negated (--no-fail-on-survived) to override the config file.
+After the baseline, estimated mutant execution time is shown; large runs also report ETA.
 
 exit codes:
   0  ok

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { listMutants } from '../src/run.ts';
+import { ownsMutant } from '../src/ci-shard.ts';
 
 const cli = join(import.meta.dirname, '../src/cli.ts');
 const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], { encoding: 'utf8' });
@@ -13,6 +14,7 @@ test('--help documents config files and exit codes', () => {
   expect(status).toBe(0);
   expect(stdout).toContain('--config-file <file>');
   expect(stdout).toContain('--threshold-break <n>');
+  expect(stdout).toContain('--shard <index/count>');
   expect(stdout).toContain('simplify (code no test observes the removal of');
   expect(stdout).toContain('mutator select-tests --since <ref> [--format files|json]');
   expect(stdout).toContain('mutator init-skill [--dir <dir>] [--force]');
@@ -24,6 +26,27 @@ test('--version prints the package version', () => {
   expect(status).toBe(0);
   expect(stdout.trim()).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../package.json'), 'utf8')).version);
 });
+
+test('--shard validates early, reports its own subset, and writes to its default report directory', () => {
+  expect(run('--shard', '0/4').status).toBe(1);
+  expect(run('--shard', '2/1').stderr).toContain('--shard');
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-shard-${process.pid}`);
+  cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });
+  try {
+    const { status, stdout, stderr } = run('--root', root, '--shard', '2/3', '--reporter', 'agent', '--reporter', 'json', '--no-typecheck');
+    expect(status, stderr).toBe(0);
+    const report = JSON.parse(stdout);
+    expect(report.shard).toEqual({ index: 2, total: 3 });
+    expect(report.estimate.durationMs).toBeGreaterThanOrEqual(0);
+    expect(stderr).toContain('shard 2/3:');
+    const json = JSON.parse(readFileSync(join(root, '.mutator/report/shard-2-of-3/mutation.json'), 'utf8'));
+    const keys = Object.values(json.files as Record<string, { mutants: { id: string }[] }>).flatMap((file) => file.mutants.map((m) => m.id));
+    expect(keys.length).toBeGreaterThan(0);
+    expect(keys.every((key) => ownsMutant(key, { index: 2, total: 3 }))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
 
 test('accept records existing mutant keys with where they are, and rejects unknown ones', async () => {
   const root = join(import.meta.dirname, '../../../.tmp', `cli-accept-${process.pid}`);

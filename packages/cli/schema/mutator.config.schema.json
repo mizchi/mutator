@@ -45,6 +45,10 @@
       "type": "integer",
       "minimum": 1
     },
+    "shard": {
+      "description": "CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.",
+      "type": "string"
+    },
     "runner": {
       "description": "Test runner; auto picks vitest, jest or playwright from config files and installed packages.",
       "enum": [

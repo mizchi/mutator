@@ -9,6 +9,7 @@ import { type Runner, type RunnerSessionOptions, createRunnerSession } from './r
 import { runSharded, splitByFile } from './shard.ts';
 import { type Job, type Tally, resultOf } from './tally.ts';
 import { RetryCounts, type TimeoutRetries, runWithTimeoutRetry } from './timeout-retry.ts';
+import { type RunEstimate, estimateWork, formatDuration, remainingMs } from './estimate.ts';
 
 /** Runs longer than this (estimated from the dry run) are split by test file. */
 const SHARD_TARGET_MS = 10_000;
@@ -28,13 +29,15 @@ export interface ExecuteContext {
   concurrency: number | undefined;
   /** No early exit: every covering test runs, kills are recorded as a full matrix. */
   killMatrix: boolean;
+  fileOverheadMs: number;
+  previousDurations: ReadonlyMap<string, number>;
 }
 
 /**
  * Run the jobs over parallel sessions; those over the time budget are skipped. Returns how many
  * ran, and how many runs timed out and were re-run with a longer budget (`confirmed`: timed out again).
  */
-export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries; runtimeErrorRetries: TimeoutRetries }> {
+export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext): Promise<{ executed: number; timeoutRetries: TimeoutRetries; runtimeErrorRetries: TimeoutRetries; estimate: RunEstimate }> {
   const { root, log, merged, timeBudget } = ctx;
   const { report, notRun } = tally;
   const testDurations = new Map(merged.tests.map((t) => [t.id, t.durationMs]));
@@ -45,6 +48,11 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
   const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
   const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), shardCount));
+  const prediction = estimateWork(jobs.map(({ entry }) => ({ key: entry.mutant.key, tests: entry.tests })), {
+    durations: testDurations, workers: concurrency, fileOverheadMs: ctx.fileOverheadMs, previous: ctx.previousDurations,
+  });
+  const { estimate } = prediction;
+  if (jobs.length > 0) log(`estimated mutant execution: ~${formatDuration(estimate.durationMs)} (${concurrency} sessions; ${estimate.historySamples}/${jobs.length} historical timings, remaining costs from dry run)`);
   // In parallel mode every mutant session gets a single worker so sessions do not
   // oversubscribe the CPU; a lone session keeps the runner's default workers.
   const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
@@ -52,7 +60,13 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
+  let observedWorkMs = 0;
+  let completedCostMs = 0;
+  const large = jobs.length >= 100 || estimate.durationMs >= 10_000;
+  const eta = () => `ETA ~${formatDuration(remainingMs(prediction, completedCostMs, observedWorkMs))}`;
   const retries = new RetryCounts();
+  const heartbeat = large ? setInterval(() => log(`progress: ${executed}/${jobs.length}, elapsed ${formatDuration(performance.now() - ctx.started)}, ${eta()}`), 15_000) : undefined;
+  heartbeat?.unref();
   const unsettled = await runSharded({
     workers: workers.length,
     jobs: sharded,
@@ -76,19 +90,21 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
     onDone: ({ index, entry }, outcome) => {
       const { mutant } = entry;
       executed++;
-      log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
+      completedCostMs += prediction.costs.get(mutant.key) ?? 0;
+      observedWorkMs += outcome.durationMs;
+      log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);
       const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
       const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...matrix };
       tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
     },
-  });
+  }).finally(() => clearInterval(heartbeat));
   // Over the time budget: the jobs never started, or stopped between shards.
   for (const { index, entry } of unsettled) {
     notRun.budget++;
     tally.skip(index, entry.mutant, report[index]!.coveredBy);
   }
   if (notRun.budget > 0) log(`time budget of ${timeBudget}s exhausted: ${notRun.budget} mutants not run`);
-  return { executed, timeoutRetries: retries.timeout, runtimeErrorRetries: retries.runtimeError };
+  return { executed, timeoutRetries: retries.timeout, runtimeErrorRetries: retries.runtimeError, estimate };
 }
 
 function defaultConcurrency(): number {

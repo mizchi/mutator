@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseShard } from './ci-shard.ts';
 
 export type Reporter = 'text' | 'json' | 'html' | 'agent' | 'simplify';
 
@@ -24,6 +25,8 @@ export interface MutatorConfig {
   sharedCache?: boolean;
   scope?: 'node' | 'scope';
   concurrency?: number;
+  /** CI partition of mutant keys, one-based INDEX/COUNT (for example '1/4'). */
+  shard?: string;
   /** Test runner (default 'auto': vitest, jest or playwright, from the project's config files / dependencies). */
   runner?: 'vitest' | 'jest' | 'playwright' | 'auto';
   /** Vitest config file, relative to the project root. */
@@ -95,6 +98,7 @@ const properties = {
   sharedCache: { description: 'Store snapshots in the Git common directory for reuse across worktrees; separate scopes and environments.', type: 'boolean' },
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
+  shard: { description: 'CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.', type: 'string' },
   runner: { description: 'Test runner; auto picks vitest, jest or playwright from config files and installed packages.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },
   jestConfig: { description: 'Jest config file, relative to the root (experimental, native ESM only).', type: 'string' },
@@ -198,6 +202,10 @@ export function fail(source: string, errors: readonly string[]): void {
 export function validateConfig(value: unknown, source: string): MutatorConfig {
   const errors = schemaErrors(value, configSchema, '');
   fail(source, errors.length > 0 ? errors : thresholdErrors((value as MutatorConfig).thresholds));
+  if ((value as MutatorConfig).shard !== undefined) {
+    try { parseShard((value as MutatorConfig).shard!); }
+    catch (error) { throw new ConfigError(`${source}: ${(error as Error).message}`); }
+  }
   return value as MutatorConfig;
 }
 

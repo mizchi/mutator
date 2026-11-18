@@ -56,6 +56,8 @@ export interface AgentGap {
 
 export interface AgentReport {
   version: 1;
+  shard?: Report['shard'];
+  estimate?: Report['estimate'];
   scope: Report['scope'];
   selection?: 'only';
   score: number;
@@ -123,6 +125,8 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
   });
   return {
     version: 1,
+    ...(report.shard ? { shard: report.shard } : {}),
+    ...(report.estimate ? { estimate: report.estimate } : {}),
     scope: report.scope,
     comparison: report.comparison ?? 'unavailable',
     findings: workflowFindings(report),

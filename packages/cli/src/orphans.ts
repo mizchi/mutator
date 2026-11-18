@@ -21,6 +21,9 @@ export interface RunRecord {
 
 /** Every process with its parent and start time; empty where `ps` is unavailable. */
 export function processTable(): ProcessInfo[] {
+  // POSIX parent-1/lstart checks cannot identify Windows orphans. Git Bash's ps
+  // also rejects these options; leave reaping disabled there instead of printing errors.
+  if (process.platform === 'win32') return [];
   let table: string;
   try {
     table = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });

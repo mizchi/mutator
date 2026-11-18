@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, matchesGlob, relative, resolve } from 'node:path';
+import { isAbsolute, matchesGlob, normalize, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   type DryRunResult,
@@ -216,7 +216,7 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
           name: 'mutator:test-runtime',
           enforce: 'pre',
           resolveId(source, importer) {
-            if (source !== 'vitest' || importer?.split('?')[0] !== SETUP_FILE) return;
+            if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
             // Resolve as ESM from the project: require.resolve('vitest') selects its CJS stub.
             return this.resolve(runtime.setup, resolve(options.root, 'package.json'), { skipSelf: true });
           },

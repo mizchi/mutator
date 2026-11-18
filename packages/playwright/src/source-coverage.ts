@@ -58,10 +58,14 @@ export function createSourceCoverageMapper({ root, targets }: { root: string; ta
 
   const local = (name: string, script: string): string => {
     if (name.startsWith('file://')) return fileURLToPath(name);
-    if (isAbsolute(name) && allowed.has(name)) return name;
+    if (isAbsolute(name) && allowed.has(resolve(name))) return resolve(name);
     // Vite's root-relative URLs and /@fs/ URLs, plus maps relative to the served module.
     const path = decodeURIComponent(new URL(name, script).pathname);
-    return path.startsWith('/@fs/') ? resolve(path.slice(4)) : resolve(root, '.' + path);
+    if (path.startsWith('/@fs/')) {
+      const file = path.slice(5);
+      return resolve(isAbsolute(file) ? file : '/' + file);
+    }
+    return resolve(root, '.' + path);
   };
 
   const decode = (entry: ScriptCoverage) => {

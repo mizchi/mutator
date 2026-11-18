@@ -11,5 +11,5 @@ const vite = join(dirname(createRequire(import.meta.url).resolve('vite/package.j
 export default defineConfig({
   testDir: 'tests',
   use: { baseURL: `http://localhost:${port}` },
-  webServer: { command: `node ${vite} --port ${port} --strictPort`, url: `http://localhost:${port}`, reuseExistingServer: false },
+  webServer: { command: `node "${vite}" --port ${port} --strictPort`, url: `http://localhost:${port}`, reuseExistingServer: false },
 });

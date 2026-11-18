@@ -1,6 +1,6 @@
 // The dev server(s) of the Playwright config's `webServer`, started by mutator instead of
 // Playwright: once, with the instrumentation enabled, and shared by every run and session.
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { connect } from 'node:net';
 import { resolve } from 'node:path';
 import { RunnerSetupError } from '@mizchi/mutator-core';
@@ -117,8 +117,9 @@ async function stop(child: ChildProcess): Promise<void> {
   if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise((done) => child.once('exit', done));
   try {
-    // The shell and the server it started share the process group.
-    process.kill(-child.pid, 'SIGKILL');
+    if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    // The shell and the server it started share the process group on POSIX.
+    else process.kill(-child.pid, 'SIGKILL');
   } catch {
     return;
   }

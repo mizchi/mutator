@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('../', import.meta.url));
-const work = mkdtempSync(join(tmpdir(), 'mutator-pack-'));
+const work = mkdtempSync(join(tmpdir(), 'mutator pack-'));
 const pack = join(work, 'pack');
 mkdirSync(pack);
 const packages = ['core', 'vitest', 'jest', 'playwright', 'typecheck', 'cli'];

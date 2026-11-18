@@ -8,7 +8,7 @@ import { type PluginSpec, loadPlugins } from '../src/plugins.ts';
 import { runMutation } from '../src/run.ts';
 
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
-const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
+const core = new URL('../../core/src/index.ts', import.meta.url).href;
 const roots: string[] = [];
 
 const PLUGIN = `import { defineMutator, definePlugin } from ${JSON.stringify(core)};

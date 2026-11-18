@@ -2,8 +2,8 @@
 // can stay in the config; mutator starts the dev server with it set, and then the target files
 // are served with every mutant compiled in. Which one is active is decided in the page.
 import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
-import { type InstrumentOptions, instrument, loadInstrumentFlags } from '@mizchi/mutator-core';
+import { normalize } from 'node:path';
+import { type InstrumentOptions, instrument, loadInstrumentFlags, relativePath as relative } from '@mizchi/mutator-core';
 import { SETTINGS_ENV, type Settings } from './env.ts';
 
 /** The subset of Vite's Plugin this needs (no dependency on vite's types). */
@@ -25,7 +25,7 @@ export function mutatorVite(): MutatorVitePlugin {
       if (!setup) return undefined;
       const { settings, targets, options } = await setup;
       const file = id.split('?')[0]!;
-      if (!targets.has(file)) return undefined;
+      if (!targets.has(normalize(file))) return undefined;
       const result = instrument(file, code, { ...options, identity: relative(settings.root, file) });
       return { code: result.code, map: result.map };
     },
@@ -34,5 +34,5 @@ export function mutatorVite(): MutatorVitePlugin {
 
 async function load(path: string): Promise<{ settings: Settings; targets: Set<string>; options: InstrumentOptions }> {
   const settings = JSON.parse(readFileSync(path, 'utf8')) as Settings;
-  return { settings, targets: new Set(settings.targets), options: await loadInstrumentFlags(settings) };
+  return { settings, targets: new Set(settings.targets.map((file) => normalize(file))), options: await loadInstrumentFlags(settings) };
 }

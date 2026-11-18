@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
   type DryRunResult,
   type InstrumentOptions,
@@ -25,6 +25,7 @@ import {
   RunnerSetupError,
   scanImports,
   testFingerprint,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import { RUN_FILE_ENV, type RunConfig, type RunResults, SETTINGS_ENV, type Settings, type TestOutcome, type TestRecord } from './env.ts';
 import { type RunRequest, type RunnerOutcome, createProcessRunner } from './runner.ts';

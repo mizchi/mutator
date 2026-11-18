@@ -1,7 +1,7 @@
+import { relativePath as relative } from '@mizchi/mutator-core';
 // Agent reporter: JSON on stdout for a tool or a coding agent that writes the next test.
 // One record per undetected mutant, with the code around it and the kind of fix it needs.
 import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
 import { childProcessMessage } from './child-process.ts';
 import { reported } from './gate.ts';
 import { type Gap, NO_COVERAGE_MESSAGE, gapOf, skippedMessage, uncollectedMessage } from './report.ts';

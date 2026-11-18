@@ -8,6 +8,8 @@ import type { InstrumentOptions, Mutant, MutantStatus, TestInfo } from './types.
 export interface TestLocation {
   moduleId: string;
   taskId: string;
+  /** Runner project owning this specification; absent in older single-project indexes. */
+  projectName?: string;
 }
 
 export interface DryRunResult {
@@ -79,6 +81,11 @@ export interface Session {
   /** Absolute paths of the project's test files. */
   testFiles(): Promise<string[]>;
   /**
+   * Tests importing these sources, for a cold run with an explicit include set.
+   * Undefined means the runner cannot safely narrow the dependency graph.
+   */
+  relatedTestFiles?(sources: readonly string[]): Promise<string[] | undefined>;
+  /**
    * Whether the runner's config excludes this test file (absolute) on purpose, so not collecting
    * it is no mistake. Optional: without it every uncollected test file is reported.
    */
@@ -99,7 +106,7 @@ export interface Session {
  */
 export class RunnerSetupError extends Error {}
 
-/** Test ids are `<test file>#<full name>`: the test file part (relative to root). */
+/** Test ids are `<test file>#<full name>`; relative file keys use `/` on every OS. */
 export const testFileOf = (testId: string): string => testId.slice(0, testId.indexOf('#'));
 
 export function emptyDryRun(): DryRunResult {

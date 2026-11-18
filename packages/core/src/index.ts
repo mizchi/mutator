@@ -12,6 +12,7 @@ export {
 } from './load-plugins.ts';
 export { applyMutant, instrument, scanImports } from './instrument.ts';
 export { hash } from './hash.ts';
+export { relativePath } from './paths.ts';
 export { isTopLevelScope } from './scope.ts';
 export { type RunReport, classifyRun } from './classify.ts';
 export { DEFAULT_HIT_LIMIT, HIT_LIMIT_MESSAGE, RUNTIME_GLOBAL, type RuntimeState } from './runtime.ts';

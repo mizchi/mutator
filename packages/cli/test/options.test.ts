@@ -206,13 +206,13 @@ describe('runner config files', () => {
   test('--config is the vitest config and --jest-config the jest config', async () => {
     const root = project();
     const options = await resolve(root, '--config', 'vitest.unit.ts', '--jest-config', 'jest.unit.mjs');
-    expect(options.run).toMatchObject({ configFile: `${root}/vitest.unit.ts`, jestConfigFile: `${root}/jest.unit.mjs` });
+    expect(options.run).toMatchObject({ configFile: join(root, 'vitest.unit.ts'), jestConfigFile: join(root, 'jest.unit.mjs') });
   });
 
   test('--playwright-config (or playwrightConfig) is the playwright config', async () => {
     const root = project({ playwrightConfig: 'e2e/playwright.config.ts' });
-    expect((await resolve(root)).run).toMatchObject({ playwrightConfigFile: `${root}/e2e/playwright.config.ts` });
-    expect((await resolve(root, '--playwright-config', 'pw.config.ts')).run).toMatchObject({ playwrightConfigFile: `${root}/pw.config.ts` });
+    expect((await resolve(root)).run).toMatchObject({ playwrightConfigFile: join(root, 'e2e/playwright.config.ts') });
+    expect((await resolve(root, '--playwright-config', 'pw.config.ts')).run).toMatchObject({ playwrightConfigFile: join(root, 'pw.config.ts') });
     expect((await resolve(root, '--runner', 'playwright')).run.runner).toBe('playwright');
   });
 

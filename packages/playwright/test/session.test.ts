@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Mutant, Session } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createPlaywrightSession, expectTimeoutFor } from '../src/session.ts';
@@ -135,7 +135,7 @@ test('optional V8 coverage records original scopes per test and flags navigation
 });
 
 describe('playwright session instrument options', { timeout: 120_000 }, () => {
-  const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
+  const core = new URL('../../core/src/index.ts', import.meta.url).href;
   const PLUGIN = `import { defineIgnorer, defineMutator, definePlugin } from ${JSON.stringify(core)};
 export default definePlugin({
   name: 'fallbacks',
@@ -152,7 +152,7 @@ export default definePlugin({
     cpSync(fixture, root, { recursive: true });
     await assignPort(root);
     writeFileSync(join(root, 'fallbacks.ts'), PLUGIN);
-    const plugin = (await import(join(root, 'fallbacks.ts'))).default;
+    const plugin = (await import(pathToFileURL(join(root, 'fallbacks.ts')).href)).default;
     const session = await createPlaywrightSession({
       root,
       targets: ['counter.ts', 'main.ts'].map((f) => join(root, 'src', f)),
@@ -176,6 +176,7 @@ export default definePlugin({
       // the CLI would otherwise decide them as not infected without running them.
       expect(mutants.some((m) => m.weak)).toBe(false);
       const dry = await session.dryRun();
+      expect(dry.failed).toEqual([]);
       expect([...dry.coverage.keys()].filter((k) => !keys.has(k))).toEqual([]);
       // The dev server instrumented the same way: both are reached in the page.
       expect(dry.coverage.has(logged.key)).toBe(true);

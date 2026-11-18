@@ -1,9 +1,7 @@
 // Module facts for the call graph: callees, references, top-level bindings, imports and re-exports.
-import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
-import { type Frame, type Node, isFunction, unwrap } from './ast.ts';
-import type { ImportBinding } from './types.ts';
-
-export const RAW_TRANSFER = rawTransferSupported();
+import { parseSource } from './parse.ts';
+import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
+import type { ImportBinding, ImportScan } from './types.ts';
 
 /** `f`, `a.b.c`, `this.m` — or undefined for computed / dynamic callees. */
 export function calleeName(callee: Node): string | undefined {
@@ -33,19 +31,28 @@ export function reexportBindings(program: Node): ImportBinding[] {
 }
 
 const moduleExportName = (node: Node): string => node.name ?? node.value;
+const OUT_OF_PROCESS = new Set(['node:child_process', 'child_process', 'node:worker_threads', 'worker_threads']);
+const opaqueModule = (source: string) => OUT_OF_PROCESS.has(source) || source === 'node:module' || source === 'module';
 
 /**
  * Value imports and re-exports of a module, without instrumenting it, and the specifiers of
  * every module it loads statically (`loads`: side-effect imports included, type-only ones not).
  */
-export function scanImports(file: string, source: string): { imports: ImportBinding[]; reexports: ImportBinding[]; loads: string[] } {
-  const { program } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
+export function scanImports(file: string, source: string): ImportScan {
+  const { program, errors } = parseSource(file, source);
   const loads: string[] = [];
   for (const st of program.body as Node[]) {
     const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;
     if (st.source && kind !== 'type' && !loads.includes(st.source.value)) loads.push(st.source.value);
   }
-  return { imports: importBindings(program), reexports: reexportBindings(program), loads };
+  const imports = importBindings(program);
+  let opaque = errors.length > 0 || loads.some(opaqueModule);
+  walk(program as unknown as Node, ({ node }) => {
+    if (node.type === 'ImportExpression'
+      && (node.source.type !== 'Literal' || typeof node.source.value !== 'string' || opaqueModule(node.source.value))) opaque = true;
+    if (node.type === 'CallExpression' && ['require', 'module.require', 'createRequire', 'module.createRequire'].includes(calleeName(node.callee) ?? '')) opaque = true;
+  });
+  return { imports, reexports: reexportBindings(program), loads, ...(opaque ? { opaqueLoads: true as const } : {}) };
 }
 
 /** Identifier references (not property names, object keys or labels). */

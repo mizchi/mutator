@@ -10,7 +10,7 @@ const kill = (pid: number) => {
   }
 };
 
-test('descendants lists children and their children, not the process itself', async () => {
+test.skipIf(process.platform === 'win32')('descendants lists children and their children, not the process itself', async () => {
   // A shell that starts a grandchild (sleep), prints its pid and waits for it. The test kills only
   // the pids it knows: under a mutant, descendants() may return anything.
   const child = spawn('sh', ['-c', 'sleep 30 & echo $!; wait'], { stdio: ['ignore', 'pipe', 'ignore'] });

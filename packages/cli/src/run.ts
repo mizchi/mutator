@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { delimiter, join, relative, resolve } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { delimiter, join, resolve } from 'node:path';
 import {
   type InstrumentOptions,
   type Mutant,
@@ -13,6 +13,7 @@ import {
   selectPerLine,
   testFileOf,
   testFingerprint,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import { applyAcceptance } from './accepted.ts';
 import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';
@@ -223,7 +224,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const started = performance.now();
   const shard = options.shard && validateShard(options.shard);
   const owns = (key: string) => !shard || ownsMutant(key, shard);
-  const root = resolve(options.root);
+  // Vite resolves junctions and Windows 8.3 names before transforming modules.
+  // Scan and instrument from that same root so include filters and mutant keys agree.
+  const root = realpathSync.native(resolve(options.root));
   const log = options.log ?? (() => {});
   const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
   const session = await createRunnerSession(runner, sessionOptions);
@@ -249,7 +252,14 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
-    const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    let dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
+      const related = await session.relatedTestFiles(files);
+      if (related) {
+        const selected = related.map((file) => relative(root, file));
+        dryPlan = { all: false, files: selected, stale: selected, impacted: [] };
+      }
+    }
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
@@ -426,7 +436,7 @@ function staticTestsOf(merged: MergedDryRun): Map<string, string[]> {
 
 /** Every mutant of the target files, without running anything (e.g. to check keys given to `mutator accept`). */
 export async function listMutants(options: RunOptions): Promise<Mutant[]> {
-  const root = resolve(options.root);
+  const root = realpathSync.native(resolve(options.root));
   const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
   return collectSources(root, files, instrumentOptions).mutants;
 }

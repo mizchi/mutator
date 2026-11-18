@@ -1,4 +1,4 @@
-import { relative } from 'node:path';
+import { relativePath as relative } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { reported, scoreLevel } from './gate.ts';
 import { ACCEPTED_FILE } from './accepted.ts';

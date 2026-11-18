@@ -2,8 +2,8 @@
 // (Node, lockfiles, tsconfig, runner config, mutation settings), and keeps the results of
 // mutants this run did not decide.
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapshot, hash } from '@mizchi/mutator-core';
+import { dirname, join, resolve } from 'node:path';
+import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapshot, hash, relativePath as relative } from '@mizchi/mutator-core';
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, scopeTable } from './coverage-cache.ts';
 import type { RunOptions } from './run.ts';
 import type { Runner } from './runner.ts';
@@ -14,7 +14,7 @@ import { snapshotFiles } from './snapshot-store.ts';
 // Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
 // no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
 // without the tests that reached them while running), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.11';
+export const SNAPSHOT_VERSION = '0.0.12';
 
 export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', 'tsconfig.json', 'pnpm-workspace.yaml'];
 
@@ -91,7 +91,7 @@ export function buildSnapshot(
     envFiles: run.envFiles,
     testFiles: run.testFiles,
     deps: Object.fromEntries(merged.deps),
-    index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId }])),
+    index: Object.fromEntries([...merged.index].map(([id, l]) => [id, { module: relative(root, l.moduleId), taskId: l.taskId, ...(l.projectName === undefined ? {} : { projectName: l.projectName }) }])),
     staticByFile: Object.fromEntries([...merged.staticByFile].map(([f, keys]) => [f, [...keys]])),
     hits: Object.fromEntries(merged.hits),
     spawns: Object.fromEntries(merged.spawns),

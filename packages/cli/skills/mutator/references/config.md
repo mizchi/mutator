@@ -40,7 +40,7 @@ export default defineConfig({
 | `playwrightSourceCoverage` | config only | Experimental Chromium V8 coverage in dry runs, remapped to original function scopes; default false, adds CPU/memory overhead |
 | `arid` | `--no-arid`, `--arid-callee <pattern>` | logging-only code is reported `Ignored` and not run (defaults: `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`); `false` runs it; `{ callees }` and `--arid-callee` replace the defaults, a plugin's `aridCallees` adds to them ([plugins.md](plugins.md)) |
 | `experimentalCallgraph` | `--experimental-callgraph` | after edits, re-run only survivors connected to changed code in a static call graph (faster, can miss effects through tests) |
-| `fullDryRun` | `--full-dry-run` | collect coverage from every test file instead of the cached coverage (after editing a test helper with Jest) |
+| `fullDryRun` | `--full-dry-run` | collect every test file, bypassing both cached coverage and related-test discovery for a new explicit include scope (also useful after editing a test helper with Jest) |
 | `reporters` | `--reporter <name>` | `text` (default), `json`, `html`, `agent`, `simplify`; repeatable |
 | `reportDir` | `--report-dir <dir>` | where `json` / `html` go (default `.mutator/report`) |
 | `thresholds` | `--threshold-break <n>` | percentages: `high` (default 80) and `low` (default 60, at most `high`) label the score; below `break` (default none) the run exits 2 |

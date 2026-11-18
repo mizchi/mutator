@@ -1,8 +1,8 @@
 // Tests that run the project's code in a child process: mutants are applied in memory, so that
 // process never sees them. The dry run records the commands; this finds what they may run.
 import { readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve as resolvePath } from 'node:path';
-import { type SpawnedCommand, scanImports } from '@mizchi/mutator-core';
+import { isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { type SpawnedCommand, scanImports, relativePath as relative } from '@mizchi/mutator-core';
 import type { ReportEntry } from './run.ts';
 import { isUndetected } from './status.ts';
 

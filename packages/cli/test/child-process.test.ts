@@ -1,6 +1,7 @@
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
+import { relativePath as relative } from '@mizchi/mutator-core';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { childProcessReach, possiblyInChildProcess, spawnedEntries } from '../src/child-process.ts';
@@ -73,6 +74,13 @@ describe('runMutation with a test running the sources in a child process', { tim
     expect(second.dryRunFiles).toEqual([]);
     expect(second.childProcessTests).toEqual(first.childProcessTests);
     expect(second.childProcessMutants).toEqual(first.childProcessMutants);
+  });
+
+  test('cold include discovery retains tests that load the target through a child process', async () => {
+    const report = await runMutation({ root: project, include: ['src/greet.js'], typecheck: false, concurrency: 1 });
+    expect(report.dryRunFiles?.sort()).toEqual(['test/cli.test.ts', 'test/math.test.ts']);
+    expect(report.childProcessTests).toHaveLength(1);
+    expect(report.childProcessMutants?.length).toBeGreaterThan(0);
   });
 });
 

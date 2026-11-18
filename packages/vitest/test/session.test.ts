@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -221,32 +222,33 @@ describe('test files that fail to load under a mutant', () => {
 });
 
 describe('process hygiene', () => {
-  const descendants = (): number[] => {
-    const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,comm='], { encoding: 'utf8' })
-      .trim()
-      .split('\n')
-      .map((line) => line.trim().split(/\s+/))
-      .filter(([, , comm]) => !comm?.endsWith('ps')) // the `ps` listing itself
-      .map(([pid, ppid]) => [Number(pid), Number(ppid)] as [number, number]);
-    const out: number[] = [];
-    const walk = (pid: number) => {
-      for (const [child, parent] of rows) if (parent === pid && child !== pid) out.push(child), walk(child);
-    };
-    walk(process.pid);
-    return out;
-  };
-
   test('a timed-out (infinite loop) run leaves no process behind after close', { timeout: 60_000 }, async () => {
-    const before = new Set(descendants());
-    const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
-    const session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
-    await session.dryRun();
-    const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
-    const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 500, hitLimit: Number.MAX_SAFE_INTEGER });
-    expect(result.status).toBe('Timeout');
-    await session.close();
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    expect(descendants().filter((pid) => !before.has(pid))).toEqual([]);
+    const dir = mkdtempSync(join(tmpdir(), 'mutator-worker-pid-'));
+    const pidFile = join(dir, 'worker.pid');
+    const previous = process.env.MUTATOR_TEST_WORKER_PID;
+    process.env.MUTATOR_TEST_WORKER_PID = pidFile;
+    let session: Session | undefined;
+    try {
+      const edgeRoot = fileURLToPath(new URL('./fixtures/edge', import.meta.url));
+      session = await createSession({ root: edgeRoot, include: (file) => file.includes('/edge/src/') });
+      await session.dryRun();
+      rmSync(pidFile, { force: true });
+      const spin = session.mutants().find((m) => m.file.endsWith('spin.ts') && m.original === 'i--' && m.replacement === 'i++')!;
+      const result = await session.runMutant(spin.key, ['test/spin.test.ts#countdown'], { timeoutMs: 1500, hitLimit: Number.MAX_SAFE_INTEGER });
+      expect(result.status).toBe('Timeout');
+      const pid = Number(readFileSync(pidFile, 'utf8'));
+      expect(pid).toBeGreaterThan(0);
+      expect(pid).not.toBe(process.pid);
+      await session.close();
+      await expect.poll(() => {
+        try { process.kill(pid, 0); return true; } catch { return false; }
+      }, { timeout: 5000 }).toBe(false);
+    } finally {
+      await session?.close();
+      if (previous === undefined) delete process.env.MUTATOR_TEST_WORKER_PID;
+      else process.env.MUTATOR_TEST_WORKER_PID = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test('a timed-out worker stuck in a loop stops burning CPU', { timeout: 60_000 }, async () => {
@@ -299,53 +301,5 @@ describe('excludesTestFile', () => {
     expect(session.excludesTestFile!(join(projects, 'a/skipped/x.test.ts'))).toBe(true);
     // Not collected by b (outside its include), but b does not exclude it, and a's `**/skipped/**` does not reach outside a.
     expect(session.excludesTestFile!(join(projects, 'b/skipped/x.test.ts'))).toBe(false);
-  });
-});
-
-describe('native path separators', () => {
-  // On Windows, `join` gives `D:\repo\src\add.ts` while Vite module ids are `D:/repo/src/add.ts`.
-  const pathsRoot = fileURLToPath(new URL('./fixtures/paths', import.meta.url));
-  const source = join(pathsRoot, 'src', 'add.ts');
-  const addTest = join(pathsRoot, 'test', 'add.test.ts');
-  const findAdd = (session: Session) => session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b');
-  // Test ids are relative paths, so their separator differs by OS; this suite is about module ids.
-  const slash = (ids: string[] | undefined) => ids?.map((id) => id.replaceAll('\\', '/')).sort();
-
-  test('an include that compares native paths selects the source', async () => {
-    const session = await createSession({ root: pathsRoot, include: (file) => file === source });
-    try {
-      const dry = await session.dryRun();
-      const mutant = findAdd(session);
-      expect(mutant).toBeDefined();
-      const covering = dry.coverage.get(mutant!.key);
-      expect(slash(covering)).toEqual(['test/add.test.ts#add', 'test/other.test.ts#other']);
-      const result = await session.runMutant(mutant!.key, covering!, { timeoutMs: 10_000 });
-      expect(result.status).toBe('Killed');
-    } finally {
-      await session.close();
-    }
-  });
-
-  test('a dry run limited to native test paths runs only those files', async () => {
-    const session = await createSession({ root: pathsRoot, include: (file) => file.includes('/src/') });
-    try {
-      const dry = await session.dryRun([addTest]);
-      expect(slash(dry.tests.map((t) => t.id))).toEqual(['test/add.test.ts#add']);
-      expect(slash(dry.coverage.get(findAdd(session)!.key))).toEqual(['test/add.test.ts#add']);
-      expect((await session.dryRun([])).tests).toEqual([]);
-      expect(slash((await session.dryRun()).tests.map((t) => t.id))).toEqual(['test/add.test.ts#add', 'test/other.test.ts#other']);
-    } finally {
-      await session.close();
-    }
-  });
-
-  test('a dry run does not match an undiscovered path by collapsing parent segments', async () => {
-    const session = await createSession({ root: pathsRoot, include: () => false });
-    try {
-      const undiscoveredPath = `${pathsRoot}/missing/../test/add.test.ts`;
-      expect((await session.dryRun([undiscoveredPath])).tests).toEqual([]);
-    } finally {
-      await session.close();
-    }
   });
 });

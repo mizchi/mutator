@@ -1,8 +1,8 @@
 // What a run is set up from: the target files with their mutants, the plugins, and the runner
 // with the options its sessions are created with.
 import { globSync, readFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
-import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, instrument } from '@mizchi/mutator-core';
+import { dirname, join } from 'node:path';
+import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, instrument, relativePath as relative } from '@mizchi/mutator-core';
 import { isFile } from './child-process.ts';
 import type { SourceInfo } from './coverage-cache.ts';
 import { loadPlugins } from './plugins.ts';
@@ -78,13 +78,17 @@ const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/in
  * with `onDisk`, any existing file.
  */
 export function importResolver(files: readonly string[], onDisk = false) {
-  const known = new Set(files);
-  const found = (path: string) => known.has(path) || (onDisk && isFile(path));
+  const key = (file: string) => process.platform === 'win32' ? file.replaceAll('\\', '/').toLowerCase() : file;
+  const known = new Map(files.map((file) => [key(file), file]));
+  const found = (path: string) => known.get(key(path)) ?? (onDisk && isFile(path) ? path : undefined);
   return (from: string, specifier: string): string | undefined => {
     if (!specifier.startsWith('.')) return undefined;
     const base = join(dirname(from), specifier);
     const stems = [base, base.replace(/\.(c|m)?js$/, '.$1ts').replace(/\.jsx$/, '.tsx')];
-    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) if (found(stem + suffix)) return stem + suffix;
+    for (const stem of stems) for (const suffix of RESOLVE_SUFFIXES) {
+      const file = found(stem + suffix);
+      if (file) return file;
+    }
     return undefined;
   };
 }

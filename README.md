@@ -74,6 +74,12 @@ npx mutator --shared-cache  # reuse validated results across Git worktrees
 
 Cache validation includes enclosing pnpm/npm workspace manifests and lockfiles, stopping at the repository boundary. Each `--include`/`--exclude` scope keeps its snapshot under `.mutator/scopes/`, so alternating between scopes preserves each scope's results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts. `--shared-cache` stores snapshots under Git's common directory, separated by package, scope and environment, so worktrees can reuse them without a copy script. `select-tests` accepts the same flag. Snapshot writes are atomic.
 
+For Vitest and Vite+, the first run with an explicit `include` uses Vite's import graph to collect coverage only from related test files, including re-exports and literal dynamic imports. Computed imports, CommonJS loading, child processes, workers, unsupported source transforms or an unavailable graph fall back to a full dry run. `--full-dry-run` always collects every test file; runners without dependency discovery keep that behavior too.
+
+Inline Vitest `test.projects` keep their own plugins, environments and setup files. With multiple projects, test IDs include the project name after `#` (for example `test/math.test.ts#[unit] add`), and cached mutant runs retain the owning project. Mutator disables Vitest's filesystem transform cache, including inside these projects, so changing `include` cannot reuse an uninstrumented transform.
+
+Relative paths in test IDs, mutant identities, snapshots and reports use `/` on every operating system, including Windows. Absolute paths passed to filesystem and runner APIs retain their platform's format.
+
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
@@ -600,7 +606,7 @@ The two timeouts are derived from the dry run, so a machine that is busier durin
 
 A `RuntimeError` (the run failed outside any test: a test file that fails to load, an unhandled error) is re-run once with the same budget, and counts only if it fails that way again. Without it, an error that a flaky test file raises under load is credited as a detection of whatever mutant was running. The summary reports these too: `runtime errors re-run to confirm them: 3 (1 failed again)`.
 
-Stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every process it started (test workers, Jest and Playwright processes, dev servers) and exits with 130 / 143: a worker stuck in a mutant's loop cannot notice its parent going away, and would otherwise keep spinning. SIGKILL cannot be handled: a worker stuck in a loop then outlives mutator, and the next run in the project stops it. Each run records the processes it starts under `.mutator/processes/`; a later run kills those whose run is gone, that are still orphaned and that started when recorded, so another project's processes or a reused pid are never touched.
+On POSIX, stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every process it started (test workers, Jest and Playwright processes, dev servers) and exits with 130 / 143: a worker stuck in a mutant's loop cannot notice its parent going away, and would otherwise keep spinning. SIGKILL cannot be handled: a worker stuck in a loop then outlives mutator, and the next run in the project stops it. Each run records the processes it starts under `.mutator/processes/`; a later run kills those whose run is gone, that are still orphaned and that started when recorded, so another project's processes or a reused pid are never touched. This orphan reaping uses POSIX process information and is unavailable on Windows.
 
 ## Packages
 
@@ -618,12 +624,15 @@ Stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every 
 ```sh
 pnpm install
 pkf run check            # typecheck + tests (or: pnpm exec tsc -p . && pnpm exec vitest run)
+pnpm run pack-smoke      # install the packed packages and test all runtime adapters
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
 Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.0`, and update the reference explicitly when upgrading.
 
-The `release` workflow runs only for newly created tags. It checks that the tag matches the versions, runs the checks, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
+The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
+
+Both operating systems must pass before the Linux publish job checks the tag against the package versions, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
 The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
 

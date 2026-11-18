@@ -1,7 +1,7 @@
 // select-tests: the tests a change can break, ranked from a warm snapshot without running anything.
 import { existsSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
-import { type MutantResult, testFileOf } from '@mizchi/mutator-core';
+import { join, resolve } from 'node:path';
+import { type MutantResult, testFileOf, relativePath as relative } from '@mizchi/mutator-core';
 import { loadersOf } from './consumers.ts';
 import { loadWarmSnapshot } from './reuse.ts';
 import type { RunOptions } from './run.ts';

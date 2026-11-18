@@ -6,8 +6,11 @@ on:
     tags: ['v*.*.*']
 
 jobs:
-  publish:
+  verify:
     if: github.event.created && !github.event.deleted && !github.event.forced
+    uses: ./.github/workflows/verify.yml
+  publish:
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -22,17 +25,12 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      # The Playwright adapter's tests drive Chromium.
-      - run: pnpm --filter @mizchi/mutator-playwright exec playwright install --with-deps chromium
       - name: Tag matches the package versions
         run: |
           for p in packages/*/package.json; do
             v=$(node -p "require('./$p').version")
             if [ "v$v" != "$GITHUB_REF_NAME" ]; then echo "$p is $v, tag is $GITHUB_REF_NAME"; exit 1; fi
           done
-      - run: pnpm exec tsc -p .
-      - run: pnpm exec vitest run
-      - run: ./scripts/pack-smoke.sh
       # pnpm pack rewrites workspace:* to the published versions; npm publishes the
       # tarballs, authenticating through OIDC (trusted publishing, npm >= 11.5.1),
       # which also attaches provenance.

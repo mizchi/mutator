@@ -1,7 +1,7 @@
+import { relativePath as relative } from '@mizchi/mutator-core';
 // Simplify reporter: code that may be unnecessary, because no test observes its removal.
 // A separate view of some undetected mutants; it does not touch the score or the gate.
 import { readFileSync } from 'node:fs';
-import { relative } from 'node:path';
 import type { Mutant } from '@mizchi/mutator-core';
 import { reported } from './gate.ts';
 import { oneLine } from './report.ts';

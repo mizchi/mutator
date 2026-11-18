@@ -1,7 +1,7 @@
 // One `playwright test` process per run, with mutator's reporter: it writes the run's results
 // to the path the run file names. (Keeping Playwright's test-server across runs saved about
 // 4% on the fixture app, where the process itself costs ~0.6 s: not worth an internal API.)
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { RUN_FILE_ENV, type RunResults } from './env.ts';
@@ -55,7 +55,8 @@ export function createProcessRunner(options: RunnerOptions): TestRunner {
         ...(request.workers ? [`--workers=${request.workers}`] : []),
         ...(request.maxFailures ? [`--max-failures=${request.maxFailures}`] : []),
         ...request.projects.map((p) => `--project=${p}`),
-        ...request.locations,
+        // Playwright treats these as regexes; a native Windows separator is an escape.
+        ...request.locations.map((location) => process.platform === 'win32' ? location.replaceAll('\\', '/') : location),
       ];
       const started = performance.now();
       const child = spawn(process.execPath, args, {
@@ -103,7 +104,9 @@ function collect(child: ChildProcess): () => string {
 function killGroup(child: ChildProcess): void {
   if (child.pid === undefined) return;
   try {
-    process.kill(-child.pid, 'SIGKILL');
+    if (process.platform === 'win32') {
+      if (child.exitCode === null && child.signalCode === null) execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    } else process.kill(-child.pid, 'SIGKILL');
   } catch {
     // already gone
   }

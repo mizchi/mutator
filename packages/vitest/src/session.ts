@@ -121,8 +121,10 @@ export async function createSession(options: SessionOptions): Promise<Session> {
 
     async dryRun(files) {
       const all = await vitest.globTestSpecifications();
-      const wanted = files && new Set(files);
-      const specs = wanted ? all.filter((s) => wanted.has(s.moduleId)) : all;
+      // Match Vite's separators on Windows without collapsing `..`, which can change the target across symlinks.
+      const testPathKey = (file: string) => process.platform === 'win32' ? file.replaceAll('\\', '/') : file;
+      const wanted = files && new Set(files.map(testPathKey));
+      const specs = wanted ? all.filter((s) => wanted.has(testPathKey(s.moduleId))) : all;
       const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root) : emptyDryRun();
       dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options);
       for (const [id, location] of dry.index) locate(id, location);

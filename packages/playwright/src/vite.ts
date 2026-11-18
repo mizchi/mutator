@@ -2,8 +2,8 @@
 // can stay in the config; mutator starts the dev server with it set, and then the target files
 // are served with every mutant compiled in. Which one is active is decided in the page.
 import { readFileSync } from 'node:fs';
-import { normalize, relative } from 'node:path';
-import { type InstrumentOptions, instrument, loadInstrumentFlags } from '@mizchi/mutator-core';
+import { normalize } from 'node:path';
+import { type InstrumentOptions, instrument, loadInstrumentFlags, relativePath as relative } from '@mizchi/mutator-core';
 import { SETTINGS_ENV, type Settings } from './env.ts';
 
 /** The subset of Vite's Plugin this needs (no dependency on vite's types). */

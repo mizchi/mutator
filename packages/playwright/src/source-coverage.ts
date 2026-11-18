@@ -1,11 +1,11 @@
 // Positive observations from V8's generated ranges, remapped to the original
 // source scopes. Missing/stale maps never become evidence of non-execution.
 import { readFileSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Profiler } from 'node:inspector';
 import { TraceMap, decodedMappings } from '@jridgewell/trace-mapping';
-import { type Scope, instrument, isTopLevelScope } from '@mizchi/mutator-core';
+import { type Scope, instrument, isTopLevelScope, relativePath as relative } from '@mizchi/mutator-core';
 
 export interface ScriptCoverage {
   url: string;

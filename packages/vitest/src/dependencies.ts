@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, normalize, relative, resolve } from 'node:path';
+import { isAbsolute, normalize, resolve } from 'node:path';
 import { debuglog } from 'node:util';
-import { scanImports } from '@mizchi/mutator-core';
+import { scanImports, relativePath as relative } from '@mizchi/mutator-core';
 import type { Vitest } from 'vitest/node';
 
 const debug = debuglog('mutator');

@@ -1,7 +1,6 @@
 // Running the mutants that need a run, over parallel runner sessions and within the time budget.
 import { availableParallelism } from 'node:os';
-import { relative } from 'node:path';
-import { type Session, estimatedCost, orderByCost } from '@mizchi/mutator-core';
+import { type Session, estimatedCost, orderByCost, relativePath as relative } from '@mizchi/mutator-core';
 import type { MergedDryRun } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import type { ReportEntry } from './run.ts';

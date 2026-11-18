@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from 'vitest';
+import { relativePath } from '@mizchi/mutator-core';
 import { localImports } from '../src/session.ts';
 
 test('follows relative imports transitively, resolving extensions and index files the way bundlers do', () => {
@@ -39,7 +40,7 @@ test('follows relative imports transitively, resolving extensions and index file
       mkdirSync(join(dir, file, '..'), { recursive: true });
       writeFileSync(join(dir, file), content);
     }
-    expect(localImports(join(dir, 'spec.ts')).map((f) => f.slice(dir.length + 1)).sort()).toEqual([
+    expect(localImports(join(dir, 'spec.ts')).map((f) => relativePath(dir, f)).sort()).toEqual([
       'b.tsx',
       'c.mts',
       'd.js',

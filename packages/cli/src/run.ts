@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { delimiter, join, relative, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import {
   type InstrumentOptions,
   type Mutant,
@@ -13,6 +13,7 @@ import {
   selectPerLine,
   testFileOf,
   testFingerprint,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import { applyAcceptance } from './accepted.ts';
 import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';

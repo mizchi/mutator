@@ -1,8 +1,8 @@
 // A type verdict is reusable only while every compiler input and resolution directory agrees.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative } from 'node:path';
-import { type Mutant, hash } from '@mizchi/mutator-core';
+import { join } from 'node:path';
+import { type Mutant, hash, relativePath as relative } from '@mizchi/mutator-core';
 import type { TypecheckInputs } from '@mizchi/mutator-typecheck';
 
 interface DirectoryReader {

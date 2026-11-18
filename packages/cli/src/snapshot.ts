@@ -1,6 +1,7 @@
+import { relativePath as relative } from '@mizchi/mutator-core';
 import { constants, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { MutantResult, MutantStatus, ResultReason, RunSnapshot } from '@mizchi/mutator-core';
 
 // On disk, results are stored as rows referring to tables: test ids, files and

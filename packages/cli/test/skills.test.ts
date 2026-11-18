@@ -30,7 +30,7 @@ function markdownUnder(dir: string): string[] {
 
 /** Top-level `key: value` lines of the YAML frontmatter (the fields the spec defines are scalars). */
 function frontmatter(text: string): Record<string, string> {
-  const match = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
   if (!match) return {};
   return Object.fromEntries(
     match[1]!

@@ -1,9 +1,7 @@
 // Module facts for the call graph: callees, references, top-level bindings, imports and re-exports.
-import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
+import { parseSource } from './parse.ts';
 import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
 import type { ImportBinding, ImportScan } from './types.ts';
-
-export const RAW_TRANSFER = rawTransferSupported();
 
 /** `f`, `a.b.c`, `this.m` — or undefined for computed / dynamic callees. */
 export function calleeName(callee: Node): string | undefined {
@@ -39,7 +37,7 @@ const moduleExportName = (node: Node): string => node.name ?? node.value;
  * every module it loads statically (`loads`: side-effect imports included, type-only ones not).
  */
 export function scanImports(file: string, source: string): ImportScan {
-  const { program, errors } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
+  const { program, errors } = parseSource(file, source);
   const loads: string[] = [];
   for (const st of program.body as Node[]) {
     const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;

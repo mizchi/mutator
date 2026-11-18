@@ -1,10 +1,10 @@
 // Jest session: every dry run and every mutant run is a separate Jest child
 // process (native ESM via --experimental-vm-modules), so a mutant stuck in a
 // synchronous loop is killed with its process group instead of freezing the CLI.
-import { spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import {
   type DryRunResult,
   type InstrumentOptions,
@@ -22,6 +22,7 @@ import {
   instrumentFlags,
   numberDuplicates,
   testFingerprint,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import { type JestProject, PARTIAL_REPORTER, mutatorJestConfig, readJestProject, transformerSettings } from './config.ts';
 
@@ -129,13 +130,13 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
     const timer = Number.isFinite(timeoutMs)
       ? setTimeout(() => {
           timedOut = true;
-          killGroup(child.pid);
+          killGroup(child);
         }, timeoutMs)
       : undefined;
     await new Promise<void>((resolve) => child.on('close', () => resolve()));
     clearTimeout(timer);
     // Workers Jest forked are in the same group; make sure none outlives the run.
-    killGroup(child.pid);
+    killGroup(child);
     let report: JsonReport | undefined;
     try {
       report = JSON.parse(readFileSync(outputFile, 'utf8')) as JsonReport;
@@ -246,10 +247,12 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
   };
 }
 
-function killGroup(pid: number | undefined): void {
-  if (pid === undefined) return;
+function killGroup(child: ChildProcess): void {
+  if (child.pid === undefined) return;
   try {
-    process.kill(-pid, 'SIGKILL');
+    if (process.platform === 'win32') {
+      if (child.exitCode === null && child.signalCode === null) execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+    } else process.kill(-child.pid, 'SIGKILL');
   } catch {
     // already gone
   }

@@ -23,9 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc -p .
-      # The remaining Windows test portability issues are tracked in #25.
-      # Run the native-path regressions explicitly; the packed CLI below exercises
-      # every runtime adapter on both operating systems.
+      # Catch native path regressions before installing browsers or running the full suite.
       - name: Native Windows path regression tests
         if: runner.os == 'Windows'
         run: pnpm exec vitest run packages/vitest/test/native-paths.test.ts packages/vitest/test/vite-plus.test.ts packages/cli/test/native-paths.test.ts packages/playwright/test/native-paths.test.ts

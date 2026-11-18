@@ -1,5 +1,5 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   type DryRunResult,
@@ -13,6 +13,7 @@ import {
   hash,
   isTopLevelScope,
   mergeCoverage,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import { type SourceInfo, followNames, importGraph, loadersOf } from './consumers.ts';
 

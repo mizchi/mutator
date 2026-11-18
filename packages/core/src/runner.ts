@@ -106,7 +106,7 @@ export interface Session {
  */
 export class RunnerSetupError extends Error {}
 
-/** Test ids are `<test file>#<full name>`: the test file part (relative to root). */
+/** Test ids are `<test file>#<full name>`; relative file keys use `/` on every OS. */
 export const testFileOf = (testId: string): string => testId.slice(0, testId.indexOf('#'));
 
 export function emptyDryRun(): DryRunResult {

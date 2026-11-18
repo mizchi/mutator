@@ -1,9 +1,9 @@
 // Follows the names that side-effect-free top-level code declares to the code reading them.
 // Shared by the dry-run planner (which tests to re-collect after an edit) and the static
 // mutant test selection (which tests can observe a mutated declaration).
-import { join, relative } from 'node:path';
+import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { type ImportBinding, type Scope, isTopLevelScope, scanImports } from '@mizchi/mutator-core';
+import { type ImportBinding, type Scope, isTopLevelScope, scanImports, relativePath as relative } from '@mizchi/mutator-core';
 
 /** What the planners need to know about each mutated source. */
 export interface SourceInfo {

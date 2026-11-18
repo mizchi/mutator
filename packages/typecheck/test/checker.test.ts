@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as ts6 from 'typescript6';
@@ -10,7 +11,7 @@ import type { TypeChecker, TypecheckMutant } from '../src/types.ts';
 
 const ts7version: string = createRequire(import.meta.url)('typescript7/package.json').version;
 const root = fileURLToPath(new URL('./fixtures/basic', import.meta.url));
-const file = `${root}/src/a.ts`;
+const file = join(root, 'src', 'a.ts');
 const source = readFileSync(file, 'utf8');
 
 const replace = (key: string, original: string, replacement: string): TypecheckMutant => {
@@ -19,11 +20,19 @@ const replace = (key: string, original: string, replacement: string): TypecheckM
 };
 
 const backends: [string, (at?: string) => TypeChecker][] = [
-  ['TypeScript 6 (compiler API)', (at = root) => createClassicChecker(ts6, { root: at, tsconfig: `${at}/tsconfig.json` })],
-  ['TypeScript 7 (native API)', (at = root) => createNativeChecker(ts7api, { root: at, tsconfig: `${at}/tsconfig.json` }, ts7version)],
+  ['TypeScript 6 (compiler API)', (at = root) => createClassicChecker(ts6, { root: at, tsconfig: join(at, 'tsconfig.json') })],
+  ['TypeScript 7 (native API)', (at = root) => createNativeChecker(ts7api, { root: at, tsconfig: join(at, 'tsconfig.json') }, ts7version)],
 ];
 
 describe.each(backends)('%s', (_name, create) => {
+  test('canonicalizes the virtual file path before applying and reverting overrides', () => {
+    const checker = create();
+    try {
+      const mutant = { ...replace('alias-bool', '`hello ${name}`', 'true'), file: `${root}/src/./a.ts` };
+      expect([...checker.check([mutant]).keys()]).toEqual(['alias-bool']);
+      expect(checker.check([replace('after-alias', 's.length', 's.length + 1')]).size).toBe(0);
+    } finally { checker.close(); }
+  });
   test('reports mutants that break types, ignoring pre-existing errors', () => {
     const checker = create();
     try {
@@ -66,7 +75,7 @@ describe.each(backends)('%s', (_name, create) => {
       checker.equivalent([replace('type-input', 's.length', 's.length + 1')]);
       checker.check([replace('type-input', 's.length', 's.length + 1')]);
       expect(checker.inputs.files).toContain(file);
-      expect(checker.inputs.files).toContain(`${root}/tsconfig.json`);
+      expect(checker.inputs.files).toContain(join(root, 'tsconfig.json'));
     } finally { checker.close(); }
   });
 });

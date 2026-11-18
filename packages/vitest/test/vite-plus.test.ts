@@ -5,7 +5,7 @@ import { createSession } from '../src/session.ts';
 
 const root = fileURLToPath(new URL('./fixtures/vite-plus', import.meta.url));
 const slash = (path: string) => path.replaceAll('\\', '/');
-const testId = (title: string) => `${join('test', 'math.test.ts')}#${title}`;
+const testId = (title: string) => `test/math.test.ts#${title}`;
 
 test.each([1, 2])('Vite+ config and imports support coverage and mutant runs across sessions (run %i)', { timeout: 30_000 }, async () => {
   const session = await createSession({ root, include: (file) => file.startsWith(join(root, 'src') + sep), maxWorkers: 1 });

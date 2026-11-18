@@ -1,7 +1,8 @@
+import { relativePath as relative } from '@mizchi/mutator-core';
 // mutation-testing-elements report (the format StrykerJS writes to reports/mutation/mutation.json).
 // Schema: https://github.com/stryker-mutator/mutation-testing-elements/tree/master/packages/report-schema
 import { readFileSync } from 'node:fs';
-import { extname, relative } from 'node:path';
+import { extname } from 'node:path';
 import type { Position } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
 import { POSSIBLY_IN_CHILD_PROCESS, childProcessMessage } from './child-process.ts';

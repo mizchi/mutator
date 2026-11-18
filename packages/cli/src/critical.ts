@@ -1,7 +1,8 @@
+import { relativePath as relative } from '@mizchi/mutator-core';
 // Critical regions: code (auth, permissions, money) where every mutant must be killed or
 // accepted, whatever the global thresholds say. Marked by `critical` globs in the config or
 // by `// mutator-critical` on the line before a function or class (see @mizchi/mutator-core).
-import { matchesGlob, relative } from 'node:path';
+import { matchesGlob } from 'node:path';
 import { reported } from './gate.ts';
 import type { Report, ReportEntry } from './run.ts';
 import { isDetected, isUndetected } from './status.ts';

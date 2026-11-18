@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { instrument } from '@mizchi/mutator-core';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { SETTINGS_ENV, type Settings } from '../src/env.ts';
@@ -36,7 +36,7 @@ test("under mutator it instruments the targets with the CLI's mutant keys, and n
   expect(await transform(plugin, code, join(dir, 'src/other.ts'))).toBeUndefined();
 });
 
-const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
+const core = new URL('../../core/src/index.ts', import.meta.url).href;
 const MUTATOR = `import { defineMutator, definePlugin } from ${JSON.stringify(core)};
 export default definePlugin({
   name: 'fallbacks',
@@ -57,8 +57,8 @@ test("plugin modules and instrument options reach the dev server, as the CLI's s
   writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings));
   process.env[SETTINGS_ENV] = join(dir, 'settings.json');
   const out = await transform(mutatorVite(), SOURCE, target);
-  const fallbacks = (await import(join(dir, 'fallbacks.ts'))).default;
-  const ignorers = (await import(join(dir, 'ignorers.ts'))).default[0].ignorers;
+  const fallbacks = (await import(pathToFileURL(join(dir, 'fallbacks.ts')).href)).default;
+  const ignorers = (await import(pathToFileURL(join(dir, 'ignorers.ts')).href)).default[0].ignorers;
   const expected = instrument(target, SOURCE, { identity: 'src/a.ts', arid: false, excludedMutators: ['StringLiteral'], weak: false, mutators: fallbacks.mutators, ignorers });
   expect(out?.code).toBe(expected.code);
   // Each option changes the output, so a setting the dev server dropped would show.

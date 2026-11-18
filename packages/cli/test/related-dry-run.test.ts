@@ -18,7 +18,7 @@ beforeEach(() => {
   writeFileSync(join(root, 'test/b.test.ts'), "import { test, expect } from 'vitest';\nimport { b } from '../src/b.ts';\ntest('b', () => expect(b(2)).toBe(4));\n");
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
-const file = (name: string) => join('test', `${name}.test.ts`);
+const file = (name: string) => `test/${name}.test.ts`;
 
 test('the first run of each include set runs only importing tests, including re-exports', async () => {
   const marker = join(root, 'b-ran');

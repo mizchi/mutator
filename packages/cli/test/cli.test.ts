@@ -198,7 +198,8 @@ async function startStuck(root: string) {
   return { child, closed, workers };
 }
 
-test.each([
+// POSIX signal exit codes and parent-1 orphan reaping are not Windows contracts.
+test.skipIf(process.platform === 'win32').each([
   ['SIGTERM', 143],
   ['SIGINT', 130],
 ] as const)('%s stops the run and the workers with it, also one stuck in a loop', async (signal, code) => {
@@ -213,7 +214,7 @@ test.each([
   }
 }, 60_000);
 
-test('after SIGKILL, the next run stops the workers the killed run left behind', async () => {
+test.skipIf(process.platform === 'win32')('after SIGKILL, the next run stops the workers the killed run left behind', async () => {
   const root = loopingProject('cli-sigkill');
   const workers: number[] = [];
   try {

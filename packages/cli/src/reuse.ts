@@ -2,8 +2,8 @@
 // (Node, lockfiles, tsconfig, runner config, mutation settings), and keeps the results of
 // mutants this run did not decide.
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapshot, hash } from '@mizchi/mutator-core';
+import { dirname, join, resolve } from 'node:path';
+import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapshot, hash, relativePath as relative } from '@mizchi/mutator-core';
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, scopeTable } from './coverage-cache.ts';
 import type { RunOptions } from './run.ts';
 import type { Runner } from './runner.ts';

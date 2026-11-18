@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { RunnerSetupError } from '@mizchi/mutator-core';
+import { isAbsolute, join } from 'node:path';
+import { RunnerSetupError, relativePath as relative } from '@mizchi/mutator-core';
 import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
 import { ConfigError } from './config.ts';
@@ -226,6 +226,7 @@ function initSkillCommand(argv: string[]): void {
     return;
   }
   for (const { path, status } of initSkills(values.dir ?? DEFAULT_SKILL_DIR, values.force ?? false)) {
-    console.log(status === 'written' ? `wrote ${path}` : `${path} is up to date`);
+    const shown = isAbsolute(path) ? path : relative('.', path);
+    console.log(status === 'written' ? `wrote ${shown}` : `${shown} is up to date`);
   }
 }

@@ -1,5 +1,5 @@
-import { type InstrumentOptions, type Mutant, instrument, instrumentFlags } from '@mizchi/mutator-core';
-import { isAbsolute, normalize, relative } from 'node:path';
+import { type InstrumentOptions, type Mutant, instrument, instrumentFlags, relativePath as relative } from '@mizchi/mutator-core';
+import { isAbsolute, normalize } from 'node:path';
 import type { Plugin } from 'vitest/config';
 
 export interface PluginOptions {

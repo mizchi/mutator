@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Mutant, Session } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { createPlaywrightSession, expectTimeoutFor } from '../src/session.ts';
@@ -152,7 +152,7 @@ export default definePlugin({
     cpSync(fixture, root, { recursive: true });
     await assignPort(root);
     writeFileSync(join(root, 'fallbacks.ts'), PLUGIN);
-    const plugin = (await import(join(root, 'fallbacks.ts'))).default;
+    const plugin = (await import(pathToFileURL(join(root, 'fallbacks.ts')).href)).default;
     const session = await createPlaywrightSession({
       root,
       targets: ['counter.ts', 'main.ts'].map((f) => join(root, 'src', f)),

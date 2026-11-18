@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, matchesGlob, normalize, relative, resolve } from 'node:path';
+import { isAbsolute, matchesGlob, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { debuglog } from 'node:util';
 import {
@@ -16,6 +16,7 @@ import {
   hash,
   numberDuplicates,
   testFingerprint,
+  relativePath as relative,
 } from '@mizchi/mutator-core';
 import type { TestCase, TestModule, TestProject, TestRunResult, Vitest } from 'vitest/node';
 import type { Plugin, UserWorkspaceConfig } from 'vitest/config';

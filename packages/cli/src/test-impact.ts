@@ -1,6 +1,5 @@
 // Test changes select mutation work; regressions compare verdicts only for unchanged code.
-import { relative } from 'node:path';
-import { type Mutant, type MutantResult, type TestInfo, testFileOf } from '@mizchi/mutator-core';
+import { type Mutant, type MutantResult, type TestInfo, testFileOf, relativePath as relative } from '@mizchi/mutator-core';
 import type { ReportEntry } from './run.ts';
 import { isUndetected } from './status.ts';
 

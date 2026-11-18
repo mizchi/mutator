@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
 import { RUNTIME_GLOBAL, defineMutator, instrument } from '@mizchi/mutator-core';
 import { afterEach, beforeEach, expect, test } from 'vitest';
@@ -38,7 +38,7 @@ test('the transformer settings carry every serialisable instrument option, and p
   expect(JSON.parse(JSON.stringify(settings))).toEqual(settings);
 });
 
-const core = fileURLToPath(new URL('../../core/src/index.ts', import.meta.url));
+const core = new URL('../../core/src/index.ts', import.meta.url).href;
 const PLUGIN = `import { defineMutator, definePlugin } from ${JSON.stringify(core)};
 export default definePlugin({
   name: 'fallbacks',
@@ -54,7 +54,7 @@ test("the transformer instruments targets with the session's options, as the ses
   const flags = { arid: false, excludedMutators: ['StringLiteral'], weak: false } as const;
   const transformer = await createTransformer({ ...transformerSettings({ root: dir, targets: [target], pluginModules: [join(dir, 'fallbacks.mjs')], ...flags }), inner: null });
   const out = transformer.process(SOURCE, target, {});
-  const { mutators } = (await import(join(dir, 'fallbacks.mjs'))).default;
+  const { mutators } = (await import(pathToFileURL(join(dir, 'fallbacks.mjs')).href)).default;
   const expected = instrument(target, SOURCE, { identity: 'src/a.js', ...flags, mutators });
   expect(out.code).toBe(expected.code);
   for (const drop of ['arid', 'excludedMutators', 'weak', 'mutators']) {

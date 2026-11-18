@@ -78,6 +78,8 @@ For Vitest and Vite+, the first run with an explicit `include` uses Vite's impor
 
 Inline Vitest `test.projects` keep their own plugins, environments and setup files. With multiple projects, test IDs include the project name after `#` (for example `test/math.test.ts#[unit] add`), and cached mutant runs retain the owning project. Mutator disables Vitest's filesystem transform cache, including inside these projects, so changing `include` cannot reuse an uninstrumented transform.
 
+Relative paths in test IDs, mutant identities, snapshots and reports use `/` on every operating system, including Windows. Absolute paths passed to filesystem and runner APIs retain their platform's format.
+
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
@@ -628,7 +630,7 @@ node scripts/robustness.ts <dir>...   # instrument every file and check the outp
 
 Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.0`, and update the reference explicitly when upgrading.
 
-The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright on both operating systems, the full test suite on Linux, and native-path regression tests on Windows. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants. The remaining Windows test-suite portability issues are tracked in [#25](https://github.com/mizchi/mutator/issues/25).
+The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 
 Both operating systems must pass before the Linux publish job checks the tag against the package versions, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 

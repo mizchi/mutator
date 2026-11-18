@@ -38,7 +38,11 @@ test('records are written per run and read back; unreadable ones are skipped', (
   }
 });
 
-test('processTable lists this process with its parent and its start time (lstart: weekday, month, day, time, year)', () => {
+test('processTable reports POSIX process information, or no information on Windows', () => {
+  if (process.platform === 'win32') {
+    expect(processTable()).toEqual([]);
+    return;
+  }
   const me = processTable().find((p) => p.pid === process.pid);
   expect(me).toMatchObject({ pid: process.pid, ppid: process.ppid });
   expect(me?.start).toMatch(/^[A-Z][a-z]{2} [A-Z][a-z]{2} +\d{1,2} \d{2}:\d{2}:\d{2} \d{4}$/);

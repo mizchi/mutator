@@ -6,7 +6,6 @@
 // CommonJS because Jest loads transformers with require.
 const { createHash } = require('node:crypto');
 const { stripTypeScriptTypes } = require('node:module');
-const { relative } = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const TS = /\.[cm]?tsx?$/;
@@ -37,7 +36,7 @@ async function loadInner(inner) {
 
 async function createTransformer(config) {
   // Core is ESM: a dynamic import works from CommonJS.
-  const { instrument, loadInstrumentFlags } = await import('@mizchi/mutator-core');
+  const { instrument, loadInstrumentFlags, relativePath: relative } = await import('@mizchi/mutator-core');
   // The session's flags and plugin modules, read as the CLI reads them.
   const instrumentOptions = await loadInstrumentFlags(config);
   const inner = await loadInner(config.inner);

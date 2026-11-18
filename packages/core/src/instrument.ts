@@ -1,11 +1,12 @@
 import MagicString from 'magic-string';
-import { type ParserOptions, parseSync } from 'oxc-parser';
+import { parseSync } from 'oxc-parser';
+import { parseSource } from './parse.ts';
 import { type Node, isFunction, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
 import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { criticalLines, disabledBy } from './disable.ts';
 import { emitPlacement, headerInsertion } from './emit.ts';
-import { RAW_TRANSFER, calleeName, importBindings, isReference, reexportBindings, topLevelInfo } from './facts.ts';
+import { calleeName, importBindings, isReference, reexportBindings, topLevelInfo } from './facts.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { type Placement, findPlacement } from './placement.ts';
@@ -21,8 +22,7 @@ export function applyMutant(source: string, mutant: Pick<Mutant, 'range' | 'repl
 }
 
 export function instrument(file: string, source: string, options: InstrumentOptions = {}): InstrumentResult {
-  // `experimentalRawTransfer` is accepted at runtime but missing from the published typings.
-  const parsed = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER, preserveParens: true } as ParserOptions);
+  const parsed = parseSource(file, source, { preserveParens: true });
   if (parsed.errors.length > 0) {
     throw new Error(`Failed to parse ${file}: ${parsed.errors.map((e) => e.message).join('; ')}`);
   }

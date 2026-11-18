@@ -1,15 +1,15 @@
 import { mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { MutantResult, RunSnapshot } from '@mizchi/mutator-core';
 import { describe, expect, test } from 'vitest';
 import { readSnapshot, writeSnapshot } from '../src/snapshot.ts';
 
-const root = '/project';
+const root = resolve('/project');
 const tests = Array.from({ length: 200 }, (_, i) => ({ id: `test/some/long/path/file-${i % 20}.test.ts#describe block > case number ${i}`, fingerprint: `fp${i}`, durationMs: i }));
 const results: MutantResult[] = Array.from({ length: 2000 }, (_, i) => ({
   key: `k${i}`,
-  file: `${root}/src/module-${i % 30}.ts`,
+  file: join(root, 'src', `module-${i % 30}.ts`),
   scopeId: `Scope${i % 50}.method`,
   scopeHash: `h${i % 50}`,
   status: i % 3 === 0 ? 'Killed' : i % 3 === 1 ? 'Survived' : 'NoCoverage',

@@ -5,7 +5,7 @@ import { createSession } from '../src/session.ts';
 
 const root = fileURLToPath(new URL('./fixtures/multi-project', import.meta.url));
 const options = { root, include: (file: string) => file === join(root, 'src', 'math.ts'), maxWorkers: 1 };
-const id = (project: string, name: string) => `${join('test', 'math.test.ts')}#[${project}] ${name}`;
+const id = (project: string, name: string) => `test/math.test.ts#[${project}] ${name}`;
 
 test('inline projects instrument sources and keep their setup and test identities', { timeout: 30_000 }, async () => {
   const session = await createSession(options);

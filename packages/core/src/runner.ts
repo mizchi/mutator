@@ -81,6 +81,11 @@ export interface Session {
   /** Absolute paths of the project's test files. */
   testFiles(): Promise<string[]>;
   /**
+   * Tests importing these sources, for a cold run with an explicit include set.
+   * Undefined means the runner cannot safely narrow the dependency graph.
+   */
+  relatedTestFiles?(sources: readonly string[]): Promise<string[] | undefined>;
+  /**
    * Whether the runner's config excludes this test file (absolute) on purpose, so not collecting
    * it is no mistake. Optional: without it every uncollected test file is reported.
    */

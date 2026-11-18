@@ -74,6 +74,10 @@ npx mutator --shared-cache  # reuse validated results across Git worktrees
 
 Cache validation includes enclosing pnpm/npm workspace manifests and lockfiles, stopping at the repository boundary. Each `--include`/`--exclude` scope keeps its snapshot under `.mutator/scopes/`, so alternating between scopes preserves each scope's results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts. `--shared-cache` stores snapshots under Git's common directory, separated by package, scope and environment, so worktrees can reuse them without a copy script. `select-tests` accepts the same flag. Snapshot writes are atomic.
 
+For Vitest and Vite+, the first run with an explicit `include` uses Vite's import graph to collect coverage only from related test files, including re-exports and literal dynamic imports. Computed imports, CommonJS loading or an unavailable graph fall back to a full dry run. `--full-dry-run` always collects every test file; runners without dependency discovery keep that behavior too.
+
+Inline Vitest `test.projects` keep their own plugins, environments and setup files. With multiple projects, test IDs include the project name after `#` (for example `test/math.test.ts#[unit] add`), and cached mutant runs retain the owning project. Mutator disables Vitest's filesystem transform cache, including inside these projects, so changing `include` cannot reuse an uninstrumented transform.
+
 Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.

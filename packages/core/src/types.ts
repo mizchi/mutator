@@ -120,6 +120,14 @@ export interface ImportBinding {
   source: string;
 }
 
+export interface ImportScan {
+  imports: ImportBinding[];
+  reexports: ImportBinding[];
+  loads: string[];
+  /** Runtime loading that cannot be resolved from the static ESM dependency graph. */
+  opaqueLoads?: true;
+}
+
 export interface InstrumentOptions {
   /** Restrict mutation to these source ranges (e.g. derived from a diff). */
   ranges?: readonly Range[];

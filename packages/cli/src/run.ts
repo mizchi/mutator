@@ -251,7 +251,14 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
-    const dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    let dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
+      const related = await session.relatedTestFiles(files);
+      if (related) {
+        const selected = related.map((file) => relative(root, file));
+        dryPlan = { all: false, files: selected, stale: selected, impacted: [] };
+      }
+    }
     const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,

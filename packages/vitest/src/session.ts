@@ -22,6 +22,7 @@ import type { Plugin, UserWorkspaceConfig } from 'vitest/config';
 import { MutantRegistry, type PluginOptions, mutatorPlugin } from './plugin.ts';
 import type {} from './provided.ts';
 import { resolveTestRuntime } from './runtime.ts';
+import { collectDeps, relatedTestFiles } from './dependencies.ts';
 
 // The runner contract lives in core; re-exported for convenience.
 export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLocation } from '@mizchi/mutator-core';
@@ -119,6 +120,8 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       return [...new Set((await vitest.globTestSpecifications()).map((s) => s.moduleId))].sort();
     },
 
+    relatedTestFiles: (sources) => relatedTestFiles(vitest, sources, { root: options.root, setupFile: SETUP_FILE }),
+
     excludesTestFile(file) {
       return vitest.projects.some((project) => project.config.exclude.some((pattern) => matchesGlob(relative(project.config.root, file), pattern)));
     },
@@ -130,7 +133,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const wanted = files && new Set(files.map(testPathKey));
       const specs = wanted ? all.filter((s) => wanted.has(testPathKey(s.moduleId))) : all;
       const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root, vitest.projects.length > 1) : emptyDryRun();
-      dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options);
+      dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options.root);
       for (const [id, location] of dry.index) locate(id, location);
       return dry;
     },
@@ -325,37 +328,6 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
   }
   for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
   return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map(), infected, spawns };
-}
-
-interface GraphModule {
-  id: string | null;
-  importedModules: Set<GraphModule>;
-}
-
-/** Walk the Vite module graphs the test files were loaded through. */
-function collectDeps(vitest: Vitest, testFiles: readonly string[], options: SessionOptions): Map<string, string[]> {
-  const graphs = vitest.projects.flatMap((project) =>
-    Object.values((project.vite as unknown as { environments?: Record<string, { moduleGraph: { getModuleById(id: string): GraphModule | undefined } }> }).environments ?? {}).map((env) => env.moduleGraph),
-  );
-  const deps = new Map<string, string[]>();
-  for (const testFile of testFiles) {
-    const found = new Set<string>();
-    const visit = (module: GraphModule) => {
-      for (const child of module.importedModules) {
-        const file = child.id?.split('?')[0];
-        if (!file || !isAbsolute(file) || found.has(file) || file.includes('/node_modules/')) continue;
-        found.add(file);
-        visit(child);
-      }
-    };
-    for (const graph of graphs) {
-      const module = graph.getModuleById(testFile);
-      if (module) visit(module);
-    }
-    const local = [...found].filter((f) => f !== testFile && existsSync(f));
-    deps.set(relative(options.root, testFile), local.map((f) => relative(options.root, f)).sort());
-  }
-  return deps;
 }
 
 /** The run as classifyRun reads it. */

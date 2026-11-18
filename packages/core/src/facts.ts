@@ -1,7 +1,7 @@
 // Module facts for the call graph: callees, references, top-level bindings, imports and re-exports.
 import { type ParserOptions, parseSync, rawTransferSupported } from 'oxc-parser';
-import { type Frame, type Node, isFunction, unwrap } from './ast.ts';
-import type { ImportBinding } from './types.ts';
+import { type Frame, type Node, isFunction, unwrap, walk } from './ast.ts';
+import type { ImportBinding, ImportScan } from './types.ts';
 
 export const RAW_TRANSFER = rawTransferSupported();
 
@@ -38,14 +38,20 @@ const moduleExportName = (node: Node): string => node.name ?? node.value;
  * Value imports and re-exports of a module, without instrumenting it, and the specifiers of
  * every module it loads statically (`loads`: side-effect imports included, type-only ones not).
  */
-export function scanImports(file: string, source: string): { imports: ImportBinding[]; reexports: ImportBinding[]; loads: string[] } {
-  const { program } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
+export function scanImports(file: string, source: string): ImportScan {
+  const { program, errors } = parseSync(file, source, { experimentalRawTransfer: RAW_TRANSFER } as ParserOptions);
   const loads: string[] = [];
   for (const st of program.body as Node[]) {
     const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;
     if (st.source && kind !== 'type' && !loads.includes(st.source.value)) loads.push(st.source.value);
   }
-  return { imports: importBindings(program), reexports: reexportBindings(program), loads };
+  const imports = importBindings(program);
+  let opaque = errors.length > 0 || imports.some((binding) => ['node:module', 'module'].includes(binding.source) && ['createRequire', '*', 'default'].includes(binding.imported));
+  walk(program as unknown as Node, ({ node }) => {
+    if (node.type === 'ImportExpression' && (node.source.type !== 'Literal' || typeof node.source.value !== 'string')) opaque = true;
+    if (node.type === 'CallExpression' && ['require', 'module.require', 'createRequire', 'module.createRequire'].includes(calleeName(node.callee) ?? '')) opaque = true;
+  });
+  return { imports, reexports: reexportBindings(program), loads, ...(opaque ? { opaqueLoads: true as const } : {}) };
 }
 
 /** Identifier references (not property names, object keys or labels). */

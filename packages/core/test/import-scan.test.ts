@@ -8,6 +8,10 @@ test.each([
   "import { createRequire } from 'node:module'; const load = createRequire(import.meta.url);",
   "import { execFileSync } from 'node:child_process';",
   "import { Worker } from 'node:worker_threads';",
+  "export { spawn } from 'node:child_process';",
+  "const { spawn } = await import('node:child_process');",
+  "const { Worker } = await import('worker_threads');",
+  "const { createRequire } = await import('node:module');",
   'const = ;',
 ])('marks module loads outside the static ESM graph: %s', (source) => {
   expect(scanImports('module.ts', source).opaqueLoads).toBe(true);

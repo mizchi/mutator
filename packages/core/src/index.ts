@@ -1,6 +1,6 @@
 export type * from './types.ts';
 export type * from './runner.ts';
-export { RunnerSetupError, emptyDryRun, instrumentFlags, numberDuplicates, portableFlags, testFileOf, testFingerprint } from './runner.ts';
+export { RunnerSetupError, describeError, emptyDryRun, instrumentFlags, numberDuplicates, portableFlags, testFileOf, testFingerprint } from './runner.ts';
 export {
   type PluginParts,
   PluginError,

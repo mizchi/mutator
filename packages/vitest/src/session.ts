@@ -12,6 +12,7 @@ import {
   type TestLocation,
   DEFAULT_HIT_LIMIT,
   classifyRun,
+  describeError,
   emptyDryRun,
   hash,
   numberDuplicates,
@@ -296,6 +297,7 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
   const hits = new Map<string, number>();
   const staticKeys = new Set<string>();
   const failed: string[] = [];
+  const failures = new Map<string, string>();
   const index = new Map<string, TestLocation>();
   const staticByFile = new Map<string, Set<string>>();
   const infected = new Map<string, string[]>();
@@ -314,6 +316,7 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
     for (const [key, n] of Object.entries(moduleMeta.mutatorCounts ?? {})) hits.set(key, (hits.get(key) ?? 0) + n);
     if (module.errors().length > 0) {
       failed.push(relative(root, module.moduleId));
+      failures.set(relative(root, module.moduleId), describeError(module.errors()[0]));
       for (const error of module.errors()) debug('%s: %s\n%s', module.moduleId, error.message, error.stack ?? '');
     }
     const fingerprint = hash(readFileSync(module.moduleId, 'utf8'));
@@ -322,7 +325,11 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
       index.set(id, { moduleId: module.moduleId, taskId: test.id, ...(module.project.isRootProject() ? {} : { projectName: module.project.name }) });
       const state = test.result().state;
       if (state === 'skipped') continue;
-      if (state === 'failed') failed.push(id);
+      if (state === 'failed') {
+        failed.push(id);
+        const error = test.result().errors?.[0];
+        if (error) failures.set(id, describeError(error));
+      }
       tests.push({ id, fingerprint: testFingerprint(fingerprint, id), durationMs: test.diagnostic()?.duration ?? 0 });
       const testHits = test.options.concurrent
         ? (moduleMeta.mutatorConcurrent ?? {})
@@ -340,8 +347,12 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
       if (spawned) spawns.set(id, spawned);
     }
   }
-  for (const error of result.unhandledErrors) failed.push(String((error as Error)?.message ?? error));
-  return { tests, coverage, staticKeys, failed, hits, index, staticByFile, deps: new Map(), infected, spawns };
+  for (const error of result.unhandledErrors) {
+    const id = String((error as Error)?.message ?? error);
+    failed.push(id);
+    failures.set(id, describeError(error));
+  }
+  return { tests, coverage, staticKeys, failed, failures, hits, index, staticByFile, deps: new Map(), infected, spawns };
 }
 
 /** The run as classifyRun reads it. */

@@ -2,7 +2,7 @@ import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-import { runMutation } from '../src/run.ts';
+import { BaselineError, runMutation } from '../src/run.ts';
 import { fixtureGit as git } from './fixture-git.ts';
 
 const fixture = fileURLToPath(new URL('../../jest/test/fixtures/esm', import.meta.url));
@@ -68,5 +68,17 @@ describe('runMutation with Jest (ESM)', { timeout: 120_000 }, () => {
     const report = await runMutation({ root, log: (m) => logs.push(m) });
     expect(logs).toContain('runner: jest');
     expect(byStatus(report).Killed).toContain('a + b -> a - b');
+  });
+
+  test('a failing baseline names each failing test or file with its first error', async () => {
+    writeFileSync(join(root, '__tests__/fails.test.js'), "import { add } from '../src/math.js';\ntest('wrong sum', () => {\n  expect(add(1, 2)).toBe(4);\n});\n");
+    writeFileSync(join(root, '__tests__/broken.test.js'), "import { add } from '../src/math.js';\nthrow new Error('boom while importing broken');\ntest('never', () => add(1, 1));\n");
+    const error = await runMutation({ root, runner: 'jest', concurrency: 1 }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(BaselineError);
+    const message = (error as Error).message;
+    expect(message).toContain('__tests__/fails.test.js#wrong sum');
+    expect(message).toMatch(/Expected: 4/);
+    expect(message).toContain('__tests__/broken.test.js');
+    expect(message).toContain('boom while importing broken');
   });
 });

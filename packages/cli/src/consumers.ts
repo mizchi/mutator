@@ -10,6 +10,7 @@ export interface SourceInfo {
   scopes: readonly Scope[];
   imports: readonly ImportBinding[];
   reexports: readonly ImportBinding[];
+  loads?: readonly string[];
 }
 
 export interface Importer {

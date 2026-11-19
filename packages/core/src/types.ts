@@ -58,6 +58,8 @@ export interface Scope {
   declares?: string[];
   /** Top-level statements: a declaration whose evaluation has no side effects. */
   pure?: boolean;
+  /** Complete top-level statement for comparing initialization order. Hoisted functions are omitted. */
+  initializationHash?: string;
 }
 
 export interface Mutant {
@@ -104,6 +106,8 @@ export interface InstrumentResult {
   calls: CallSite[];
   /** Value imports of the file. */
   imports: ImportBinding[];
+  /** Modules loaded by static imports and re-exports, including side-effect imports. */
+  loads: string[];
   /** `export ... from` bindings: `local` is the exported name (`*` for `export *`). */
   reexports: ImportBinding[];
 }

@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { applyEdit, log, parseOurCounts, setupClone, sh } from './lib.ts';
+import { applyEdit, log, parseOurCounts, setupClone, sh, shellQuote } from './lib.ts';
 
 export interface Edit {
   file: string;
@@ -199,7 +199,7 @@ function measureOurs(spec: Spec, dir: string, measurements: Measurement[]): void
   const state = join(WORK, 'state', spec.name);
   mkdirSync(state, { recursive: true });
   const snapshot = join(dir, '.mutator', 'snapshot.json');
-  const include = spec.mutate.map((g) => `--include '${g}'`).join(' ');
+  const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
   const base = `node ${CLI} --root ${dir} ${include} --reporter text --reporter json`;
   const reset = (from?: string) => {
     rmSync(join(dir, '.mutator'), { recursive: true, force: true });

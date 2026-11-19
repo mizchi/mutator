@@ -15,7 +15,7 @@ import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { availableParallelism, cpus, loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { type OurCounts, applyEdit, log, parseOurCounts, setupClone, sh } from './lib.ts';
+import { type OurCounts, applyEdit, log, parseOurCounts, setupClone, sh, shellQuote } from './lib.ts';
 import type { Spec } from './run.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
@@ -41,7 +41,7 @@ function timed(cmd: string, cwd: string): { wallMs: number; result: ReturnType<t
 const suiteCommand = (runner: Runner) => (runner === 'vitest' ? 'node_modules/.bin/vitest run' : 'bun test');
 
 function mutator(spec: Spec, runner: Runner, extra: string[] = []): string {
-  const include = spec.mutate.map((g) => `--include '${g}'`).join(' ');
+  const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
   return `node ${CLI} --root . --runner ${runner} ${include} --reporter text --reporter json ${extra.join(' ')}`;
 }
 

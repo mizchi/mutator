@@ -9,6 +9,9 @@ export function log(message: string): void {
   console.error(`[bench ${new Date().toISOString().slice(11, 19)}] ${message}`);
 }
 
+/** `s` as one literal `sh` word: single-quoted, with its own single quotes escaped. */
+export const shellQuote = (s: string): string => `'${s.replaceAll("'", "'\\''")}'`;
+
 export function sh(cmd: string, cwd: string, allowFail = false): SpawnSyncReturns<string> {
   const r = spawnSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', maxBuffer: 1 << 30 });
   if (r.status !== 0 && !allowFail) throw new Error(`${cmd} (in ${cwd}) failed:\n${r.stdout}\n${r.stderr}`);

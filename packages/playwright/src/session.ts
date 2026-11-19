@@ -37,6 +37,8 @@ export interface PlaywrightSessionOptions extends Pick<InstrumentOptions, 'arid'
   targets: readonly string[];
   /** Playwright config file; defaults to playwright.config.* in `root`. */
   configFile?: string;
+  /** Override Playwright workers for dry runs and mutant runs in this session. */
+  maxWorkers?: number;
   /** Custom mutators / ignorers, used for `mutants()` in this process. */
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
@@ -150,7 +152,8 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
     await serve();
     const results = join(dir, `results-${runs++}.json`);
     writeFileSync(runFile, JSON.stringify({ ...run, results } satisfies RunConfig));
-    return runner.run({ ...request, results }, timeoutMs);
+    const workers = options.maxWorkers ?? (run.active === null ? undefined : 1);
+    return runner.run({ ...request, ...(workers !== undefined ? { workers } : {}), results }, timeoutMs);
   };
 
   const measure = (outcome: RunnerOutcome) => {
@@ -228,8 +231,6 @@ export async function createPlaywrightSession(options: PlaywrightSessionOptions)
         {
           locations: [...filters],
           projects: [...projects],
-          // One worker per run: mutator runs several mutants at once.
-          workers: 1,
           ...(earlyExit ? { maxFailures: 1 } : {}),
         },
         { active: key, hitLimit, expectTimeout: expectTimeoutFor(durations) },

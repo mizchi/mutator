@@ -32,6 +32,8 @@ export interface JestSessionOptions {
   targets: readonly string[];
   /** Jest config file; defaults to Jest's own lookup from `root`. */
   configFile?: string;
+  /** Worker limit for discovery and dry runs. Mutants run in band. */
+  maxWorkers?: number;
   arid?: InstrumentOptions['arid'];
   excludedMutators?: InstrumentOptions['excludedMutators'];
   weak?: InstrumentOptions['weak'];
@@ -90,7 +92,8 @@ export async function createJestSession(options: JestSessionOptions): Promise<Se
   const project: JestProject = await readJestProject(root, options.configFile);
   const dir = mkdtempSync(join(tmpdir(), 'mutator-jest-'));
   const configPath = join(dir, 'jest.config.json');
-  writeFileSync(configPath, JSON.stringify(mutatorJestConfig(project, transformerSettings(options), join(dir, 'cache'))));
+  const config = mutatorJestConfig(project, transformerSettings(options), join(dir, 'cache'));
+  writeFileSync(configPath, JSON.stringify({ ...config, ...(options.maxWorkers ? { maxWorkers: options.maxWorkers } : {}) }));
 
   const locations = new Map<string, TestLocation>();
   let mutants: Mutant[] | undefined;

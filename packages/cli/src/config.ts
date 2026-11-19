@@ -25,6 +25,8 @@ export interface MutatorConfig {
   sharedCache?: boolean;
   scope?: 'node' | 'scope';
   concurrency?: number;
+  /** Total active test workers across all sessions in this invocation. */
+  maxWorkers?: number;
   /** CI partition of mutant keys, one-based INDEX/COUNT (for example '1/4'). */
   shard?: string;
   /** Test runner (default 'auto': Vitest or Jest; slower Playwright browser runs require explicit opt-in). */
@@ -100,6 +102,7 @@ const properties = {
   sharedCache: { description: 'Store snapshots in the Git common directory for reuse across worktrees; separate scopes and environments.', type: 'boolean' },
   scope: { description: 'Diff granularity: changed nodes, or whole enclosing functions.', enum: ['node', 'scope'] },
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
+  maxWorkers: { description: 'Maximum active test workers across all sessions, including the dry run.', type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
   shard: { description: 'CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.', type: 'string' },
   runner: { description: 'Test runner; auto picks Vitest or Jest. Playwright browser mutation runs can be slow and require explicit opt-in.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },

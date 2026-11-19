@@ -8,6 +8,7 @@ import {
   type SelectMode,
   type TestInfo,
   buildCallGraph,
+  hash,
   plan,
   relatedScopes,
   selectPerLine,
@@ -18,6 +19,8 @@ import {
 import { applyAcceptance } from './accepted.ts';
 import { formatBaselineFailure } from './baseline.ts';
 import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';
+import { Checkpoint } from './checkpoint.ts';
+import type { MutationProgress } from './progress.ts';
 import type { RunEstimate } from './estimate.ts';
 import { type SpawningTest, childProcessReach, possiblyInChildProcess } from './child-process.ts';
 import { type CliSnapshot, type MergedDryRun, mergeDryRun, planDryRun, testFileHashes } from './coverage-cache.ts';
@@ -93,6 +96,8 @@ export interface RunOptions {
   fullDryRun?: boolean;
   /** Parallel runner sessions running mutants (default: half the CPUs). */
   concurrency?: number;
+  /** Total active test workers across all sessions in this invocation. */
+  maxWorkers?: number;
   /** CI partition of mutant keys; stable across machines, cache state and test timings. */
   shard?: Shard;
   /** Run at most this many mutants per source line (see `selectPerLine`); the rest are Pending. */
@@ -104,6 +109,8 @@ export interface RunOptions {
    * lists every test that fails; the report then lists tests that detect nothing or are subsumed.
    */
   killMatrix?: boolean;
+  /** Large runs emit progress until execution ends (undefined). */
+  onProgress?: (state: MutationProgress | undefined) => void;
   log?: (message: string) => void;
 }
 
@@ -235,9 +242,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const unguard = guardWorkerExits(log);
   const restorePath = exposeProjectBin(root);
   let early: EarlyTypecheck | undefined;
+  let checkpoint: Checkpoint | undefined;
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
-    const { mutants, sources, graphSources } = collectSources(root, files, instrumentOptions);
+    const { mutants, sources, graphSources, sourceHashes } = collectSources(root, files, instrumentOptions);
     const mutated = new Set(files.map((f) => relative(root, f)));
     const envFiles = environmentFiles(root, session.configFiles().map((f) => relative(root, f)));
     const envHash = environmentHash(root, mutationSettings(options, { runner, arid, plugins }), envFiles);
@@ -335,10 +343,26 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early, reusable?.typecheck);
     applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
-    log(`${assigned.length} mutants, ${jobs.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
     const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));
     const previousDurations = new Map((reusable?.results ?? []).flatMap((r) => r.durationMs === undefined ? [] : [[r.key, r.durationMs] as const]));
-    const { executed, timeoutRetries, runtimeErrorRetries, estimate } = await executeJobs(jobs, tally, { root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget, concurrency: options.concurrency, killMatrix: options.killMatrix ?? false, fileOverheadMs, previousDurations });
+    const killMatrix = options.killMatrix ?? false;
+    let remaining = jobs;
+    if (jobs.length) {
+      const inputs = hash(JSON.stringify([
+        SNAPSHOT_VERSION, root, envHash, options.weakMutation ?? true, killMatrix, options.timeoutMs, options.timeoutFactor,
+        Object.entries(sourceHashes).sort(), Object.entries(finalTestFiles).sort(),
+      ]));
+      checkpoint = new Checkpoint(snapshotPath + '.resume.sqlite', inputs);
+      remaining = checkpoint.restore(jobs, tally, killMatrix);
+    }
+    log(`${assigned.length} mutants, ${remaining.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
+    const resumed = jobs.length - remaining.length;
+    if (resumed) log(`resumed ${resumed}/${jobs.length} mutants from checkpoint, ${remaining.length} left to run`);
+    const { executed, timeoutRetries, runtimeErrorRetries, estimate } = await executeJobs(remaining, tally, {
+      root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget,
+      concurrency: options.concurrency, killMatrix, fileOverheadMs, previousDurations, resumed,
+      ...(checkpoint ? { checkpoint } : {}), ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    });
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     const regressions = detectionRegressions(reusable?.results ?? [], report, reusable?.testReview?.regressions);
@@ -358,6 +382,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (typecheck.cache) snapshot.typecheck = typecheck.cache;
     writeSnapshot(snapshotPath, snapshot, root);
     if (!options.snapshotPath && !shard) publishSnapshot(snapshotPath, join(root, '.mutator/snapshot.json'));
+    checkpoint?.finish();
     if (inScope) {
       for (const e of report) {
         const focus = inScope.get(e.mutant.key);
@@ -400,6 +425,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
     };
   } finally {
+    checkpoint?.close();
     early?.cancel();
     await Promise.all(sessions.map((s) => s.close()));
     unguard();

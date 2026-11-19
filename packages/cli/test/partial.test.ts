@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { type Report, runMutation } from '../src/run.ts';
 import { readSnapshot } from '../src/snapshot.ts';
+import { fixtureGit } from './fixture-git.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/multi', import.meta.url));
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
@@ -73,8 +73,7 @@ describe('portable snapshot', { timeout: 60_000 }, () => {
     mkdirSync(tmpRoot, { recursive: true });
     const a = join(tmpRoot, `shared-a-${process.pid}`);
     const b = join(tmpRoot, `shared-b-${process.pid}`);
-    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: a, env });
+    const git = (...args: string[]) => fixtureGit(a, ...args);
     try {
       cpSync(fixture, a, { recursive: true });
       writeFileSync(join(a, '.gitignore'), '.mutator/\n');
@@ -134,8 +133,7 @@ describe('--since keeps invalidation for out-of-diff mutants', { timeout: 60_000
     mkdirSync(tmpRoot, { recursive: true });
     const root = join(tmpRoot, `since-${process.pid}-${Math.random().toString(36).slice(2)}`);
     cpSync(fixture, root, { recursive: true });
-    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    const git = (...args: string[]) => fixtureGit(root, ...args);
     try {
       git('init', '-q', '-b', 'main');
       git('add', '-A');
@@ -166,8 +164,7 @@ describe('--since leaves out-of-diff mutants undecided', { timeout: 60_000 }, ()
     mkdirSync(tmpRoot, { recursive: true });
     const root = join(tmpRoot, `since-weak-${process.pid}-${Math.random().toString(36).slice(2)}`);
     cpSync(fixture, root, { recursive: true });
-    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    const git = (...args: string[]) => fixtureGit(root, ...args);
     try {
       git('init', '-q', '-b', 'main');
       git('add', '-A');
@@ -191,8 +188,7 @@ describe('--since runs the diff only', { timeout: 60_000 }, () => {
     mkdirSync(tmpRoot, { recursive: true });
     const root = join(tmpRoot, `${name}-${process.pid}-${Math.random().toString(36).slice(2)}`);
     cpSync(fixture, root, { recursive: true });
-    const env = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, env });
+    const git = (...args: string[]) => fixtureGit(root, ...args);
     git('init', '-q', '-b', 'main');
     git('add', '-A');
     git('commit', '-q', '-m', 'init');

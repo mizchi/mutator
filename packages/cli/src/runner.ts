@@ -55,7 +55,7 @@ export interface RunnerSessionOptions extends Pick<InstrumentOptions, 'arid' | '
   pluginModules: readonly string[];
   /** Plugins given as objects cannot reach a runner in another process. */
   hasPluginObjects: boolean;
-  /** Vitest only: worker threads per session. */
+  /** Test workers assigned to this session. */
   maxWorkers?: number;
   /** Playwright only: Chromium V8 coverage remapped to source scopes. */
   sourceCoverage?: boolean;
@@ -80,6 +80,7 @@ export async function createRunnerSession(runner: Runner, options: RunnerSession
       root,
       targets: [...targets],
       ...instrument,
+      ...(maxWorkers ? { maxWorkers } : {}),
       ...(sourceCoverage !== undefined ? { sourceCoverage } : {}),
       ...(pluginModules.length ? { pluginModules } : {}),
       ...(configFile ? { configFile } : {}),
@@ -89,6 +90,7 @@ export async function createRunnerSession(runner: Runner, options: RunnerSession
   return createJestSession({
     root,
     targets: [...targets],
+    ...(maxWorkers ? { maxWorkers } : {}),
     ...instrument,
     ...(pluginModules.length ? { pluginModules } : {}),
     ...(configFile ? { configFile } : {}),

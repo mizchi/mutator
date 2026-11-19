@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { assignPort } from '../../playwright/test/port.ts';
 import { BaselineError, listMutants, runMutation } from '../src/run.ts';
 import { selectTestsSince, selectionFiles } from '../src/select-tests.ts';
+import { fixtureGit } from './fixture-git.ts';
 
 const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 const fixture = fileURLToPath(new URL('../../playwright/test/fixtures/app', import.meta.url));
@@ -78,7 +79,7 @@ test('other', async ({ page }) => { await page.goto('/other.html'); await expect
     const main = join(root, 'src/main.ts');
     writeFileSync(main, "import { identity } from './identity.ts';\n" + readFileSync(main, 'utf8').replace('const n = inc(Number(count.textContent));', 'const n = identity(inc(Number(count.textContent)));'));
     writeFileSync(join(root, '.gitignore'), '.mutator/\n');
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe', env: { ...process.env, GIT_AUTHOR_NAME: 'test', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'test', GIT_COMMITTER_EMAIL: 'test@example.com' } });
+    const git = (...args: string[]) => fixtureGit(root, ...args);
     git('init', '-q'); git('add', '.'); git('commit', '-qm', 'baseline');
     const options = { root, runner: 'playwright' as const, playwrightSourceCoverage: true, include: ['src/*.ts'], excludedMutators: ['ArrowFunction'], typecheck: false as const, concurrency: 1, timeBudget: 60 };
     const key = (await listMutants(options)).find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!.key;

@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.5 - 2026-11-19
+
+### Added
+
+- Set `--max-workers` or `maxWorkers` in the config to cap active test workers across a mutator invocation. The baseline can use the full budget. During mutation testing, `-j 2 --max-workers 8` gives two concurrent Vitest or Playwright sessions up to four workers each. Jest runs each mutant in band.
+
+### Changed
+
+- Watch mode now waits one second before its initial run and groups edits into one-second windows. Use `--watch-throttle 5000` for five seconds or `--watch-throttle 0` for immediate scheduling. Continued edits keep the original deadline, and edits during a run queue one follow-up.
+
+## 0.4.4 - 2026-11-19
+
+### Added
+
+- Use `--watch` to rerun mutation tests on edits. In Git it defaults to the working-tree diff against `HEAD` and includes mutants covered by changed tests.
+
+### Fixed
+
+- The installed Vitest adapter uses the project's Vitest for its worker setup when pnpm installs separate copies for different peer dependencies (#32).
+- Git commands in repository fixtures, diff selection and shared-cache discovery use their target directory when invoked from a Git hook (#44).
+
+## 0.4.3 - 2026-11-19
+
+### Added
+
+- **Progress for long runs.** After the baseline and type check, the CLI shows a progress bar when mutant execution is estimated to take at least 10 seconds or there are at least 100 mutants to run. The bar shows completed mutants, elapsed time and ETA on stderr. Redirected output keeps line-by-line progress, so `--reporter agent` still writes a single JSON document to stdout.
+- **Resume after interruption.** Run the same command again after Ctrl-C or a terminated process. The CLI saves each completed verdict to a SQLite checkpoint, rechecks the baseline and type information on restart, and reports how many verdicts it restored. Unfinished mutants run again. Changes to sources, tracked tests or execution settings can invalidate saved verdicts.
+
 ## 0.4.2 - 2026-11-19
 
 ### Fixed

@@ -84,6 +84,20 @@ describe('detectRunner', () => {
     expect(() => withoutNodePath(() => detectRunner(installing('@playwright/test')))).toThrow('Playwright mutation testing is opt-in');
   });
 
+  test('a Bun project (bunfig.toml or a Bun lockfile) without Vitest or Jest selects bun', () => {
+    for (const file of ['bunfig.toml', 'bun.lock', 'bun.lockb']) {
+      expect(withoutNodePath(() => detectRunner(project({ [file]: '' }, tmpdir())))).toBe('bun');
+    }
+  });
+
+  test('a Bun project that uses Vitest or Jest keeps it', () => {
+    expect(detectRunner(project({ 'bun.lock': '', 'vitest.config.ts': '' }))).toBe('vitest');
+    expect(detectRunner(project({ 'bun.lock': '', 'jest.config.js': '' }))).toBe('jest');
+    const installed = installing('vitest');
+    writeFileSync(join(installed, 'bun.lock'), '');
+    expect(withoutNodePath(() => detectRunner(installed))).toBe('vitest');
+  });
+
   test('without configs or an installed runner, detection fails naming the root', () => {
     const root = installing();
     expect(() => withoutNodePath(() => detectRunner(root))).toThrow(`no automatic test runner found: neither vitest (or vite-plus) nor jest resolves from ${root}`);

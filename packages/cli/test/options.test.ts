@@ -148,7 +148,7 @@ describe('runner options', () => {
   });
 
   test('an unknown runner is a ConfigError', async () => {
-    await expect(resolve(project(), '--runner', 'mocha')).rejects.toThrow('--runner must be one of "vitest", "jest", "playwright", "auto"');
+    await expect(resolve(project(), '--runner', 'mocha')).rejects.toThrow('--runner must be one of "vitest", "jest", "bun", "playwright", "auto"');
   });
 });
 
@@ -231,6 +231,12 @@ describe('runner config files', () => {
     const root = project();
     const options = await resolve(root, '--config', 'vitest.unit.ts', '--jest-config', 'jest.unit.mjs');
     expect(options.run).toMatchObject({ configFile: join(root, 'vitest.unit.ts'), jestConfigFile: join(root, 'jest.unit.mjs') });
+  });
+
+  test('--bun-config (or bunConfig) is the bunfig.toml for bun test', async () => {
+    const root = project({ runner: 'bun', bunConfig: 'bunfig.ci.toml' });
+    expect((await resolve(root)).run).toMatchObject({ runner: 'bun', bunConfigFile: join(root, 'bunfig.ci.toml') });
+    expect((await resolve(root, '--bun-config', 'other.toml')).run).toMatchObject({ bunConfigFile: join(root, 'other.toml') });
   });
 
   test('--playwright-config (or playwrightConfig) is the playwright config', async () => {

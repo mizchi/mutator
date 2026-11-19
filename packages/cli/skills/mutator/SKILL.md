@@ -1,8 +1,8 @@
 ---
 name: mutator
-description: Set up and run mutator (@mizchi/mutator), diff-driven mutation testing for TypeScript/JavaScript projects tested with Vitest, Jest (native ESM) or Playwright Test. Use when asked to add mutation testing to a project, to run it on a change or in CI, to read its report (killed, survived, not detected / not infected / not reached), or to configure thresholds, critical regions, accepted mutants or the GitHub Action.
+description: Set up and run mutator (@mizchi/mutator), diff-driven mutation testing for TypeScript/JavaScript projects tested with Vitest, Jest (native ESM), Bun's test runner or Playwright Test. Use when asked to add mutation testing to a project, to run it on a change or in CI, to read its report (killed, survived, not detected / not infected / not reached), or to configure thresholds, critical regions, accepted mutants or the GitHub Action.
 license: MIT
-compatibility: Node.js 24+, git; Vitest 5, Jest 30 (native ESM) or Playwright Test with a Vite dev server
+compatibility: Node.js 24+, git; Vitest 5, Jest 30 (native ESM), Bun 1.4+ (bun test) or Playwright Test with a Vite dev server
 ---
 
 # mutator
@@ -22,7 +22,7 @@ pnpm add -D @mizchi/mutator    # or npm i -D / yarn add -D
 
 ## 2. Pick the runner
 
-`--runner auto` (the default) selects unit runners only: `vitest.config.*` / `vite.config.*` → Vitest, `jest.config.*` (or a `jest` field) → Jest, then installed Vitest / Vite+ or Jest. Playwright browser mutation testing is opt-in and can take much longer: enable it with `runner: 'playwright'` in `mutator.config.ts` (or an explicit `--runner playwright` / `--playwright-config` flag). Installing Playwright or adding `playwright.config.*` does not enable it. Details per runner: [references/runners.md](references/runners.md).
+`--runner auto` (the default) selects unit runners only: `vitest.config.*` / `vite.config.*` → Vitest, `jest.config.*` (or a `jest` field) → Jest, then installed Vitest / Vite+ or Jest, then `bun test` in a Bun project (`bunfig.toml` / `bun.lock`). Playwright browser mutation testing is opt-in and can take much longer: enable it with `runner: 'playwright'` in `mutator.config.ts` (or an explicit `--runner playwright` / `--playwright-config` flag). Installing Playwright or adding `playwright.config.*` does not enable it. Details per runner: [references/runners.md](references/runners.md).
 
 For a complete Vite/Chromium project, see the [runnable Playwright source-coverage sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md). From a checkout of the repository, run `pnpm --dir examples/playwright-source-coverage run verify` after installing dependencies and Chromium as described there. It verifies ordinary E2Es, source-to-test correspondence, cache reuse, source-only edits and incremental/cold agreement in a disposable copy.
 

@@ -10,6 +10,8 @@ import type { RunOptions } from './run.ts';
 import { type Runner, type RunnerSessionOptions, detectRunner } from './runner.ts';
 
 const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
+// What the instrumenter parses; `--include 'dir/**'` also matches directories and other files.
+const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
 /** `bun test` also collects `*_test.*` and `*_spec.*` files: they are tests, not sources. */
 const BUN_TEST_EXCLUDE = ['**/*_{test,spec}.*'];
@@ -36,7 +38,7 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
   const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
     cwd: root,
     exclude: [...DEFAULT_EXCLUDE, ...(runner === 'bun' ? BUN_TEST_EXCLUDE : []), ...(options.exclude ?? [])],
-  }).map((f) => join(root, f));
+  }).map((f) => join(root, f)).filter((f) => SOURCE_FILE.test(f) && isFile(f));
   const configFile = configs[runner];
   const workerLimit = options.maxWorkers === undefined ? '' : ` (total test worker limit: ${options.maxWorkers})`;
   log(`runner: ${runner}${workerLimit}`);

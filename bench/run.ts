@@ -200,7 +200,7 @@ function measureOurs(spec: Spec, dir: string, measurements: Measurement[]): void
   mkdirSync(state, { recursive: true });
   const snapshot = join(dir, '.mutator', 'snapshot.json');
   const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
-  const base = `node ${CLI} --root ${dir} ${include} --reporter text --reporter json`;
+  const base = `node ${shellQuote(CLI)} --root ${shellQuote(dir)} ${include} --reporter text --reporter json`;
   const reset = (from?: string) => {
     rmSync(join(dir, '.mutator'), { recursive: true, force: true });
     if (from) {

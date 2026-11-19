@@ -42,7 +42,7 @@ const suiteCommand = (runner: Runner) => (runner === 'vitest' ? 'node_modules/.b
 
 function mutator(spec: Spec, runner: Runner, extra: string[] = []): string {
   const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
-  return `node ${CLI} --root . --runner ${runner} ${include} --reporter text --reporter json ${extra.join(' ')}`;
+  return `node ${shellQuote(CLI)} --root . --runner ${runner} ${include} --reporter text --reporter json ${extra.join(' ')}`;
 }
 
 /** mutant key -> status, from the JSON report. */

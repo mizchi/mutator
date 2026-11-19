@@ -58,15 +58,16 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   });
   const { estimate } = prediction;
   if (jobs.length > 0) log(`estimated mutant execution: ~${formatDuration(estimate.durationMs)} (${concurrency} sessions; ${estimate.historySamples}/${jobs.length} historical timings, remaining costs from dry run)`);
-  // With an explicit budget, share all slots, giving one extra to each of the first
-  // sessions until the remainder is used. A lone session reuses the baseline's budget.
-  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, (_, index) => {
+  const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
+  // Once the deadline has passed, no new session needs to start.
+  const parallel = concurrency > 1 && performance.now() < deadline;
+  // Distribute the worker budget across the sessions, including any remainder.
+  const workers = !parallel ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, (_, index) => {
     const maxWorkers = budget === undefined ? 1 : Math.floor(budget / concurrency) + Number(index < budget % concurrency);
     return createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers });
   }));
-  if (concurrency > 1) ctx.sessions.push(...workers);
+  if (parallel) ctx.sessions.push(...workers);
   for (const s of workers) s.useTestIndex(merged.index);
-  const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
   let observedWorkMs = 0;
   let completedCostMs = 0;

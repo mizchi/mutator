@@ -17,7 +17,7 @@ on:
         description: Commit sha to diff against (empty for a full run)
         default: ''
       time-budget:
-        description: Seconds after which no new mutant run starts
+        description: Seconds after which no further mutant is type-checked or started
         default: '600'
 
 concurrency:

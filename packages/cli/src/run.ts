@@ -102,7 +102,7 @@ export interface RunOptions {
   shard?: Shard;
   /** Run at most this many mutants per source line (see `selectPerLine`); the rest are Pending. */
   mutantsPerLine?: number;
-  /** Seconds from the start of the run after which no new mutant run starts; the rest are Pending. */
+  /** Seconds from the start of the run after which no further mutant is type-checked and no new mutant run starts; the rest are Pending. */
   timeBudget?: number;
   /**
    * Measure the kill matrix: mutants run every covering test without early exit, so `killedBy`
@@ -340,7 +340,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (shard) log(`shard ${shard.index}/${shard.total}: ${assigned.length}/${mutants.length} mutants`);
     const { tally, jobs, notInfected } = classifyPlan(assigned, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
-    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, early, reusable?.typecheck);
+    // Only mutants still to decide reach the type checker (sampled-out ones are already Pending),
+    // within the time budget: those it does not reach stay Pending.
+    const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : undefined;
+    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline });
     applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));

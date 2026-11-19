@@ -304,7 +304,10 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
     dry.deps.set(rel, deps(found.file));
     dry.staticByFile.set(rel, new Set());
     if (found.outcome === 'skipped') continue;
-    if (found.outcome === 'unexpected') dry.failed.push(id);
+    if (found.outcome === 'unexpected') {
+      dry.failed.push(id);
+      if (found.messages[0]) (dry.failures ??= new Map()).set(id, found.messages[0]);
+    }
     let fingerprint = fingerprints.get(found.file);
     if (!fingerprint) fingerprints.set(found.file, (fingerprint = hash(readFileSync(found.file, 'utf8'))));
     dry.tests.push({ id, fingerprint: testFingerprint(fingerprint, id), durationMs: found.durationMs });
@@ -315,7 +318,11 @@ function collectDryRun(results: RunResults, records: readonly TestRecord[], inpu
     for (const [key, n] of Object.entries(record.counts)) dry.hits.set(key, (dry.hits.get(key) ?? 0) + n);
   }
   // Errors outside any test (a test file failing to load, a global setup) fail the run without a mutant.
-  dry.failed.push(...results.errors.map((e) => `playwright: ${e.split('\n')[0]}`));
+  for (const error of results.errors) {
+    const id = `playwright: ${error.split('\n')[0]}`;
+    dry.failed.push(id);
+    (dry.failures ??= new Map()).set(id, error);
+  }
   return dry;
 }
 

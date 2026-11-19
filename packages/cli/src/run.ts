@@ -17,6 +17,7 @@ import {
   relativePath as relative,
 } from '@mizchi/mutator-core';
 import { applyAcceptance } from './accepted.ts';
+import { formatBaselineFailure } from './baseline.ts';
 import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';
 import { Checkpoint } from './checkpoint.ts';
 import type { MutationProgress } from './progress.ts';
@@ -283,7 +284,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
     const dryRunMs = performance.now() - dryStarted;
     if (dryFiles.size > 0) log(`dry run finished in ${(dryRunMs / 1000).toFixed(1)}s`);
-    if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);
+    if (dry.failed.length > 0) throw new BaselineError(formatBaselineFailure(dry, root));
     const merged = mergeDryRun({ root, previous: reusable, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
     const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);

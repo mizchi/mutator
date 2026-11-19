@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { assignPort } from '../../playwright/test/port.ts';
-import { listMutants, runMutation } from '../src/run.ts';
+import { BaselineError, listMutants, runMutation } from '../src/run.ts';
 import { selectTestsSince, selectionFiles } from '../src/select-tests.ts';
 import { fixtureGit } from './fixture-git.ts';
 
@@ -95,6 +95,16 @@ test('other', async ({ page }) => { await page.goto('/other.html'); await expect
     const next = await runMutation({ ...options, only: new Set([key]) });
     expect(next.dryRunFiles).toEqual(['tests/inc.spec.ts']);
     expect(next.executed).toBe(1);
+  });
+
+  test('a failing baseline names the failing E2E with its first error', async () => {
+    writeFileSync(join(root, 'tests/fails.spec.ts'), `import { expect, test } from '@mizchi/mutator-playwright';
+test('wrong count', async ({ page }) => { await page.goto('/'); await expect(page.locator('#count')).toHaveText('41', { timeout: 500 }); });\n`);
+    const error = await runMutation({ root, runner: 'playwright', typecheck: false, concurrency: 1 }).catch((e: Error) => e);
+    expect(error).toBeInstanceOf(BaselineError);
+    const message = (error as Error).message;
+    expect(message).toMatch(/tests\/fails\.spec\.ts#.*wrong count/);
+    expect(message).toContain('toHaveText');
   });
 
   test('a dev server port already in use is an error message with exit 1, not a crash', async () => {

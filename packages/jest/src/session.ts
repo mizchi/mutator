@@ -320,12 +320,19 @@ function collectDryRun(report: JsonReport, coverageByFile: ReadonlyMap<string, F
       fileStatic.add(key);
     }
     for (const [key, n] of Object.entries(cov?.counts ?? {})) dry.hits.set(key, (dry.hits.get(key) ?? 0) + n);
-    if (suite.status === 'failed' && !suite.assertionResults.some((a) => a.status === 'failed')) dry.failed.push(rel);
+    if (suite.status === 'failed' && !suite.assertionResults.some((a) => a.status === 'failed')) {
+      dry.failed.push(rel);
+      if (suite.message) (dry.failures ??= new Map()).set(rel, suite.message);
+    }
     const fingerprint = hash(readFileSync(suite.name, 'utf8'));
     for (const { id, assertion, coverageKey } of identify(suite, root)) {
       dry.index.set(id, { moduleId: suite.name, taskId: assertion.fullName });
       if (SKIPPED.has(assertion.status)) continue;
-      if (assertion.status === 'failed') dry.failed.push(id);
+      if (assertion.status === 'failed') {
+        dry.failed.push(id);
+        const message = assertion.failureMessages?.[0];
+        if (message) (dry.failures ??= new Map()).set(id, message);
+      }
       const test: TestInfo = { id, fingerprint: testFingerprint(fingerprint, id), durationMs: assertion.duration ?? 0 };
       dry.tests.push(test);
       const spawned = cov?.spawns?.[coverageKey];

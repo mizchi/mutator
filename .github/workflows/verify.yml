@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec tsc -p .
       # Catch native path regressions before installing browsers or running the full suite.
@@ -29,7 +32,7 @@ jobs:
         run: pnpm exec vitest run packages/vitest/test/native-paths.test.ts packages/vitest/test/vite-plus.test.ts packages/cli/test/native-paths.test.ts packages/playwright/test/native-paths.test.ts
       # Check unit adapters before spending time installing browser dependencies.
       # The smoke harness installs the matching Chromium before its Playwright run.
-      - name: Packed CLI (Vitest, Vite+, Jest, Playwright and skills)
+      - name: Packed CLI (Vitest, Vite+, Jest, Bun, Playwright and skills)
         run: pnpm run pack-smoke --install-browser
       - name: Full test suite
         run: pnpm exec vitest run

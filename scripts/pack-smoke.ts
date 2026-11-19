@@ -2,7 +2,7 @@
 // Run through `pnpm run pack-smoke` so npm_execpath identifies pnpm's real entrypoint
 // (rather than launching a POSIX .bin shim or a Windows .cmd file).
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -15,7 +15,7 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const work = realpathSync.native(mkdtempSync(join(tmpdir(), 'mutator pack-')));
 const pack = join(work, 'pack');
 mkdirSync(pack);
-const packages = ['core', 'vitest', 'jest', 'playwright', 'typecheck', 'cli'];
+const packages = ['core', 'vitest', 'jest', 'bun', 'playwright', 'typecheck', 'cli'];
 const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 const manifest = (name: string) => json(join(repo, 'packages', name, 'package.json'));
 const pnpm = process.env.npm_execpath;
@@ -120,6 +120,13 @@ try {
     '@mizchi/mutator': mutator, jest: manifest('jest').devDependencies.jest,
   }, allowBuilds);
   mutation(jest, ['-j', '2'], 'age >= 18 -> age > 18');
+
+  // bun test is a separate binary: CI installs it, a local run without it skips this adapter.
+  if (spawnSync('bun', ['--version']).error) console.log('pack-smoke: bun not found, skipping the Bun adapter');
+  else {
+    const bun = app('bun', 'packages/bun/test/fixtures/basic', ['src', 'test'], { '@mizchi/mutator': mutator }, allowBuilds);
+    mutation(bun, ['--runner', 'bun', '-j', '2'], 'age >= 18 -> age > 18');
+  }
 
   const pw = app('playwright', 'packages/playwright/test/fixtures/app', ['src', 'tests', 'index.html', 'other.html', 'vite.config.ts', 'playwright.config.ts'], {
     '@mizchi/mutator': mutator, '@mizchi/mutator-playwright': tarballs.get('@mizchi/mutator-playwright')!,

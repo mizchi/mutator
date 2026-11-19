@@ -10,6 +10,8 @@ import type { RunOptions } from './run.ts';
 import { type RunnerSessionOptions, detectRunner } from './runner.ts';
 
 const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
+// What the instrumenter parses; `--include 'dir/**'` also matches directories and other files.
+const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
 
 /** Target files, plugins, and the runner with the options its sessions are created with. */
@@ -17,7 +19,7 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
   const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
     cwd: root,
     exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
-  }).map((f) => join(root, f));
+  }).map((f) => join(root, f)).filter((f) => SOURCE_FILE.test(f) && isFile(f));
   const plugins = await loadPlugins(root, options.plugins ?? []);
   const arid = combineArid(options.arid, plugins.aridCallees);
   const instrumentOptions: InstrumentFlags = {

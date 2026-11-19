@@ -166,7 +166,7 @@ npx vitest run $(npx mutator select-tests --since main)
 npx mutator select-tests --since main --format json
 ```
 
-`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. The ranking has three groups:
+`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. For a removed function, the snapshot identifies its former tests. For a deleted or renamed file, the old path also selects test files that imported it. The ranking has three groups:
 
 1. tests that killed mutants in the changed functions, most kills first;
 2. other tests that executed those mutants. A changed function the snapshot has no results for, such as a new one, brings the test files importing its file instead;

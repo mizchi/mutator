@@ -179,6 +179,41 @@ describe('mutator select-tests', { timeout: 60_000 }, () => {
     expect(stderr).toContain('run `mutator` once first');
   });
 
+  test.each([
+    ['delete a source', 'src/a.ts', undefined],
+    ['rename a source', 'src/a.ts', 'src/moved.ts'],
+    ['delete a test helper', 'test/helper.ts', undefined],
+  ] as const)('%s alongside an edit selects the importers of the old path', async (_, oldPath, newPath) => {
+    await runMutation({ root: dir, concurrency: 1 });
+    if (newPath) git('mv', oldPath, newPath);
+    else rmSync(join(dir, oldPath));
+    expect(run('select-tests', '--since', 'HEAD').stdout).toBe('test/a.test.ts\n');
+    edit('src/b.ts', 'name.length > 0', '0 < name.length');
+
+    const files = run('select-tests', '--since', 'HEAD');
+    expect(files.status, files.stderr).toBe(0);
+    expect(files.stdout.trim().split('\n').sort()).toEqual(['test/a.test.ts', 'test/b.test.ts']);
+    rmSync(join(dir, 'test/a.test.ts'));
+    expect(run('select-tests', '--since', 'HEAD').stdout).toBe('test/b.test.ts\n');
+  });
+
+  test('ranks tests of a removed function alongside tests of an edited function in the same file', async () => {
+    const positive = "import { expect, test } from 'vitest';\nimport { isPositive } from '../src/a.ts';\ntest('positive', () => expect(isPositive(-1)).toBe(false));\n";
+    writeFileSync(join(dir, 'test/positive.test.ts'), positive);
+    git('add', 'test/positive.test.ts');
+    git('commit', '-qm', 'add positive test');
+    await runMutation({ root: dir, concurrency: 1 });
+    writeFileSync(join(dir, 'src/a.ts'), 'export function double(n: number): number {\n  return n + n;\n}\n');
+
+    const json = run('select-tests', '--since', 'HEAD', '--format', 'json');
+    expect(json.status, json.stderr).toBe(0);
+    const selection = JSON.parse(json.stdout);
+    expect(selection.files.sort()).toEqual(['test/a.test.ts', 'test/positive.test.ts']);
+    expect([...selection.killers, ...selection.covering]).toContainEqual(expect.objectContaining({
+      test: 'test/positive.test.ts#positive', reason: expect.stringContaining('src/a.ts#isPositive'),
+    }));
+  });
+
   test('rejects an unknown format and a missing --since', () => {
     expect(run('select-tests', '--since', 'HEAD', '--format', 'vitest').stderr).toContain('--format must be one of files, json');
     expect(run('select-tests').stderr).toContain('--since <ref> is required');

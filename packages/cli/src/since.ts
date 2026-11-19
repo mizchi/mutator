@@ -4,16 +4,18 @@ import { join } from 'node:path';
 import { type Mutant, type MutantResult, type Range, type SelectMode, changedLines, lineRanges, parseUnifiedDiff, selectMutants } from '@mizchi/mutator-core';
 import { changedFiles, gitDiff } from './git.ts';
 
-/** Changed files (relative, existing) -> changed line numbers of the new side, or `null` for a whole new (untracked) file. */
-export function diffLines(root: string, since: string): Map<string, number[] | null> {
-  const out = new Map<string, number[] | null>();
+/** New-side lines (`null` for an untracked file) and old paths removed by a deletion or rename. */
+export function changesSince(root: string, since: string) {
+  const lines = new Map<string, number[] | null>();
+  const removed: string[] = [];
   for (const fd of parseUnifiedDiff(gitDiff(root, since))) {
-    if (fd.newPath && existsSync(join(root, fd.newPath))) out.set(fd.newPath, changedLines(fd));
+    if (fd.oldPath && fd.oldPath !== fd.newPath) removed.push(fd.oldPath);
+    if (fd.newPath && existsSync(join(root, fd.newPath))) lines.set(fd.newPath, changedLines(fd));
   }
   for (const rel of changedFiles(root, since, { untracked: true })) {
-    if (!out.has(rel) && existsSync(join(root, rel))) out.set(rel, null);
+    if (!lines.has(rel) && existsSync(join(root, rel))) lines.set(rel, null);
   }
-  return out;
+  return { lines, removed };
 }
 
 /** Keys of the mutants touched by the diff. */

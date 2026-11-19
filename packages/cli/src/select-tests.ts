@@ -5,7 +5,7 @@ import { type MutantResult, testFileOf, relativePath as relative } from '@mizchi
 import { loadersOf } from './consumers.ts';
 import { loadWarmSnapshot } from './reuse.ts';
 import type { RunOptions } from './run.ts';
-import { TEST_FILE, diffLines, diffTouched } from './since.ts';
+import { TEST_FILE, changesSince, diffTouched } from './since.ts';
 
 export interface SelectionInput {
   root: string;
@@ -131,27 +131,36 @@ export function selectionFiles(selection: Selection): string[] {
 export async function selectTestsSince(options: RunOptions & { since: string }): Promise<Selection> {
   const root = resolve(options.root);
   const { snapshot, mutants, sources } = await loadWarmSnapshot(options);
-  const lines = diffLines(root, options.since);
+  const { lines, removed } = changesSince(root, options.since);
+  const changed = [...new Set([...lines.keys(), ...removed])].sort();
   const touched = diffTouched(root, lines, mutants, 'scope');
   const scopes = new Map<string, Set<string>>();
   for (const m of mutants) if (touched.has(m.key)) scopes.set(m.file, (scopes.get(m.file) ?? new Set()).add(m.scope.id));
-  if (snapshot.sourceCoverage) {
-    // Include original scopes with no mutants, which `diffTouched` cannot see.
-    for (const [file, info] of sources) {
-      const changed = lines.get(relative(root, file));
-      if (changed === undefined) continue;
-      for (const scope of info.scopes) {
-        if (snapshot.scopes?.[relative(root, file)]?.[scope.id]?.hash === scope.hash) continue;
-        if (changed === null || changed.some((line) => scope.location.start.line <= line && line <= scope.location.end.line)) scopes.set(file, (scopes.get(file) ?? new Set()).add(scope.id));
+  for (const rel of changed) {
+    const file = join(root, rel);
+    const current = sources.get(file)?.scopes ?? [];
+    const currentIds = new Set(current.map((s) => s.id));
+    const previous = snapshot.scopes?.[rel];
+    const previousIds = snapshot.scopes ? Object.keys(previous ?? {}) : snapshot.results.filter((r) => r.file === file).map((r) => r.scopeId);
+    const selected = scopes.get(file) ?? new Set<string>();
+    // A removed scope has no new-side mutant or line, but its old results still identify tests.
+    for (const id of previousIds) if (!currentIds.has(id)) selected.add(id);
+    const numbers = lines.get(rel);
+    if (snapshot.sourceCoverage && numbers !== undefined) {
+      // Include original scopes with no mutants, which `diffTouched` cannot see.
+      for (const scope of current) {
+        if (previous?.[scope.id]?.hash === scope.hash) continue;
+        if (numbers === null || numbers.some((line) => scope.location.start.line <= line && line <= scope.location.end.line)) selected.add(scope.id);
       }
     }
+    if (selected.size) scopes.set(file, selected);
   }
   const selection = selectTests({
     root,
     results: snapshot.results,
     tests: snapshot.tests,
     scopes,
-    changed: [...lines.keys()].sort(),
+    changed,
     // A source-only file is still an app source: treating it as a test helper
     // would re-add every dependent E2E after the scope index narrowed the set.
     sources: new Set((snapshot.sourceCoverage ? [...sources.keys()] : mutants.map((m) => m.file)).map((file) => relative(root, file))),

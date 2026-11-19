@@ -93,9 +93,10 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
 
 /**
  * Uncompilable mutants become CompileError, those proven equivalent by types Ignored (both
- * leave `jobs`); the other notInfected ones are settled Survived.
+ * leave `jobs`); the other notInfected ones are settled Survived. Mutants the type check did
+ * not reach before the time budget ran out leave `jobs` as Pending, like runs over the budget.
  */
-export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent }: TypecheckResult): void {
+export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent, unchecked }: TypecheckResult): void {
   const decided = (key: string): { status: MutantStatus; reason?: ResultReason } | undefined => {
     if (errors.has(key)) return { status: 'CompileError' };
     const reason = equivalent.get(key);
@@ -103,6 +104,11 @@ export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly 
   };
   for (const i of notInfected) {
     const entry = tally.report[i]!;
+    if (unchecked.has(entry.mutant.key)) {
+      tally.notRun.budget++;
+      tally.skip(i, entry.mutant, entry.coveredBy);
+      continue;
+    }
     const verdict = decided(entry.mutant.key);
     const { reason: _reason, ...rest } = entry;
     // Coverage is kept even for CompileError: a later run that skips this test file still needs it.
@@ -110,6 +116,12 @@ export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly 
   }
   for (let i = jobs.length - 1; i >= 0; i--) {
     const { index, entry } = jobs[i]!;
+    if (unchecked.has(entry.mutant.key)) {
+      tally.notRun.budget++;
+      tally.skip(index, entry.mutant, tally.report[index]!.coveredBy);
+      jobs.splice(i, 1);
+      continue;
+    }
     const verdict = decided(entry.mutant.key);
     if (!verdict) continue;
     tally.settle(index, { mutant: entry.mutant, source: 'static', killedBy: [], coveredBy: tally.report[index]!.coveredBy, ...verdict });

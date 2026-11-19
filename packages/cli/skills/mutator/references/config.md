@@ -50,7 +50,7 @@ export default defineConfig({
 | `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator-core`; see [plugins.md](plugins.md)) |
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |
 | `mutantsPerLine` | `--mutants-per-line <n>` | run at most n mutants per line, most productive first; the rest stay `Pending` |
-| `timeBudget` | `--time-budget <s>` | start no new mutant run after s seconds; the rest stay `Pending` and run next time |
+| `timeBudget` | `--time-budget <s>` | after s seconds from the start (dry run included), type-check no further mutant and start no new mutant run; the rest stay `Pending` and run next time. The dry run itself and the in-flight type-check batch and runs are not interrupted |
 | `critical` | `--critical <glob>` | every mutant in these files must run and be killed or accepted, otherwise exit 2 (also when `--time-budget` leaves one unrun); also `// mutator-critical` before a function |
 | `killMatrix` | `--kill-matrix` | run every covering test per mutant and report tests that kill nothing or are subsumed (slow, occasional) |
 

@@ -184,7 +184,7 @@
       "minimum": 1
     },
     "timeBudget": {
-      "description": "Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).",
+      "description": "Seconds from the start of the run (dry run included) after which no further mutant is type-checked and no new mutant run starts; the rest stay pending (default: unlimited).",
       "type": "number",
       "minimum": 0
     },

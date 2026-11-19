@@ -54,7 +54,7 @@ const USAGE = `usage: mutator [options]
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'
   --mutants-per-line <n>  run at most n mutants per source line, most productive
                        mutators first (the rest stay pending; default: unlimited)
-  --time-budget <s>    start no new mutant run after s seconds (default: unlimited)
+  --time-budget <s>    after s seconds, type-check and start no further mutant (default: unlimited)
   --kill-matrix        run every covering test for every mutant (no early exit) and report tests
                        that kill nothing or whose kills another test subsumes (slower; occasional use)
   --only <key>         run and report only this mutant (key: the id in mutation.json), repeatable

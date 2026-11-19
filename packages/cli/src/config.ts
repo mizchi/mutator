@@ -130,7 +130,7 @@ const properties = {
   plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
   mutantsPerLine: { description: 'Run at most this many mutants per source line, most productive mutators first (default: unlimited).', type: 'integer', minimum: 1 },
-  timeBudget: { description: 'Seconds from the start of the run after which no new mutant run starts; the rest stay pending (default: unlimited).', type: 'number', minimum: 0 },
+  timeBudget: { description: 'Seconds from the start of the run (dry run included) after which no further mutant is type-checked and no new mutant run starts; the rest stay pending (default: unlimited).', type: 'number', minimum: 0 },
   critical: strings('Globs (relative to the root) of critical sources: any undetected mutant there that is not accepted fails the run (exit 2), whatever the thresholds.'),
   killMatrix: { description: 'Run every covering test for every mutant (no early exit) and report tests that kill no mutant or whose kills another test subsumes. Slower: meant for occasional runs.', type: 'boolean' },
 } satisfies Record<keyof MutatorConfig, Schema>;

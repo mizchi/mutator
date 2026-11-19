@@ -54,10 +54,12 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   if (jobs.length > 0) log(`estimated mutant execution: ~${formatDuration(estimate.durationMs)} (${concurrency} sessions; ${estimate.historySamples}/${jobs.length} historical timings, remaining costs from dry run)`);
   // In parallel mode every mutant session gets a single worker so sessions do not
   // oversubscribe the CPU; a lone session keeps the runner's default workers.
-  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
-  if (concurrency > 1) ctx.sessions.push(...workers);
-  for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
+  // Budget already spent (e.g. by type checking): nothing will start, so start no session either.
+  const parallel = concurrency > 1 && performance.now() < deadline;
+  const workers = !parallel ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
+  if (parallel) ctx.sessions.push(...workers);
+  for (const s of workers) s.useTestIndex(merged.index);
   let executed = 0;
   let observedWorkMs = 0;
   let completedCostMs = 0;

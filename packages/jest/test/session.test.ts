@@ -42,7 +42,7 @@ describe('jest session: a mutant failing several test files', { timeout: 60_000 
   let key: string;
   let tests: string[];
   beforeAll(async () => {
-    session = await createJestSession({ root: matrixRoot, targets: [join(matrixRoot, 'src/add.js')] });
+    session = await createJestSession({ root: matrixRoot, targets: [join(matrixRoot, 'src/add.js')], maxWorkers: 2 });
     const dry = await session.dryRun();
     key = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
     tests = dry.coverage.get(key)!;

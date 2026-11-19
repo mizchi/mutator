@@ -106,6 +106,37 @@ test('on GitHub Actions, --reporter agent keeps stdout pure JSON (no annotations
   }
 }, 60_000);
 
+test('--reporter agent keeps stdout pure JSON when the code under test writes to stdout', () => {
+  const root = join(import.meta.dirname, '../../../.tmp', `cli-agent-noisy-${process.pid}`);
+  cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });
+  // A logger that writes to stdout at import time and on every call, like pino in a test worker.
+  writeFileSync(join(root, 'src/log.ts'), [
+    "process.stdout.write('noisy: module loaded\\n');",
+    'export function greet(name: string): string {',
+    "  console.log('noisy: console.log', name);",
+    "  process.stdout.write(`noisy: stdout.write ${name}\\n`);",
+    '  return name.length > 0 ? `hello ${name}` : "nobody";',
+    '}',
+    '',
+  ].join('\n'));
+  writeFileSync(join(root, 'test/log.test.ts'), [
+    "import { expect, test } from 'vitest';",
+    "import { greet } from '../src/log.ts';",
+    "test('greet', () => { expect(greet('a')).toBe('hello a'); });",
+    '',
+  ].join('\n'));
+  try {
+    const agent = run('--root', root, '--reporter', 'agent', '--no-typecheck');
+    expect(agent.status, agent.stderr).toBe(0);
+    expect(agent.stdout.startsWith('{'), agent.stdout.slice(0, 200)).toBe(true);
+    expect(JSON.parse(agent.stdout).version).toBe(1);
+    // Still visible, on stderr.
+    expect(agent.stderr).toContain('noisy: stdout.write a');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 test('--reporter agent writes all of a large report to a pipe before exiting', async () => {
   const root = join(import.meta.dirname, '../../../.tmp', `cli-agent-pipe-${process.pid}`);
   cpSync(join(import.meta.dirname, '../../vitest/test/fixtures/basic'), root, { recursive: true });

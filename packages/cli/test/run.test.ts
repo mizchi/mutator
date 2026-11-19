@@ -1,16 +1,13 @@
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { runMutation } from '../src/run.ts';
+import { fixtureGit as git } from './fixture-git.ts';
 
 const fixture = fileURLToPath(new URL('../../vitest/test/fixtures/basic', import.meta.url));
 // Inside the workspace so the fixture resolves `vitest` from the root node_modules.
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
-
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
 describe('runMutation', { timeout: 60_000 }, () => {
   let root: string;
@@ -103,11 +100,48 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(report.noCoverage).toBeUndefined();
   });
 
+  test.each(['unchanged', 'source', 'test', 'kill-matrix'])('resuming interrupted execution (%s)', async (change) => {
+    const options = { root, concurrency: 1, typecheck: false, killMatrix: false };
+    const interruptAfter = (count: number) => (line: string) => {
+      if (line.startsWith(`[${count}/`)) throw new Error('interrupted');
+    };
+    await expect(runMutation({ ...options, log: interruptAfter(1) })).rejects.toThrow('interrupted');
+    if (change === 'source' || change === 'test') {
+      const path = join(root, change === 'source' ? 'src/math.ts' : 'test/math.test.ts');
+      writeFileSync(path, readFileSync(path, 'utf8') + '\n// changed input\n');
+    } else if (change === 'kill-matrix') {
+      options.killMatrix = true;
+    } else {
+      // A second interruption retains both the restored verdict and the new one.
+      await expect(runMutation({ ...options, log: interruptAfter(2) })).rejects.toThrow('interrupted');
+    }
+    const resumed = await runMutation(options);
+    const cold = await runMutation({ ...options, snapshotPath: join(root, '.mutator/control.json') });
+    const restored = change === 'unchanged' ? 2 : 0;
+    expect(byStatus(resumed)).toEqual(byStatus(cold));
+    expect(resumed.executed).toBe(cold.executed - restored);
+    expect(resumed.entries.filter((entry) => entry.source === 'reuse')).toHaveLength(restored);
+    expect((await runMutation(options)).executed).toBe(0);
+  });
+
   test('parallel execution gives the same verdicts as sequential', async () => {
     const sequential = await runMutation({ root, concurrency: 1, snapshotPath: join(root, '.mutator/seq.json') });
     const parallel = await runMutation({ root, concurrency: 3, snapshotPath: join(root, '.mutator/par.json') });
     expect(parallel.executed).toBe(sequential.executed);
     expect(byStatus(parallel)).toEqual(byStatus(sequential));
+  });
+
+  test('Vitest receives the full budget for the baseline and a share for each mutation session', async () => {
+    writeFileSync(join(root, 'vitest.config.ts'), "export default { test: { maxWorkers: 8, globalSetup: './workers.ts' } };");
+    writeFileSync(join(root, 'workers.ts'), [
+      "import { appendFileSync } from 'node:fs';",
+      "export default function setup(project) { appendFileSync(new URL('./workers.log', import.meta.url), project.config.maxWorkers + '\\n'); }",
+    ].join('\n'));
+    const report = await runMutation({ root, typecheck: false, concurrency: 2, maxWorkers: 3 });
+    expect(report.executed).toBeGreaterThan(1);
+    const limits = readFileSync(join(root, 'workers.log'), 'utf8').trim().split('\n').map(Number);
+    expect(limits[0]).toBe(3);
+    expect(new Set(limits.slice(1))).toEqual(new Set([1, 2]));
   });
 
   test('weak mutation: a covered mutant no test infects is Survived without running', async () => {

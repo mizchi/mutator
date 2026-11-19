@@ -1,6 +1,8 @@
 // Running the mutants that need a run, over parallel runner sessions and within the time budget.
 import { availableParallelism } from 'node:os';
 import { type Session, estimatedCost, orderByCost, relativePath as relative } from '@mizchi/mutator-core';
+import type { Checkpoint } from './checkpoint.ts';
+import type { MutationProgress } from './progress.ts';
 import type { MergedDryRun } from './coverage-cache.ts';
 import { oneLine } from './report.ts';
 import type { ReportEntry } from './run.ts';
@@ -29,6 +31,9 @@ export interface ExecuteContext {
   /** No early exit: every covering test runs, kills are recorded as a full matrix. */
   killMatrix: boolean;
   fileOverheadMs: number;
+  resumed?: number;
+  checkpoint?: Pick<Checkpoint, 'save'>;
+  onProgress?: (state: MutationProgress | undefined) => void;
   previousDurations: ReadonlyMap<string, number>;
 }
 
@@ -46,25 +51,41 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   // split by test file so idle sessions can take part of them.
   const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
   const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
-  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), shardCount));
+  const budget = ctx.sessionOptions.maxWorkers;
+  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), budget ?? Infinity, shardCount));
   const prediction = estimateWork(jobs.map(({ entry }) => ({ key: entry.mutant.key, tests: entry.tests })), {
     durations: testDurations, workers: concurrency, fileOverheadMs: ctx.fileOverheadMs, previous: ctx.previousDurations,
   });
   const { estimate } = prediction;
   if (jobs.length > 0) log(`estimated mutant execution: ~${formatDuration(estimate.durationMs)} (${concurrency} sessions; ${estimate.historySamples}/${jobs.length} historical timings, remaining costs from dry run)`);
-  // In parallel mode every mutant session gets a single worker so sessions do not
-  // oversubscribe the CPU; a lone session keeps the runner's default workers.
-  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
+  // With an explicit budget, share all slots, giving one extra to each of the first
+  // sessions until the remainder is used. A lone session reuses the baseline's budget.
+  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, (_, index) => {
+    const maxWorkers = budget === undefined ? 1 : Math.floor(budget / concurrency) + Number(index < budget % concurrency);
+    return createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers });
+  }));
   if (concurrency > 1) ctx.sessions.push(...workers);
   for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;
   let executed = 0;
   let observedWorkMs = 0;
   let completedCostMs = 0;
-  const large = jobs.length >= 100 || estimate.durationMs >= 10_000;
+  const resumed = ctx.resumed ?? 0;
+  const total = jobs.length + resumed;
+  const large = jobs.length > 0 && (total >= 100 || estimate.durationMs >= 10_000);
+  if (large && ctx.checkpoint) log('Saving each completed mutant. After interruption, rerun the same command to resume.');
+  const interactive = large ? ctx.onProgress : undefined;
   const eta = () => `ETA ~${formatDuration(remainingMs(prediction, completedCostMs, observedWorkMs))}`;
+  const update = () => interactive?.({
+    completed: resumed + executed,
+    total,
+    elapsedMs: performance.now() - ctx.started,
+    remainingMs: remainingMs(prediction, completedCostMs, observedWorkMs),
+  });
   const retries = new RetryCounts();
-  const heartbeat = large ? setInterval(() => log(`progress: ${executed}/${jobs.length}, elapsed ${formatDuration(performance.now() - ctx.started)}, ${eta()}`), 15_000) : undefined;
+  update();
+  const heartbeatLog = () => log(`progress: ${resumed + executed}/${total}, elapsed ${formatDuration(performance.now() - ctx.started)}, ${eta()}`);
+  const heartbeat = large ? setInterval(interactive ? update : heartbeatLog, interactive ? 1000 : 15_000) : undefined;
   heartbeat?.unref();
   const unsettled = await runSharded({
     workers: workers.length,
@@ -86,17 +107,24 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
       if (message) log(`${message}: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
       return outcome;
     },
-    onDone: ({ index, entry }, outcome) => {
+    onDone: (job, outcome) => {
+      ctx.checkpoint?.save(job, outcome);
+      const { index, entry } = job;
       const { mutant } = entry;
       executed++;
       completedCostMs += prediction.costs.get(mutant.key) ?? 0;
       observedWorkMs += outcome.durationMs;
-      log(`[${executed}/${jobs.length}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);
+
       const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
       const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...matrix };
       tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
+      if (interactive) update();
+      else log(`[${resumed + executed}/${total}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);
     },
-  }).finally(() => clearInterval(heartbeat));
+  }).finally(() => {
+    clearInterval(heartbeat);
+    interactive?.(undefined);
+  });
   // Over the time budget: the jobs never started, or stopped between shards.
   for (const { index, entry } of unsettled) {
     notRun.budget++;

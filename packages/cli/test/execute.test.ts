@@ -1,6 +1,7 @@
 import { type MutantRunResult, type PlanEntry, type Session, emptyDryRun, instrument } from '@mizchi/mutator-core';
 import { afterEach, expect, test, vi } from 'vitest';
 import { type ExecuteContext, executeJobs } from '../src/execute.ts';
+import * as runners from '../src/runner.ts';
 import { classifyPlan } from '../src/tally.ts';
 
 afterEach(() => vi.useRealTimers());
@@ -65,4 +66,36 @@ test('completed mutant timings update the ETA on progress lines', async () => {
   expect(work.messages.some((message) => /\[1\/2\].*ETA ~40s/.test(message))).toBe(true);
   finish({ status: 'Survived', killedBy: [], durationMs: 1000 });
   expect((await running).executed).toBe(2);
+});
+
+test('interactive long runs show progress from zero and close the bar on error', async () => {
+  const work = execution(async () => { throw new Error('stopped'); });
+  const onProgress = vi.fn();
+  await expect(executeJobs(work.jobs, work.tally, { ...work.ctx, onProgress })).rejects.toThrow('stopped');
+  expect(onProgress.mock.calls[0]?.[0]).toMatchObject({ completed: 0, total: 1 });
+  expect(onProgress).toHaveBeenLastCalledWith(undefined);
+});
+
+test('the bar counts restored verdicts and a budget stop leaves its actual count', async () => {
+  const work = execution(async () => ({ status: 'Survived', killedBy: [], durationMs: 1 }));
+  const onProgress = vi.fn();
+  await executeJobs(work.jobs, work.tally, { ...work.ctx, resumed: 3, timeBudget: 0, onProgress });
+  expect(onProgress.mock.calls).toEqual([[expect.objectContaining({ completed: 3, total: 4 })], [undefined]]);
+  expect(work.tally.notRun.budget).toBe(1);
+});
+
+test.each([
+  { budget: 5, concurrency: 2, expected: [3, 2] },
+  { budget: 2, concurrency: 4, expected: [1, 1] },
+])('shares $budget workers across at most $concurrency sessions', async ({ budget, concurrency, expected }) => {
+  const work = execution(async () => ({ status: 'Survived', killedBy: [], durationMs: 1 }), 4);
+  work.ctx.sessionOptions.maxWorkers = budget;
+  const create = vi.spyOn(runners, 'createRunnerSession').mockResolvedValue(work.ctx.session);
+  try {
+    const report = await executeJobs(work.jobs, work.tally, { ...work.ctx, concurrency });
+    expect(create.mock.calls.map(([, options]) => options.maxWorkers)).toEqual(expected);
+    expect(report.executed).toBe(4);
+  } finally {
+    create.mockRestore();
+  }
 });

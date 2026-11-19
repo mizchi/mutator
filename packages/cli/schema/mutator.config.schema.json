@@ -45,6 +45,12 @@
       "type": "integer",
       "minimum": 1
     },
+    "maxWorkers": {
+      "description": "Maximum active test workers across all sessions, including the dry run.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
     "shard": {
       "description": "CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.",
       "type": "string"

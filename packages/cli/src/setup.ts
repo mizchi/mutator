@@ -2,7 +2,7 @@
 // with the options its sessions are created with.
 import { globSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, instrument, relativePath as relative } from '@mizchi/mutator-core';
+import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, hash, instrument, relativePath as relative } from '@mizchi/mutator-core';
 import { isFile } from './child-process.ts';
 import type { SourceInfo } from './coverage-cache.ts';
 import { loadPlugins } from './plugins.ts';
@@ -14,6 +14,9 @@ const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*'
 
 /** Target files, plugins, and the runner with the options its sessions are created with. */
 export async function resolveSetup(root: string, options: RunOptions, log: (message: string) => void) {
+  if (options.maxWorkers !== undefined && (!Number.isSafeInteger(options.maxWorkers) || options.maxWorkers < 1)) {
+    throw new RangeError('maxWorkers must be a positive safe integer');
+  }
   const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
     cwd: root,
     exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
@@ -39,10 +42,12 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
             ? 'vitest'
             : detectRunner(root);
   const configFile = { vitest: options.configFile, jest: options.jestConfigFile, playwright: options.playwrightConfigFile }[runner];
-  log(`runner: ${runner}`);
+  const workerLimit = options.maxWorkers === undefined ? '' : ` (total test worker limit: ${options.maxWorkers})`;
+  log(`runner: ${runner}${workerLimit}`);
   const sessionOptions: RunnerSessionOptions = {
     root,
     targets: new Set(files),
+    ...(options.maxWorkers !== undefined ? { maxWorkers: options.maxWorkers } : {}),
     ...instrumentOptions,
     pluginModules: plugins.modules,
     hasPluginObjects: plugins.hasObjects,
@@ -62,13 +67,17 @@ function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]):
 export function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
   const sources = new Map<string, SourceInfo>();
   const graphSources: CallGraphSource[] = [];
+  const sourceHashes: Record<string, string> = {};
   const mutants = files.flatMap((file) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
+    const content = readFileSync(file, 'utf8');
+    const identity = relative(root, file);
+    sourceHashes[identity] = hash(content);
+    const result = instrument(file, content, { identity, ...instrumentOptions });
     sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports });
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;
   });
-  return { mutants, sources, graphSources };
+  return { mutants, sources, graphSources, sourceHashes };
 }
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];

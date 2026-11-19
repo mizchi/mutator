@@ -2,6 +2,7 @@
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError, DEFAULT_THRESHOLDS, type MutatorConfig, type Reporter, type Thresholds, configSchema, fail, loadConfig, schemaErrors } from './config.ts';
+import { runGit } from './git.ts';
 import type { RunOptions } from './run.ts';
 import { type Shard, parseShard, shardName } from './ci-shard.ts';
 
@@ -32,6 +33,7 @@ const OPTIONS = {
   'config-file': { type: 'string' },
   root: { type: 'string' },
   concurrency: { type: 'string', short: 'j' },
+  'max-workers': { type: 'string' },
   shard: { type: 'string' },
   reporter: { type: 'string', multiple: true },
   only: { type: 'string', multiple: true },
@@ -61,6 +63,7 @@ const FLAGS: Record<string, string> = {
   include: '--include',
   exclude: '--exclude',
   concurrency: '--concurrency',
+  maxWorkers: '--max-workers',
   shard: '--shard',
   vitestConfig: '--config',
   jestConfig: '--jest-config',
@@ -80,7 +83,15 @@ export type CliValues = ReturnType<typeof parseCli>;
 
 export function parseCli(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: OPTIONS, allowNegative: true }).values;
+    const { values } = parseArgs({
+      args: argv, options: { ...OPTIONS, watch: { type: 'boolean' }, 'watch-throttle': { type: 'string' } }, allowNegative: true,
+    });
+    const raw = values['watch-throttle'];
+    const watchThrottleMs = raw === undefined ? 1000 : Number(raw);
+    if (raw?.trim() === '' || !Number.isInteger(watchThrottleMs) || watchThrottleMs < 0 || watchThrottleMs > 2_147_483_647) {
+      throw new Error('--watch-throttle must be an integer between 0 and 2147483647 milliseconds');
+    }
+    return { ...values, watchThrottleMs };
   } catch (error) {
     throw new ConfigError(`command line: ${(error as Error).message}`);
   }
@@ -100,6 +111,7 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     sharedCache: values['shared-cache'],
     scope: values.scope,
     concurrency: numeric(values.concurrency),
+    maxWorkers: numeric(values['max-workers']),
     runner: values.runner,
     vitestConfig: values.config && resolve(cwd, values.config),
     jestConfig: values['jest-config'] && resolve(cwd, values['jest-config']),
@@ -182,13 +194,21 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
   catch (error) { throw new ConfigError(`--${(error as Error).message}`); }
 
   const { arid } = config;
+  let since = config.since;
+  if (values.watch && since === undefined) {
+    try {
+      runGit(root, ['rev-parse', '--verify', 'HEAD']);
+      since = 'HEAD';
+    } catch { /* No commit to compare against. Use normal incremental execution. */ }
+  }
+  const includeTestChanges = config.includeTestChanges ?? (values.watch && since !== undefined);
   return {
     root,
     ...(loaded ? { configPath: loaded.path } : {}),
     run: {
       scope: config.scope ?? 'node',
-      ...(config.since !== undefined ? { since: config.since } : {}),
-      ...(config.includeTestChanges ? { includeTestChanges: true } : {}),
+      ...(since !== undefined ? { since } : {}),
+      ...(includeTestChanges ? { includeTestChanges: true } : {}),
       ...(config.sharedCache ? { sharedCache: true } : {}),
       ...(config.include ? { include: config.include } : {}),
       ...(config.exclude ? { exclude: config.exclude } : {}),
@@ -198,6 +218,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.playwrightConfig ? { playwrightConfigFile: resolve(root, config.playwrightConfig) } : {}),
       ...(config.playwrightSourceCoverage !== undefined ? { playwrightSourceCoverage: config.playwrightSourceCoverage } : {}),
       ...(config.concurrency !== undefined ? { concurrency: config.concurrency } : {}),
+      ...(config.maxWorkers !== undefined ? { maxWorkers: config.maxWorkers } : {}),
       ...(shard ? { shard } : {}),
       fullDryRun: config.fullDryRun ?? false,
       callGraph: config.experimentalCallgraph ?? false,

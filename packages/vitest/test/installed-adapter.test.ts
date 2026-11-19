@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, expect, test } from 'vitest';
 
@@ -32,9 +32,14 @@ test('an installed adapter runs a project whose Vitest is another copy than its 
 
   // Another copy of the same Vitest version, laid out like a pnpm peer variant.
   const variant = join(base, 'variant', 'node_modules');
-  cpSync(peer, join(variant, 'vitest'), { recursive: true });
-  for (const entry of readdirSync(dirname(peer))) {
-    if (entry !== 'vitest') link(realpathSync.native(join(dirname(peer), entry)), join(variant, entry));
+  cpSync(peer, join(variant, 'vitest'), { recursive: true, filter: path => basename(path) !== 'node_modules' });
+  const peerRequire = createRequire(join(peer, 'package.json'));
+  const manifest = peerRequire('./package.json');
+  for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+    // Look up each package from the original peer, including hoisted packages and scoped junctions.
+    const target = peerRequire.resolve.paths(name)?.map(dir => join(dir, name)).find(dir => existsSync(join(dir, 'package.json')));
+    if (target) link(realpathSync.native(target), join(variant, name));
+    else if (!manifest.peerDependenciesMeta?.[name]?.optional) throw new Error(`Missing Vitest fixture dependency: ${name}`);
   }
 
   const root = join(base, 'project');
@@ -51,9 +56,15 @@ test('an installed adapter runs a project whose Vitest is another copy than its 
     const session = await createSession({ root: process.argv[1], include: (file) => file.includes('src') });
     try {
       const dry = await session.dryRun();
-      console.log(JSON.stringify({ failed: dry.failed, tests: dry.tests.map((t) => t.id) }));
+      const mutant = session.mutants().find((m) => m.original === 'n + 1');
+      const tests = mutant && dry.coverage.get(mutant.key);
+      const outcome = tests?.length && await session.runMutant(mutant.key, tests, { timeoutMs: 10_000 });
+      console.log(JSON.stringify({ failed: dry.failed, tests: dry.tests.map((t) => t.id), status: outcome?.status }));
+      // Vitest sets a failure exit code for the test that correctly kills the mutant.
+      if (dry.failed.length === 0 && outcome?.status === 'Killed') process.exitCode = 0;
     } finally { await session.close(); }
   `, root], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  expect(child.status, child.stderr).toBe(0);
   const result = child.stdout.trim().split('\n').at(-1);
-  expect(result ? JSON.parse(result) : child.stderr).toEqual({ failed: [], tests: ['test/a.test.ts#a'] });
+  expect(result ? JSON.parse(result) : child.stderr).toEqual({ failed: [], tests: ['test/a.test.ts#a'], status: 'Killed' });
 });

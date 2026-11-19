@@ -117,3 +117,18 @@ test('the plugins reference lists every built-in mutator and the default logging
     for (const callee of DEFAULT_ARID_CALLEES) expect(text, `${reference}: ${callee}`).toContain(`\`${callee}\``);
   }
 });
+
+test('documented imports resolve from @mizchi/mutator, which re-exports the plugin helpers', async () => {
+  // pnpm does not let a project import a transitive dependency, so a user who installed only
+  // @mizchi/mutator cannot import @mizchi/mutator-core.
+  const docs = [...skills.flatMap((s) => s.files), { path: 'README.md', text: readFileSync(join(packages, '../README.md'), 'utf8') }];
+  for (const { path, text } of docs) expect(text, path).not.toMatch(/from ['"]@mizchi\/mutator-core['"]/);
+  const entry: Record<string, unknown> = await import('../src/index.ts');
+  const imported = docs.flatMap(({ text }) =>
+    [...text.matchAll(/import\s+(type\s+)?\{([^}]*)\}\s+from\s+['"]@mizchi\/mutator['"]/g)].flatMap((m) =>
+      m[1] ? [] : m[2]!.split(',').map((n) => n.trim()).filter((n) => n && !n.startsWith('type ')),
+    ),
+  );
+  expect(imported).toEqual(expect.arrayContaining(['definePlugin', 'defineMutator', 'defineIgnorer', 'defineConfig']));
+  expect([...new Set(imported)].filter((name) => typeof entry[name] !== 'function')).toEqual([]);
+});

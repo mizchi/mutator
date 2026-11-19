@@ -70,6 +70,10 @@ npx mutator --since main --include-test-changes --kill-matrix  # also review cha
 npx mutator --shared-cache  # reuse validated results across Git worktrees
 ```
 
+Use `pnpm exec mutator --watch` while editing. It runs once at startup, then reruns after changes under the project root. In a Git repository with a commit, it defaults to `--since HEAD --include-test-changes` so edits to tests also recheck the mutants they cover. Pass `--since main` to watch the branch diff, or `--no-include-test-changes` to keep the usual source-only diff selection. Outside Git or before the first commit, it uses the normal incremental run.
+
+Saves during a run queue a follow-up run. A failing baseline or quality gate leaves the watcher running so you can fix the failure and save again. Git-ignored files, dependencies, mutator's cache and generated reports do not trigger reruns. `--watch --reporter agent` emits one compact JSON report per successful analysis. Press Ctrl-C to stop.
+
 `--include-test-changes` extends `--since` to mutants covered by added, edited or removed tests. Tests without reached mutants fall back to the files in their observed import graph. `selectionReasons` in the JSON/agent report records the tests that selected each mutant. A compatible previous snapshot also enables detection-regression warnings: a mutant in unchanged code was Killed before, but is Survived or NoCoverage now. Without that snapshot, `comparison` is `unavailable`; no regression claim is made. The default `--since` continues to report changed code and rechecks for removed killers only.
 
 Cache validation includes enclosing pnpm/npm workspace manifests and lockfiles, stopping at the repository boundary. Each `--include`/`--exclude` scope keeps its snapshot under `.mutator/scopes/`, so alternating between scopes preserves each scope's results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts. `--shared-cache` stores snapshots under Git's common directory, separated by package, scope and environment, so worktrees can reuse them without a copy script. `select-tests` accepts the same flag. Snapshot writes are atomic.
@@ -506,9 +510,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.4.3
+      - uses: mizchi/mutator@v0.4.4
         with:
-          version: '0.4.3'
+          version: '0.4.4'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -571,10 +575,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Install @mizchi/mutator 0.4.3 or later in the project.
-      - uses: mizchi/mutator@v0.4.3
+      # Install @mizchi/mutator 0.4.4 or later in the project.
+      - uses: mizchi/mutator@v0.4.4
         with:
-          version: '0.4.3'
+          version: '0.4.4'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -630,7 +634,7 @@ pnpm run pack-smoke      # install the packed packages and test all runtime adap
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.3`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.4`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 

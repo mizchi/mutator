@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "type": "module",
   "description": "Diff-driven mutation testing for Vitest and Jest",
   "keywords": [
@@ -39,7 +39,8 @@
     "@mizchi/mutator-jest": "workspace:*",
     "@mizchi/mutator-playwright": "workspace:*",
     "@mizchi/mutator-typecheck": "workspace:*",
-    "@mizchi/mutator-vitest": "workspace:*"
+    "@mizchi/mutator-vitest": "workspace:*",
+    "chokidar": "6.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

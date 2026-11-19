@@ -2,6 +2,7 @@
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError, DEFAULT_THRESHOLDS, type MutatorConfig, type Reporter, type Thresholds, configSchema, fail, loadConfig, schemaErrors } from './config.ts';
+import { runGit } from './git.ts';
 import type { RunOptions } from './run.ts';
 import { type Shard, parseShard, shardName } from './ci-shard.ts';
 
@@ -80,7 +81,7 @@ export type CliValues = ReturnType<typeof parseCli>;
 
 export function parseCli(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: OPTIONS, allowNegative: true }).values;
+    return parseArgs({ args: argv, options: { ...OPTIONS, watch: { type: 'boolean' } }, allowNegative: true }).values;
   } catch (error) {
     throw new ConfigError(`command line: ${(error as Error).message}`);
   }
@@ -182,13 +183,21 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
   catch (error) { throw new ConfigError(`--${(error as Error).message}`); }
 
   const { arid } = config;
+  let since = config.since;
+  if (values.watch && since === undefined) {
+    try {
+      runGit(root, ['rev-parse', '--verify', 'HEAD']);
+      since = 'HEAD';
+    } catch { /* No commit to compare against. Use normal incremental execution. */ }
+  }
+  const includeTestChanges = config.includeTestChanges ?? (values.watch && since !== undefined);
   return {
     root,
     ...(loaded ? { configPath: loaded.path } : {}),
     run: {
       scope: config.scope ?? 'node',
-      ...(config.since !== undefined ? { since: config.since } : {}),
-      ...(config.includeTestChanges ? { includeTestChanges: true } : {}),
+      ...(since !== undefined ? { since } : {}),
+      ...(includeTestChanges ? { includeTestChanges: true } : {}),
       ...(config.sharedCache ? { sharedCache: true } : {}),
       ...(config.include ? { include: config.include } : {}),
       ...(config.exclude ? { exclude: config.exclude } : {}),

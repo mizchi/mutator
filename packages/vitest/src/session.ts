@@ -30,6 +30,8 @@ export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLoca
 
 // Published builds ship setup.js next to session.js.
 const SETUP_FILE = realpathSync.native(fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url)));
+// Matches the setup file's module id, which Vite writes with forward slashes on every platform.
+const SETUP_ID = new RegExp(`^${SETUP_FILE.replaceAll('\\', '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[?#]|$)`);
 const debug = debuglog('mutator');
 
 export interface SessionOptions extends PluginOptions {
@@ -208,6 +210,13 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
     {
       name: 'mutator:test-runtime',
       enforce: 'pre',
+      config(config) {
+        // Installed, the setup file lives under node_modules and would be externalized; Node would then
+        // resolve its `vitest` import from this adapter's own peer, which may be another copy than the
+        // project's (pnpm splits Vitest by peer variants). Inline it so `resolveId` below applies.
+        const deps = ((config.test ??= {}).server ??= {}).deps ??= {};
+        if (deps.inline !== true) deps.inline = [...(deps.inline ?? []), SETUP_ID];
+      },
       resolveId(source, importer) {
         if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
         return this.resolve(runtime.setup, runtime.importer, { skipSelf: true });

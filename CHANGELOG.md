@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.4 - 2026-11-19
+
+### Added
+
+- Use `--watch` to rerun mutation tests on edits. In Git it defaults to the working-tree diff against `HEAD` and includes mutants covered by changed tests.
+
+### Fixed
+
+- The installed Vitest adapter uses the project's Vitest for its worker setup when pnpm installs separate copies for different peer dependencies (#32).
+- Git commands in repository fixtures, diff selection and shared-cache discovery use their target directory when invoked from a Git hook (#44).
+
 ## 0.4.3 - 2026-11-19
 
 ### Added

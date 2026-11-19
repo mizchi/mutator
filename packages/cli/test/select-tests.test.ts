@@ -1,10 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MutantResult } from '@mizchi/mutator-core';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { runMutation } from '../src/run.ts';
 import { type Picked, type SelectionInput, selectTests, selectionFiles } from '../src/select-tests.ts';
+import { fixtureGit } from './fixture-git.ts';
 
 const root = '/p';
 let n = 0;
@@ -122,8 +123,7 @@ describe('mutator select-tests', { timeout: 60_000 }, () => {
   const tmpRoot = join(import.meta.dirname, '../../../.tmp');
   let dir: string;
   const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args, '--root', dir], { encoding: 'utf8' });
-  const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+  const git = (...args: string[]) => fixtureGit(dir, ...args);
   const edit = (rel: string, from: string, to: string) => writeFileSync(join(dir, rel), readFileSync(join(dir, rel), 'utf8').replace(from, to));
 
   beforeEach(() => {

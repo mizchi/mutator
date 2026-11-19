@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import { formatSummary } from '../src/report.ts';
 import { BaselineError, type Report, runMutation } from '../src/run.ts';
 import { readSnapshot } from '../src/snapshot.ts';
+import { fixtureGit } from './fixture-git.ts';
 
 const tmpRoot = fileURLToPath(new URL('../../../.tmp', import.meta.url));
 const CONFIG = `import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n`;
@@ -297,7 +298,7 @@ describe('type checking', { timeout: 120_000 }, () => {
       'src/a.ts': 'export function size(o?: { n: number }): number | undefined {\n  return o?.n;\n}\nexport function twice(n: number): number {\n  return n * 2;\n}\n',
       'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { size, twice } from '../src/a.ts';\ntest('a', () => { expect(size({ n: 1 })).toBe(1); expect(size()).toBe(undefined); expect(twice(2)).toBe(4); });\n",
     });
-    const git = (...args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: root });
+    const git = (...args: string[]) => fixtureGit(root, ...args);
     git('init', '-q');
     git('add', '.');
     git('commit', '-qm', 'base');

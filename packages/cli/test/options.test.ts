@@ -14,6 +14,13 @@ function project(config?: object): string {
 const resolve = (root: string, ...argv: string[]) => resolveOptions(['--root', root, ...argv], root);
 
 describe('resolveOptions', () => {
+  test('--watch respects an explicit base and works outside a Git worktree', async () => {
+    const root = project();
+    expect((await resolve(root, '--watch')).run.since).toBeUndefined();
+    expect((await resolve(root, '--watch', '--since', 'main')).run).toMatchObject({ since: 'main', includeTestChanges: true });
+    expect((await resolve(root, '--watch', '--since', 'main', '--no-include-test-changes')).run.includeTestChanges).toBeUndefined();
+  });
+
   test('defaults', async () => {
     const root = project();
     const options = await resolve(root);

@@ -29,12 +29,14 @@ export interface MutatorConfig {
   maxWorkers?: number;
   /** CI partition of mutant keys, one-based INDEX/COUNT (for example '1/4'). */
   shard?: string;
-  /** Test runner (default 'auto': Vitest or Jest; slower Playwright browser runs require explicit opt-in). */
-  runner?: 'vitest' | 'jest' | 'playwright' | 'auto';
+  /** Test runner (default 'auto': Vitest, Jest or Bun; slower Playwright browser runs require explicit opt-in). */
+  runner?: 'vitest' | 'jest' | 'bun' | 'playwright' | 'auto';
   /** Vitest config file, relative to the project root. */
   vitestConfig?: string;
   /** Jest config file, relative to the project root (experimental Jest support). */
   jestConfig?: string;
+  /** bunfig.toml for Bun's test runner, relative to the project root (experimental Bun support). */
+  bunConfig?: string;
   /** Playwright config file, relative to the root; explicitly opts into browser mutation testing. */
   playwrightConfig?: string;
   /** Experimental: collect Chromium V8 coverage in dry runs and remap to original scopes. */
@@ -104,9 +106,10 @@ const properties = {
   concurrency: { description: 'Parallel test-runner sessions.', type: 'integer', minimum: 1 },
   maxWorkers: { description: 'Maximum active test workers across all sessions, including the dry run.', type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
   shard: { description: 'CI partition of mutant keys as one-based INDEX/COUNT, e.g. 1/4. Separate snapshots and default report directories per shard.', type: 'string' },
-  runner: { description: 'Test runner; auto picks Vitest or Jest. Playwright browser mutation runs can be slow and require explicit opt-in.', enum: ['vitest', 'jest', 'playwright', 'auto'] },
+  runner: { description: 'Test runner; auto picks Vitest, Jest or Bun. Playwright browser mutation runs can be slow and require explicit opt-in.', enum: ['vitest', 'jest', 'bun', 'playwright', 'auto'] },
   vitestConfig: { description: 'Vitest config file, relative to the root.', type: 'string' },
   jestConfig: { description: 'Jest config file, relative to the root (experimental, native ESM only).', type: 'string' },
+  bunConfig: { description: "bunfig.toml for Bun's test runner, relative to the root (experimental).", type: 'string' },
   playwrightConfig: { description: 'Playwright config file, relative to the root; explicitly selects the slower browser mutation runner (experimental: Vite dev server required).', type: 'string' },
   playwrightSourceCoverage: { description: 'Experimental Chromium-only V8 coverage in dry runs, remapped through inline source maps to original source scopes. Adds CPU and memory overhead; default false.', type: 'boolean' },
   arid: {

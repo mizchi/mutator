@@ -203,8 +203,17 @@ importers:
         specifier: 8.3.8
         version: 8.3.8(@types/node@26.6.6)
 
+  packages/bun:
+    dependencies:
+      '@mizchi/mutator-core':
+        specifier: workspace:*
+        version: link:../core
+
   packages/cli:
     dependencies:
+      '@mizchi/mutator-bun':
+        specifier: workspace:*
+        version: link:../bun
       '@mizchi/mutator-core':
         specifier: workspace:*
         version: link:../core

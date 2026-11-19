@@ -41,7 +41,7 @@ function timed(cmd: string, cwd: string): { wallMs: number; result: ReturnType<t
 const suiteCommand = (runner: Runner) => (runner === 'vitest' ? 'node_modules/.bin/vitest run' : 'bun test');
 
 function mutator(spec: Spec, runner: Runner, extra: string[] = []): string {
-  const include = spec.mutate.flatMap((g) => ['--include', JSON.stringify(g)]).join(' ');
+  const include = spec.mutate.map((g) => `--include '${g}'`).join(' ');
   return `node ${CLI} --root . --runner ${runner} ${include} --reporter text --reporter json ${extra.join(' ')}`;
 }
 

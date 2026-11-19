@@ -56,7 +56,11 @@ export interface CloneOptions {
  */
 export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker', options: CloneOptions = {}): string {
   const dir = join(work, variant === 'ours' ? spec.name : `${spec.name}-stryker`);
-  if (existsSync(join(dir, '.bench-ready'))) return dir;
+  const vitest = variant === 'ours' ? (spec.vitestOurs ?? options.vitest ?? '5.0.3') : (spec.vitestStryker ?? '4.1.5');
+  // What the setup depends on: a clone set up for other values is set up again.
+  const stamp = `${JSON.stringify({ commit: spec.commit, vitest, install: spec.install, checks: options.checks })}\n`;
+  const ready = join(dir, '.bench-ready');
+  if (existsSync(ready) && readFileSync(ready, 'utf8') === stamp) return dir;
   rmSync(dir, { recursive: true, force: true });
   log(`${spec.name}: cloning ${variant} clone`);
   sh(`git clone -q ${spec.repo} ${dir}`, work);
@@ -71,7 +75,7 @@ export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker'
   delete pkg.packageManager; // use the installed pnpm, not a per-project download
   pkg.devDependencies ??= {};
   for (const name of Object.keys(pkg.devDependencies)) if (name.startsWith('@vitest/')) delete pkg.devDependencies[name];
-  pkg.devDependencies.vitest = variant === 'ours' ? (spec.vitestOurs ?? options.vitest ?? '5.0.3') : (spec.vitestStryker ?? '4.1.5');
+  pkg.devDependencies.vitest = vitest;
   if (variant === 'stryker') {
     pkg.devDependencies['@stryker-mutator/core'] = '10.0.0';
     pkg.devDependencies['@stryker-mutator/vitest-runner'] = '10.0.0';
@@ -98,6 +102,6 @@ export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker'
     const r = sh(check, dir, true);
     if (r.status !== 0) throw new Error(`${spec.name} (${variant}): ${check} fails at the pinned commit\n${r.stdout.slice(-3000)}\n${r.stderr.slice(-3000)}`);
   }
-  writeFileSync(join(dir, '.bench-ready'), `${spec.commit}\n`);
+  writeFileSync(ready, stamp);
   return dir;
 }

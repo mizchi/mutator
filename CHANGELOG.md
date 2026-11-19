@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An installed Vitest adapter no longer loads its own `vitest` peer in the test workers. Under `node_modules` its setup file was externalized, so Node resolved the setup's `vitest` import next to the adapter; when pnpm had installed several Vitest copies (one per set of optional peers) and the project used another one, every test file failed with `Vitest failed to find the runner` (#32). The setup file is now inlined, so its `vitest` import resolves to the project's runtime.
+
 ## 0.4.2 - 2026-11-19
 
 ### Fixed

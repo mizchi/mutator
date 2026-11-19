@@ -337,12 +337,15 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
       let outcome = await run(filter, earlyExit);
       let durationMs = outcome.wallMs;
       // Selected tests that did not run, with none of them failing, run again through their
-      // whole files. The report drops characters XML cannot hold (NUL and other control
-      // characters), so a pattern built from it misses a test named with them. And --bail
-      // stops at the first failing test, also one that was not selected: that rerun goes without it.
+      // whole files, without --bail. The report drops characters XML cannot hold (NUL and other
+      // control characters), so a pattern built from it misses a test named with them. And
+      // --bail stops at the first failing test, also one that was not selected, which a
+      // whole-file run includes. The rerun gets its own `timeoutMs`, an exception to it being
+      // the budget of the whole run: the first run left selected tests out, and running out of
+      // a shared budget would count the mutant as detected (Timeout).
       const left = !outcome.timedOut && outcome.junit ? leftOut(outcome, root, testIds, locations) : undefined;
       if (left?.missed && (filter.length > 0 || (earlyExit && left.otherFailed))) {
-        outcome = await run([], earlyExit && !left.otherFailed);
+        outcome = await run([], false);
         durationMs += outcome.wallMs;
       }
       if (outcome.timedOut) return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };

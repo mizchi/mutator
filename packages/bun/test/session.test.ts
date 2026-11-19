@@ -221,11 +221,13 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
       expect(dry.failed).toEqual([]);
       // The NUL is gone from the reported name.
       const id = 'test/scheme.test.ts#javascript:';
-      expect(dry.tests.map((t) => t.id)).toEqual([id, 'test/scheme.test.ts#plain']);
-      // Only the test named with a NUL fails on it.
+      const [first, plain] = ['test/scheme.test.ts#first', 'test/scheme.test.ts#plain'];
+      expect(dry.tests.map((t) => t.id)).toEqual([first, id, plain]);
       const mutant = session.mutants().find((m) => m.original === "input.startsWith('\\0')" && m.replacement === 'false')!;
-      expect(dry.coverage.get(mutant.key)).toEqual([id, 'test/scheme.test.ts#plain']);
-      const result = await session.runMutant(mutant.key, [id, 'test/scheme.test.ts#plain'], { timeoutMs: 10_000 });
+      expect(dry.coverage.get(mutant.key)).toEqual([first, id, plain]);
+      // The pattern misses the test named with a NUL, so its file runs again whole. There,
+      // `first` fails too but is not selected: --bail must not stop the run at it.
+      const result = await session.runMutant(mutant.key, [id, plain], { timeoutMs: 10_000 });
       expect(result).toMatchObject({ status: 'Killed', killedBy: [id] });
     } finally {
       await session.close();

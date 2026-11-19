@@ -33,6 +33,7 @@ const OPTIONS = {
   'config-file': { type: 'string' },
   root: { type: 'string' },
   concurrency: { type: 'string', short: 'j' },
+  'max-workers': { type: 'string' },
   shard: { type: 'string' },
   reporter: { type: 'string', multiple: true },
   only: { type: 'string', multiple: true },
@@ -62,6 +63,7 @@ const FLAGS: Record<string, string> = {
   include: '--include',
   exclude: '--exclude',
   concurrency: '--concurrency',
+  maxWorkers: '--max-workers',
   shard: '--shard',
   vitestConfig: '--config',
   jestConfig: '--jest-config',
@@ -81,7 +83,15 @@ export type CliValues = ReturnType<typeof parseCli>;
 
 export function parseCli(argv: string[]) {
   try {
-    return parseArgs({ args: argv, options: { ...OPTIONS, watch: { type: 'boolean' } }, allowNegative: true }).values;
+    const { values } = parseArgs({
+      args: argv, options: { ...OPTIONS, watch: { type: 'boolean' }, 'watch-throttle': { type: 'string' } }, allowNegative: true,
+    });
+    const raw = values['watch-throttle'];
+    const watchThrottleMs = raw === undefined ? 1000 : Number(raw);
+    if (raw?.trim() === '' || !Number.isInteger(watchThrottleMs) || watchThrottleMs < 0 || watchThrottleMs > 2_147_483_647) {
+      throw new Error('--watch-throttle must be an integer between 0 and 2147483647 milliseconds');
+    }
+    return { ...values, watchThrottleMs };
   } catch (error) {
     throw new ConfigError(`command line: ${(error as Error).message}`);
   }
@@ -101,6 +111,7 @@ function cliConfig(values: CliValues, cwd: string): MutatorConfig {
     sharedCache: values['shared-cache'],
     scope: values.scope,
     concurrency: numeric(values.concurrency),
+    maxWorkers: numeric(values['max-workers']),
     runner: values.runner,
     vitestConfig: values.config && resolve(cwd, values.config),
     jestConfig: values['jest-config'] && resolve(cwd, values['jest-config']),
@@ -207,6 +218,7 @@ export async function resolveValues(values: CliValues, cwd: string): Promise<Res
       ...(config.playwrightConfig ? { playwrightConfigFile: resolve(root, config.playwrightConfig) } : {}),
       ...(config.playwrightSourceCoverage !== undefined ? { playwrightSourceCoverage: config.playwrightSourceCoverage } : {}),
       ...(config.concurrency !== undefined ? { concurrency: config.concurrency } : {}),
+      ...(config.maxWorkers !== undefined ? { maxWorkers: config.maxWorkers } : {}),
       ...(shard ? { shard } : {}),
       fullDryRun: config.fullDryRun ?? false,
       callGraph: config.experimentalCallgraph ?? false,

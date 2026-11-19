@@ -95,6 +95,8 @@ export interface RunOptions {
   fullDryRun?: boolean;
   /** Parallel runner sessions running mutants (default: half the CPUs). */
   concurrency?: number;
+  /** Total active test workers across all sessions in this invocation. */
+  maxWorkers?: number;
   /** CI partition of mutant keys; stable across machines, cache state and test timings. */
   shard?: Shard;
   /** Run at most this many mutants per source line (see `selectPerLine`); the rest are Pending. */

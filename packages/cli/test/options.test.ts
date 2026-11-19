@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { ConfigError } from '../src/config.ts';
-import { resolveOptions } from '../src/options.ts';
+import { parseCli, resolveOptions } from '../src/options.ts';
 
 function project(config?: object): string {
   const dir = mkdtempSync(join(tmpdir(), 'mutator-options-'));
@@ -19,6 +19,15 @@ describe('resolveOptions', () => {
     expect((await resolve(root, '--watch')).run.since).toBeUndefined();
     expect((await resolve(root, '--watch', '--since', 'main')).run).toMatchObject({ since: 'main', includeTestChanges: true });
     expect((await resolve(root, '--watch', '--since', 'main', '--no-include-test-changes')).run.includeTestChanges).toBeUndefined();
+  });
+
+  test('watch throttle accepts millisecond intervals in the Node timer range', () => {
+    expect(parseCli(['--watch']).watchThrottleMs).toBe(1000);
+    expect(parseCli(['--watch', '--watch-throttle', '0']).watchThrottleMs).toBe(0);
+    expect(parseCli(['--watch', '--watch-throttle', '2500']).watchThrottleMs).toBe(2500);
+    for (const invalid of ['-1', '', '1.5', 'slow', '2147483648']) {
+      expect(() => parseCli(['--watch', `--watch-throttle=${invalid}`])).toThrow('--watch-throttle');
+    }
   });
 
   test('defaults', async () => {
@@ -161,6 +170,14 @@ describe('critical regions', () => {
 });
 
 describe('large-run options', () => {
+  test('maxWorkers sets a total worker budget independently of session concurrency', async () => {
+    const root = project({ maxWorkers: 4 });
+    expect((await resolve(root)).run.maxWorkers).toBe(4);
+    expect((await resolve(root, '--watch', '-j', '2', '--max-workers', '7')).run).toMatchObject({ concurrency: 2, maxWorkers: 7 });
+    await expect(resolve(root, '--max-workers', '0')).rejects.toThrow('--max-workers must be >= 1');
+    await expect(resolve(root, '--max-workers', '1.5')).rejects.toThrow('--max-workers must be integer');
+  });
+
   test('shard is parsed from config or CLI, with independent default report directories', async () => {
     const root = project({ shard: '1/4' });
     expect((await resolve(root)).run.shard).toEqual({ index: 1, total: 4 });

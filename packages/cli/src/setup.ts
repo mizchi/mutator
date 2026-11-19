@@ -14,6 +14,9 @@ const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*'
 
 /** Target files, plugins, and the runner with the options its sessions are created with. */
 export async function resolveSetup(root: string, options: RunOptions, log: (message: string) => void) {
+  if (options.maxWorkers !== undefined && (!Number.isSafeInteger(options.maxWorkers) || options.maxWorkers < 1)) {
+    throw new RangeError('maxWorkers must be a positive safe integer');
+  }
   const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
     cwd: root,
     exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
@@ -39,10 +42,12 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
             ? 'vitest'
             : detectRunner(root);
   const configFile = { vitest: options.configFile, jest: options.jestConfigFile, playwright: options.playwrightConfigFile }[runner];
-  log(`runner: ${runner}`);
+  const workerLimit = options.maxWorkers === undefined ? '' : ` (total test worker limit: ${options.maxWorkers})`;
+  log(`runner: ${runner}${workerLimit}`);
   const sessionOptions: RunnerSessionOptions = {
     root,
     targets: new Set(files),
+    ...(options.maxWorkers !== undefined ? { maxWorkers: options.maxWorkers } : {}),
     ...instrumentOptions,
     pluginModules: plugins.modules,
     hasPluginObjects: plugins.hasObjects,

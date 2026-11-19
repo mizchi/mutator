@@ -34,6 +34,33 @@ describe('playwright session', { timeout: 120_000 }, () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  test('the session worker budget overrides the Playwright worker setting in both phases', async () => {
+    const configFile = join(root, 'workers.config.ts');
+    writeFileSync(configFile, "import base from './playwright.config.ts'; export default { ...base, workers: 7 };");
+    const testFile = join(root, 'tests/workers.spec.ts');
+    writeFileSync(testFile, [
+      "import { expect, test } from '@mizchi/mutator-playwright';",
+      "import { appendFileSync } from 'node:fs';",
+      "test('workers', async ({ page }, info) => {",
+      "  appendFileSync(new URL('../workers.log', import.meta.url), info.config.workers + '\\n');",
+      "  await page.goto('/');",
+      "  await page.click('#count');",
+      "  await expect(page.locator('#count')).toHaveText('1');",
+      "});",
+    ].join('\n'));
+    const bounded = await createPlaywrightSession({ root, targets: ['counter.ts', 'main.ts', 'other.ts'].map(f => join(root, 'src', f)), configFile, maxWorkers: 2 });
+    try {
+      const result = await bounded.dryRun([testFile]);
+      expect(result.failed).toEqual([]);
+      const key = find('counter.ts', 'n + 1', 'n - 1').key;
+      expect((await bounded.runMutant(key, result.coverage.get(key)!, { timeoutMs: 30_000 })).status).toBe('Killed');
+      expect(readFileSync(join(root, 'workers.log'), 'utf8').trim().split('\n')).toEqual(['2', '2']);
+    } finally {
+      await bounded.close();
+      rmSync(testFile);
+    }
+  });
+
   test('lists the test files, and the config as what every test depends on', async () => {
     expect(await session.testFiles()).toEqual([join(root, 'tests/app.spec.ts')]);
     expect(session.configFiles()).toEqual([join(root, 'playwright.config.ts')]);

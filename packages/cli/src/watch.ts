@@ -24,7 +24,7 @@ function allIgnoredByGit(root: string, files: Set<string>): boolean {
   return status === 0 && stdout.split('\0').length - 1 === files.size;
 }
 
-export async function watchCommand(root: string, cli: string, argv: string[]): Promise<void> {
+export async function watchCommand(root: string, cli: string, argv: string[], throttleMs: number): Promise<void> {
   const refs = gitRefs(root);
   const reports = new Set<string>();
   const sinks = [1, 2].map((fd) => fstatSync(fd)).filter((s) => s.isFile());
@@ -39,24 +39,18 @@ export async function watchCommand(root: string, cli: string, argv: string[]): P
   let error: unknown;
   const changed = new Set<string>();
   let refChanged = false;
-  const schedule = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      for (const path of reports) changed.delete(relative(root, path));
-      if (refChanged || (changed.size && (!git || !allIgnoredByGit(root, changed)))) next.resolve();
-      changed.clear();
-      refChanged = false;
-    }, 150);
-  };
+  let initial = true;
+  // Keep the same latch through the entire window, even when it expires during a run.
+  const schedule = () => { timer ??= setTimeout(() => next.resolve(), throttleMs); };
   files.on('all', (event, path) => {
     if (event === 'addDir' || event === 'unlinkDir' || reports.has(resolve(path))) return;
     changed.add(relative(root, path));
-    schedule();
+    if (!initial) schedule();
   });
   git?.on('all', (event, path) => {
     if (event === 'addDir' || event === 'unlinkDir' || basename(path).endsWith('.lock')) return;
     refChanged = true;
-    schedule();
+    if (!initial) schedule();
   });
   const watchers = git ? [files, git] : [files];
   for (const watcher of watchers) {
@@ -64,14 +58,22 @@ export async function watchCommand(root: string, cli: string, argv: string[]): P
   }
   try {
     await Promise.all(watchers.map((watcher) => once(watcher, 'ready')));
+    console.error(`watch: ready (throttle ${throttleMs} ms)`);
+    schedule();
     for (;;) {
+      await next.promise;
       if (error) throw error;
-      // Edits during the child run resolve the next latch, even if the run fails.
+      for (const path of reports) changed.delete(relative(root, path));
+      const shouldRun = initial || refChanged || (changed.size > 0 && (!git || !allIgnoredByGit(root, changed)));
+      initial = false;
+      refChanged = false;
+      changed.clear();
+      timer = undefined;
       next = Promise.withResolvers<void>();
+      if (!shouldRun) continue;
       console.error('watch: running mutation tests');
       await runOnce(cli, argv, reports);
       console.error('watch: waiting for changes (Ctrl-C to stop)');
-      await next.promise;
     }
   } finally {
     clearTimeout(timer);

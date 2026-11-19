@@ -51,15 +51,19 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   // split by test file so idle sessions can take part of them.
   const sharded = jobs.map((job) => ({ ...job, shards: splitByFile(job.entry.tests, testDurations, SHARD_TARGET_MS) }));
   const shardCount = sharded.reduce((n, j) => n + j.shards.length, 0);
-  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), shardCount));
+  const budget = ctx.sessionOptions.maxWorkers;
+  const concurrency = Math.max(1, Math.min(ctx.concurrency ?? defaultConcurrency(), budget ?? Infinity, shardCount));
   const prediction = estimateWork(jobs.map(({ entry }) => ({ key: entry.mutant.key, tests: entry.tests })), {
     durations: testDurations, workers: concurrency, fileOverheadMs: ctx.fileOverheadMs, previous: ctx.previousDurations,
   });
   const { estimate } = prediction;
   if (jobs.length > 0) log(`estimated mutant execution: ~${formatDuration(estimate.durationMs)} (${concurrency} sessions; ${estimate.historySamples}/${jobs.length} historical timings, remaining costs from dry run)`);
-  // In parallel mode every mutant session gets a single worker so sessions do not
-  // oversubscribe the CPU; a lone session keeps the runner's default workers.
-  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, () => createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers: 1 })));
+  // With an explicit budget, share all slots, giving one extra to each of the first
+  // sessions until the remainder is used. A lone session reuses the baseline's budget.
+  const workers = concurrency === 1 ? [ctx.session] : await Promise.all(Array.from({ length: concurrency }, (_, index) => {
+    const maxWorkers = budget === undefined ? 1 : Math.floor(budget / concurrency) + Number(index < budget % concurrency);
+    return createRunnerSession(ctx.runner, { ...ctx.sessionOptions, maxWorkers });
+  }));
   if (concurrency > 1) ctx.sessions.push(...workers);
   for (const s of workers) s.useTestIndex(merged.index);
   const deadline = timeBudget !== undefined ? ctx.started + timeBudget * 1000 : Infinity;

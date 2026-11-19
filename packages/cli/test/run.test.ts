@@ -131,6 +131,19 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(byStatus(parallel)).toEqual(byStatus(sequential));
   });
 
+  test('Vitest receives the full budget for the baseline and a share for each mutation session', async () => {
+    writeFileSync(join(root, 'vitest.config.ts'), "export default { test: { maxWorkers: 8, globalSetup: './workers.ts' } };");
+    writeFileSync(join(root, 'workers.ts'), [
+      "import { appendFileSync } from 'node:fs';",
+      "export default function setup(project) { appendFileSync(new URL('./workers.log', import.meta.url), project.config.maxWorkers + '\\n'); }",
+    ].join('\n'));
+    const report = await runMutation({ root, typecheck: false, concurrency: 2, maxWorkers: 3 });
+    expect(report.executed).toBeGreaterThan(1);
+    const limits = readFileSync(join(root, 'workers.log'), 'utf8').trim().split('\n').map(Number);
+    expect(limits[0]).toBe(3);
+    expect(new Set(limits.slice(1))).toEqual(new Set([1, 2]));
+  });
+
   test('weak mutation: a covered mutant no test infects is Survived without running', async () => {
     const report = await runMutation({ root, concurrency: 1 });
     const boundary = report.entries.find((e) => e.mutant.original === 'age >= 18' && e.mutant.replacement === 'age > 18')!;

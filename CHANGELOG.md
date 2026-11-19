@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.5 - 2026-11-19
+
+### Added
+
+- Set `--max-workers` or `maxWorkers` in the config to cap active test workers across a mutator invocation. The baseline can use the full budget. During mutation testing, `-j 2 --max-workers 8` gives two concurrent Vitest or Playwright sessions up to four workers each. Jest runs each mutant in band.
+
+### Changed
+
+- Watch mode now waits one second before its initial run and groups edits into one-second windows. Use `--watch-throttle 5000` for five seconds or `--watch-throttle 0` for immediate scheduling. Continued edits keep the original deadline, and edits during a run queue one follow-up.
+
 ## 0.4.4 - 2026-11-19
 
 ### Added

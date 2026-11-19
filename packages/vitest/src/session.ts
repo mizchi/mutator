@@ -38,7 +38,7 @@ export interface SessionOptions extends PluginOptions {
   root: string;
   /** Path to a vitest config file; defaults to vitest's own lookup from `root`. */
   configFile?: string;
-  /** Worker threads of this Vitest instance (sessions running mutants in parallel use 1 each). */
+  /** Maximum test workers for this Vitest session. */
   maxWorkers?: number;
   /** Stop a mutant run at the first failing test (default: true). */
   earlyExit?: boolean;

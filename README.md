@@ -70,9 +70,9 @@ npx mutator --since main --include-test-changes --kill-matrix  # also review cha
 npx mutator --shared-cache  # reuse validated results across Git worktrees
 ```
 
-Use `pnpm exec mutator --watch` while editing. It runs once at startup, then reruns after changes under the project root. In a Git repository with a commit, it defaults to `--since HEAD --include-test-changes` so edits to tests also recheck the mutants they cover. Pass `--since main` to watch the branch diff, or `--no-include-test-changes` to keep the usual source-only diff selection. Outside Git or before the first commit, it uses the normal incremental run.
+Use `pnpm exec mutator --watch` while editing. The first run starts one second after the watcher is ready. The first edit in each subsequent batch starts a one-second timer, so continuous saves trigger periodic runs. Set the interval in milliseconds, for example `pnpm exec mutator --watch --watch-throttle 5000` for five seconds or `--watch-throttle 0` for immediate scheduling. In a Git repository with a commit, it defaults to `--since HEAD --include-test-changes` so edits to tests also recheck the mutants they cover. Pass `--since main` to watch the branch diff, or `--no-include-test-changes` to keep the usual source-only diff selection. Outside Git or before the first commit, it uses the normal incremental run.
 
-Saves during a run queue a follow-up run. A failing baseline or quality gate leaves the watcher running so you can fix the failure and save again. Git-ignored files, dependencies, mutator's cache and generated reports do not trigger reruns. `--watch --reporter agent` emits one compact JSON report per successful analysis. Press Ctrl-C to stop.
+Saves during a run queue one follow-up. It starts when both the current run and the pending timer have finished. A failing baseline or quality gate leaves the watcher running so you can fix the failure and save again. Git-ignored files, dependencies, mutator's cache and generated reports do not trigger reruns. `--watch --reporter agent` emits one compact JSON report per successful analysis. Press Ctrl-C to stop.
 
 `--include-test-changes` extends `--since` to mutants covered by added, edited or removed tests. Tests without reached mutants fall back to the files in their observed import graph. `selectionReasons` in the JSON/agent report records the tests that selected each mutant. A compatible previous snapshot also enables detection-regression warnings: a mutant in unchanged code was Killed before, but is Survived or NoCoverage now. Without that snapshot, `comparison` is `unavailable`; no regression claim is made. The default `--since` continues to report changed code and rechecks for removed killers only.
 
@@ -465,7 +465,7 @@ Sampling and the time budget leave unrun mutants `Pending`; raise or remove thos
 - mutator starts the config's `webServer` itself, once per run, with the instrumentation enabled, and runs Playwright through a generated config (next to the project's, removed afterwards) that extends the project's without its `webServer`. Nothing must already listen on the server's url.
 - The fixture adds an init script to each test's browser context: it activates the mutant and, in the dry run, records which mutants the test reaches. What a page records survives same-origin navigations (through `sessionStorage`), and every page and frame of the context is read when the test ends.
 - Every test file is treated as depending on every mutated file, since the browser loads the sources, not the tests.
-- Each dry run and mutant run is a `playwright test` process with `--retries=0` and mutator's reporter. Dry runs use the project's workers; mutant runs use one worker and `--max-failures=1` unless `--kill-matrix`. Tests are selected by `file:line` and, with several projects, `--project` (test ids then start with `[project]`).
+- Each dry run and mutant run is a `playwright test` process with `--retries=0` and mutator's reporter. By default dry runs use the project's workers and mutant runs use one worker and `--max-failures=1` unless `--kill-matrix`. Tests are selected by `file:line` and, with several projects, `--project` (test ids then start with `[project]`).
 - In mutant runs an `expect` waits at most three times as long as the slowest selected test took in the dry run (at least 1 s, never longer than the config's): a mutant that breaks the page would otherwise cost the full expect timeout per assertion.
 - Weak mutation, `--since`, result reuse, `-j`, `--kill-matrix` and `--typecheck` work as with Vitest. On the fixture app a mutant run takes about 1–2 s: a killed mutant mostly waits for its failing `expect`, and starting Playwright costs about 0.6 s per run (keeping Playwright's test-server across runs saved only 4%, so every run is a process).
 
@@ -510,9 +510,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.4.4
+      - uses: mizchi/mutator@v0.4.5
         with:
-          version: '0.4.4'
+          version: '0.4.5'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -543,6 +543,17 @@ The base commit is fetched when the checkout is shallow. The snapshot is saved e
 Snapshots store paths relative to the project root, so a cache restored in another checkout directory is reused. On GitHub Actions, undetected mutants are also printed as `::warning` annotations on the diff, titled by gap (unreached ones only with `--since`).
 
 ### Large projects
+
+Use `--max-workers` to budget active test workers for one mutator invocation. Use `-j` (`--concurrency`) to limit how many mutant sessions can run at the same time. Both accept positive integers and work with `--watch`.
+
+```sh
+pnpm exec mutator --max-workers 8 -j 2
+pnpm exec mutator --runner playwright --watch --max-workers 2
+```
+
+In the first example the baseline can use eight workers. With enough work for two Vitest or Playwright sessions, each gets up to four workers. With one session, it can use all eight. Mutator splits any remainder across sessions and starts at most one session per available worker. Jest uses the budget during the baseline and runs each mutant in band.
+
+The explicit budget overrides the runner's top-level worker setting for this invocation. It counts test workers across sessions. Browser subprocesses, dev servers and the type checker run separately. Each CI shard has its own budget. Without `--max-workers`, the baseline uses the project's settings and parallel mutant sessions use one worker each.
 
 After the baseline and type checking, mutator prints an approximate time for the remaining mutant execution. It uses previous timings where available, otherwise selected test durations plus file-loading overhead observed in the dry run, divided by the parallel sessions. When the estimate reaches 10 seconds or there are at least 100 mutants to run, an interactive terminal shows a progress bar with the completed count, elapsed time and ETA. Redirected stderr keeps line-by-line output and a heartbeat every 15 seconds. The ETA adapts to measured mutant timings; early kills, retries, module loading and CPU contention can change it. Discovery, the baseline and type checking have already finished when this estimate appears.
 
@@ -575,10 +586,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Install @mizchi/mutator 0.4.4 or later in the project.
-      - uses: mizchi/mutator@v0.4.4
+      # Install @mizchi/mutator 0.4.5 or later in the project.
+      - uses: mizchi/mutator@v0.4.5
         with:
-          version: '0.4.4'
+          version: '0.4.5'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -634,7 +645,7 @@ pnpm run pack-smoke      # install the packed packages and test all runtime adap
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.4`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.5`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 

@@ -31,7 +31,7 @@ test('watch recovers after a failing baseline and reports the working-tree diff 
       expect(2).toBe(5);
     }, 45_000);
   `);
-  const child = spawn(process.execPath, [join(import.meta.dirname, '../src/cli.ts'), '--root', root, '--watch', '-j', '1', '--no-typecheck', '--reporter', 'agent', '--reporter', 'json', '--report-dir', join(root, 'reports')], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [join(import.meta.dirname, '../src/cli.ts'), '--root', root, '--watch', '--watch-throttle', '150', '-j', '1', '--no-typecheck', '--reporter', 'agent', '--reporter', 'json', '--report-dir', join(root, 'reports')], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   let stdout = '';
   child.stderr.on('data', (chunk) => { stderr += chunk; });
@@ -49,10 +49,11 @@ test('watch recovers after a failing baseline and reports the working-tree diff 
     await until(() => existsSync(join(root, '.mutator/started')));
     writeFileSync(spec, specBody(3));
     writeFileSync(spec, specBody(4));
-    // Let the debounced notification reach the supervisor before the first child exits.
+    // Let the throttled notification reach the supervisor before the first child exits.
     await delay(350);
     writeFileSync(join(root, '.mutator/continue'), '');
     await until(() => runs() >= 2);
+    expect(stderr).toContain('watch: ready (throttle 150 ms)');
     expect(stderr).toContain('tests fail without mutants');
     const report = JSON.parse(stdout.trim());
     expect(report.scope).toBe('diff');

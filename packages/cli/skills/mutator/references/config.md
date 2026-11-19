@@ -31,6 +31,7 @@ export default defineConfig({
 | `includeTestChanges` | `--include-test-changes` | with `since`, also select mutants covered or imported by changed tests; report detection regressions when a compatible snapshot exists |
 | `sharedCache` | `--shared-cache` | reuse snapshots across worktrees via Git's common directory, separated by package, scope and environment |
 | `scope` | `--scope node\|scope` | diff granularity: changed nodes (default) or whole enclosing functions |
+| `maxWorkers` | `--max-workers <n>` | total active test workers for this invocation, shared across mutant sessions and applied to the baseline |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
 | `shard` | `--shard <index/count>` | CI partition of mutant keys, e.g. `1/4`; independent snapshots and default report directories, scores and gates cover this shard |
 | `runner` | `--runner <name>` | `auto` selects Vitest/Jest only; set `playwright` explicitly for slower browser E2E mutation runs |

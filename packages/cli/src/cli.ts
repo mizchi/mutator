@@ -31,6 +31,7 @@ const USAGE = `usage: mutator [options]
                        ${DEFAULT_SKILL_DIR}); --force overwrites copies that differ from the shipped ones
 
   --watch              rerun on edits (Git defaults: --since HEAD --include-test-changes)
+  --watch-throttle <ms>  wait before the first run and batch changes in fixed intervals (default: 1000)
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
   --include-test-changes  with --since, also check code covered or imported by changed tests
@@ -45,6 +46,7 @@ const USAGE = `usage: mutator [options]
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)
+  --max-workers <n>    total test workers across sessions, including the dry run
   --shard <index/count>  CI partition of mutant keys, e.g. 1/4 (one-based; independent cache/report)
   --full-dry-run       collect coverage from every test file (ignore the cached coverage)
   --experimental-callgraph  after edits, re-run only survivors connected to changed code
@@ -112,7 +114,7 @@ try {
   const watchChild = values.watch && process.send && process.env.MUTATOR_WATCH_PARENT === String(process.ppid);
   if (values.watch && !watchChild) {
     const { watchCommand } = await import('./watch.ts');
-    await watchCommand(realpathSync.native(resolve(values.root ?? '.')), fileURLToPath(import.meta.url), process.argv.slice(2));
+    await watchCommand(realpathSync.native(resolve(values.root ?? '.')), fileURLToPath(import.meta.url), process.argv.slice(2), values.watchThrottleMs);
     await exit(0);
   }
   if (watchChild) {

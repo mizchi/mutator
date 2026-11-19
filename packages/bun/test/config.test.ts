@@ -49,6 +49,17 @@ c = 'literal \n'
   expect(values.get('c')).toEqual(['literal \\n']);
 });
 
+test('tomlValues ends an array only at a bracket outside its strings', () => {
+  const values = tomlValues(`[test]
+pathIgnorePatterns = ["**/[ab]/**",
+  'x]',
+  "y"]
+preload = ["./[id].ts"]
+`);
+  expect(values.get('test.pathIgnorePatterns')).toEqual(['**/[ab]/**', 'x]', 'y']);
+  expect(values.get('test.preload')).toEqual(['./[id].ts']);
+});
+
 test('readBunfig resolves the test root and preload files; package preloads are not project files', () => {
   write({ 'bunfig.toml': '[test]\nroot = "./spec"\npreload = ["./setup.ts", "happy-dom/global"]\n' });
   expect(readBunfig(root)).toEqual({ path: join(root, 'bunfig.toml'), testRoot: join(root, 'spec'), preload: [join(root, 'setup.ts')], ignore: [] });

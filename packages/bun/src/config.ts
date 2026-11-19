@@ -45,12 +45,15 @@ export function tomlValues(text: string): Map<string, string[]> {
   const values = new Map<string, string[]>();
   let table = '';
   let pending: { key: string; text: string } | undefined;
-  const strings = (s: string) => [...s.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[2] ?? decodeEscapes(m[1]!));
+  const STRING = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
+  const strings = (s: string) => [...s.matchAll(STRING)].map((m) => m[2] ?? decodeEscapes(m[1]!));
+  // A `]` inside a string (a glob like `[ab]`) does not close the array.
+  const closes = (s: string) => s.replace(STRING, '').includes(']');
   for (const raw of text.split(/\r?\n/)) {
     const line = stripComment(raw).trim();
     if (pending) {
       pending.text += ` ${line}`;
-      if (line.includes(']')) {
+      if (closes(line)) {
         values.set(pending.key, strings(pending.text));
         pending = undefined;
       }
@@ -65,7 +68,7 @@ export function tomlValues(text: string): Map<string, string[]> {
     if (!entry) continue;
     const key = table ? `${table}.${entry[1]}` : entry[1]!;
     const value = entry[2]!;
-    if (value.startsWith('[') && !value.includes(']')) pending = { key, text: value };
+    if (value.startsWith('[') && !closes(value)) pending = { key, text: value };
     else values.set(key, strings(value));
   }
   return values;

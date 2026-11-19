@@ -229,6 +229,9 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
       // `first` fails too but is not selected: --bail must not stop the run at it.
       const result = await session.runMutant(mutant.key, [id, plain], { timeoutMs: 10_000 });
       expect(result).toMatchObject({ status: 'Killed', killedBy: [id] });
+      // Without early exit (kill matrix), the rerun also follows a selected test that failed.
+      const all = await session.runMutant(mutant.key, [first, id], { timeoutMs: 10_000, earlyExit: false });
+      expect(all).toMatchObject({ status: 'Killed', killedBy: [first, id] });
     } finally {
       await session.close();
     }

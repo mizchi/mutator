@@ -343,8 +343,10 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
       // whole-file run includes. The rerun gets its own `timeoutMs`, an exception to it being
       // the budget of the whole run: the first run left selected tests out, and running out of
       // a shared budget would count the mutant as detected (Timeout).
+      // With early exit, a selected test that failed decides the mutant; without it (kill
+      // matrix), every selected test has to run.
       const left = !outcome.timedOut && outcome.junit ? leftOut(outcome, root, testIds, locations) : undefined;
-      if (left?.missed && (filter.length > 0 || (earlyExit && left.otherFailed))) {
+      if (left?.missed && !(earlyExit && left.selectedFailed) && (filter.length > 0 || (earlyExit && left.otherFailed))) {
         outcome = await run([], false);
         durationMs += outcome.wallMs;
       }
@@ -474,23 +476,30 @@ function exitError(outcome: RunOutcome): string {
 }
 
 /**
- * For a run in which no selected test failed and every file loaded: whether it left out some
- * of the selected tests, and whether a test that was not selected failed.
+ * For a run in which every file loaded: whether it left out some of the selected tests, and
+ * whether a selected test, and a test that was not selected, failed.
  */
-function leftOut(outcome: RunOutcome, root: string, testIds: readonly string[], locations: ReadonlyMap<string, TestLocation>): { missed: boolean; otherFailed: boolean } | undefined {
+function leftOut(
+  outcome: RunOutcome,
+  root: string,
+  testIds: readonly string[],
+  locations: ReadonlyMap<string, TestLocation>,
+): { missed: boolean; selectedFailed: boolean; otherFailed: boolean } | undefined {
   if ([...outcome.records.values()].some((r) => !r.loaded)) return undefined;
   const selected = new Set(testIds);
   const ran = new Set<string>();
+  let selectedFailed = false;
   let otherFailed = false;
   for (const file of outcome.junit ?? []) {
     for (const { id, test } of identify(file, root)) {
-      if (test.state === 'failed') {
-        if (selected.has(id)) return undefined;
-        otherFailed = true;
-      } else if (test.state !== 'skipped') ran.add(id);
+      if (test.state === 'skipped') continue;
+      ran.add(id);
+      if (test.state !== 'failed') continue;
+      if (selected.has(id)) selectedFailed = true;
+      else otherFailed = true;
     }
   }
-  return { missed: testIds.some((id) => locations.has(id) && !ran.has(id)), otherFailed };
+  return { missed: testIds.some((id) => locations.has(id) && !ran.has(id)), selectedFailed, otherFailed };
 }
 
 /**

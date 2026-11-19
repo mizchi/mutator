@@ -162,8 +162,10 @@ export async function selectTestsSince(options: RunOptions & { since: string }):
     }
     if (selected.size) scopes.set(file, selected);
   }
-  // Source coverage can narrow a file even when it has no mutants.
-  const sourceFiles = snapshot.sourceCoverage ? sources.keys() : mutants.map((m) => m.file);
+  // Source coverage can narrow scopes without mutants. Re-export-only modules have no scopes.
+  const sourceFiles = snapshot.sourceCoverage
+    ? [...sources].flatMap(([file, source]) => source.scopes.length > 0 ? [file] : [])
+    : mutants.map((m) => m.file);
   const scopedSources = new Set(Array.from(sourceFiles, (file) => relative(root, file)));
   for (const rel of checkImporters) scopedSources.delete(rel);
   const selection = selectTests({

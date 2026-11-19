@@ -170,7 +170,7 @@ npx mutator select-tests --since main --format json
 
 1. tests that killed mutants in the changed functions, most kills first;
 2. other tests that executed those mutants. A changed function the snapshot has no results for, such as a new one, brings the test files importing its file instead;
-3. changed test files, and test files that import a changed helper, a removed file, or a module that lost a binding.
+3. changed test files, and test files that import a changed helper or fixture, a removed file, or a module that lost a binding. A change to a module containing only re-exports also selects its importers.
 
 `--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. Without a snapshot, or with one from another mutator version or environment (lockfile, tsconfig, runner config, Node version, mutation options), the command exits 1 and asks for a `mutator` run first.
 

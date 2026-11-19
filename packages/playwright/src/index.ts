@@ -40,7 +40,7 @@ export const mutatorFixtures: Fixtures<MutatorFixtures, {}, PlaywrightTestArgs &
     (v8 && mapper ? async ({ context, page, browserName }: PlaywrightTestArgs & PlaywrightWorkerOptions, use: () => Promise<void>, testInfo: Parameters<ReturnType<typeof fixtureBody>>[2]) => {
       const collector = await v8.startSourceCoverage(context, page, browserName, mapper);
       try { await fixtureBody(run, () => collector.finish())({ context: context as unknown as ContextLike }, use, testInfo); }
-      finally { collector.dispose(); }
+      finally { await collector.dispose(); }
     } : fixtureBody(run)) as never,
     { auto: true },
   ],

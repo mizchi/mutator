@@ -1,0 +1,260 @@
+import { type Frame, type Node, isFunction } from './ast.ts';
+import type { Range } from './types.ts';
+
+interface ScopeInfo {
+  id: string;
+  node: Node;
+  /** Depth of the frame path where this scope starts (for relative AST paths). */
+  depth: number;
+}
+
+const WORD = /[\p{L}\p{N}_$]/u;
+const SIGN = /[+-]/;
+
+/** Top-level code of a module gets scope ids starting with `<top`; functions are named by their path. */
+export const isTopLevelScope = (scopeId: string): boolean => scopeId.startsWith('<top');
+
+/**
+ * Normalize source for hashing: drop comments and insignificant whitespace,
+ * keep string / template contents verbatim. Whitespace that can change meaning
+ * survives: line breaks (ASI) and spaces between words or between `+` / `-`.
+ */
+export function normalize(source: string, range: Range, comments: readonly Range[], literals: readonly Range[], holes: readonly Range[] = []): string {
+  const skip = comments.filter((c) => c.start >= range.start && c.end <= range.end);
+  const keep = literals.filter((l) => l.start >= range.start && l.end <= range.end);
+  const gaps = holes.filter((h) => h.start >= range.start && h.end <= range.end);
+  let out = '';
+  let gap: '' | ' ' | '\n' = '';
+  const emit = (text: string) => {
+    const prev = out.at(-1) ?? '';
+    const next = text[0] ?? '';
+    if (gap === '\n' && out) out += '\n';
+    else if (gap === ' ' && ((WORD.test(prev) && WORD.test(next)) || (SIGN.test(prev) && SIGN.test(next)))) out += ' ';
+    gap = '';
+    out += text;
+  };
+  let i = range.start;
+  let ci = 0;
+  let li = 0;
+  let hi = 0;
+  while (i < range.end) {
+    while (ci < skip.length && skip[ci]!.end <= i) ci++;
+    while (li < keep.length && keep[li]!.end <= i) li++;
+    while (hi < gaps.length && gaps[hi]!.start < i) hi++;
+    const h = gaps[hi];
+    if (h && h.start === i) {
+      emit('\u0192');
+      i = h.end;
+      continue;
+    }
+    const c = skip[ci];
+    if (c && c.start === i) {
+      if (gap === '') gap = ' ';
+      i = c.end;
+      continue;
+    }
+    const l = keep[li];
+    if (l && l.start === i) {
+      emit(source.slice(l.start, l.end));
+      i = l.end;
+      continue;
+    }
+    const ch = source[i]!;
+    if (ch === '\n') gap = '\n';
+    else if (/\s/.test(ch)) {
+      if (gap === '') gap = ' ';
+    } else emit(ch);
+    i++;
+  }
+  return out;
+}
+
+function keyName(key: Node, source: string): string {
+  if (key.type === 'Identifier' || key.type === 'PrivateIdentifier') return (key.type === 'PrivateIdentifier' ? '#' : '') + key.name;
+  if (key.type === 'Literal') return String(key.value);
+  return `[${source.slice(key.start, key.end)}]`;
+}
+
+/** Position independent name of a function-like node, or undefined when anonymous. */
+function functionName(frame: Frame, source: string): string | undefined {
+  const { node } = frame;
+  if (node.id?.type === 'Identifier') return node.id.name;
+  const parent = frame.parent?.node;
+  if (!parent) return undefined;
+  switch (parent.type) {
+    case 'VariableDeclarator':
+      return parent.id.type === 'Identifier' ? parent.id.name : undefined;
+    case 'MethodDefinition':
+    case 'PropertyDefinition':
+    case 'Property': {
+      const name = keyName(parent.key, source);
+      const kind = parent.kind === 'get' || parent.kind === 'set' ? `${parent.kind} ` : '';
+      return kind + name;
+    }
+    case 'AssignmentExpression':
+      return source.slice(parent.left.start, parent.left.end).replace(/\s+/g, '');
+    case 'CallExpression':
+    case 'NewExpression':
+      return frame.key === 'arguments' ? callbackName(parent) : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A callback is named after the call it is passed to and that call's first string
+ * argument (`describe("math")`, `map`), so inserting unrelated code does not rename it.
+ */
+function callbackName(call: Node): string | undefined {
+  const callee = call.callee.type === 'ChainExpression' ? call.callee.expression : call.callee;
+  const name =
+    callee.type === 'Identifier' ? callee.name : callee.type === 'MemberExpression' && !callee.computed && callee.property.type === 'Identifier' ? callee.property.name : undefined;
+  if (!name) return undefined;
+  const first = call.arguments[0];
+  const label =
+    first?.type === 'Literal' && typeof first.value === 'string'
+      ? first.value
+      : first?.type === 'TemplateLiteral' && first.expressions.length === 0
+        ? first.quasis[0]?.value.cooked
+        : undefined;
+  return label === undefined ? name : `${name}(${JSON.stringify(label)})`;
+}
+
+/**
+ * Name of the class or object literal owning a method / property function,
+ * e.g. `K` for `class K { m() {} }` and `api` for `const api = { run() {} }`.
+ */
+function ownerName(frame: Frame, source: string): string | undefined {
+  const parent = frame.parent;
+  if (!parent) return undefined;
+  if (parent.node.type === 'MethodDefinition' || parent.node.type === 'PropertyDefinition') {
+    const cls = parent.parent?.parent;
+    if (!cls) return undefined;
+    if (cls.node.id) return cls.node.id.name;
+    return cls.parent ? functionName(cls, source) : undefined;
+  }
+  if (parent.node.type === 'Property' && parent.parent?.node.type === 'ObjectExpression') {
+    return objectName(parent.parent, source);
+  }
+  return undefined;
+}
+
+function objectName(object: Frame, source: string): string | undefined {
+  const holder = object.parent;
+  if (!holder) return undefined;
+  switch (holder.node.type) {
+    case 'VariableDeclarator':
+      return holder.node.id.type === 'Identifier' ? holder.node.id.name : undefined;
+    case 'AssignmentExpression':
+      return source.slice(holder.node.left.start, holder.node.left.end).replace(/\s+/g, '');
+    case 'ExportDefaultDeclaration':
+      return 'default';
+    case 'Property': {
+      const outer = holder.parent && objectName(holder.parent, source);
+      const key = keyName(holder.node.key, source);
+      return outer ? `${outer}.${key}` : key;
+    }
+    default:
+      return undefined;
+  }
+}
+
+export class ScopeTracker {
+  private readonly stack: ScopeInfo[] = [];
+  private readonly used = new Map<string, number>();
+  private readonly anonCounters = new Map<string, number>();
+
+  private readonly source: string;
+  private readonly scopeHash: (node: Node, includeNested?: boolean) => string;
+
+  constructor(source: string, scopeHash: (node: Node, includeNested?: boolean) => string) {
+    this.source = source;
+    this.scopeHash = scopeHash;
+  }
+
+  get current(): ScopeInfo | undefined {
+    return this.stack.at(-1);
+  }
+
+  /** Call on entering a node; returns true when the node opened a new scope. */
+  enter(frame: Frame, depth: number): boolean {
+    const { node } = frame;
+    let id: string | undefined;
+    if (isFunction(node)) {
+      const parentId = this.current && !isTopLevelScope(this.current.id) ? this.current.id : '';
+      let name = functionName(frame, this.source);
+      const owner = ownerName(frame, this.source);
+      if (name && owner) name = `${owner}.${name}`;
+      if (!name) {
+        const n = (this.anonCounters.get(parentId) ?? 0) + 1;
+        this.anonCounters.set(parentId, n);
+        name = `<anon${n}>`;
+      }
+      id = parentId ? `${parentId}>${name}` : name;
+    } else if (frame.parent?.node.type === 'Program' && !this.current) {
+      id = `<top:${this.scopeHash(node).slice(0, 6)}>`;
+    }
+    if (id === undefined) return false;
+    if (this.used.has(id)) {
+      // Same-named siblings (e.g. several `map` callbacks) are told apart by content, not
+      // position, so inserting one does not rename the others.
+      const base = `${id}#${this.scopeHash(node).slice(0, 6)}`;
+      id = base;
+      for (let n = 2; this.used.has(id); n++) id = `${base}#${n}`;
+    }
+    this.used.set(id, 1);
+    this.stack.push({ id, node, depth });
+    return true;
+  }
+
+  leave(): void {
+    this.stack.pop();
+  }
+
+  hashOf(node: Node, includeNested = false): string {
+    return this.scopeHash(node, includeNested);
+  }
+}
+
+// Calls in a declaration's initializer count as defining the binding: what they do
+// besides returning its value (e.g. registering into another module) is not tracked.
+const IMPURE = new Set(['AssignmentExpression', 'UpdateExpression', 'YieldExpression', 'StaticBlock']);
+
+/**
+ * Bindings a top-level statement declares (exported names for `export { ... }`),
+ * and whether evaluating it has no side effects. Imports, re-exports and types are
+ * skipped by the walker and never become scopes.
+ */
+export function topLevelInfo(statement: Node): { declares: string[]; pure: boolean } {
+  const declares: string[] = [];
+  if (statement.type === 'ExportNamedDeclaration' && !statement.declaration) {
+    return { declares: (statement.specifiers as Node[]).filter((s) => s.exportKind !== 'type').map((s) => (s.exported.name ?? s.exported.value)), pure: true };
+  }
+  const decl = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
+  if (statement.type === 'ExportDefaultDeclaration') declares.push('default');
+  if (decl.type === 'VariableDeclaration') for (const d of decl.declarations) bindingNames(d.id, declares);
+  else if ((decl.type === 'ClassDeclaration' || decl.type === 'FunctionDeclaration') && decl.id) declares.push(decl.id.name);
+  else if (statement.type !== 'ExportDefaultDeclaration') return { declares, pure: false };
+  let pure = true;
+  const scan = (value: unknown): void => {
+    if (!pure || typeof value !== 'object' || value === null) return;
+    if (Array.isArray(value)) return value.forEach(scan);
+    const node = value as Node;
+    if (typeof node.type === 'string') {
+      if (IMPURE.has(node.type)) pure = false;
+      if (isFunction(node) || node.type === 'MethodDefinition') return; // bodies run later, not at load
+    }
+    for (const k in node) if (k !== 'parent') scan(node[k]);
+  };
+  scan(decl);
+  return { declares, pure };
+}
+
+function bindingNames(pattern: Node, out: string[]): void {
+  if (!pattern) return;
+  if (pattern.type === 'Identifier') out.push(pattern.name);
+  else if (pattern.type === 'ObjectPattern') for (const p of pattern.properties) bindingNames(p.type === 'RestElement' ? p.argument : p.value, out);
+  else if (pattern.type === 'ArrayPattern') for (const e of pattern.elements) bindingNames(e, out);
+  else if (pattern.type === 'AssignmentPattern') bindingNames(pattern.left, out);
+  else if (pattern.type === 'RestElement') bindingNames(pattern.argument, out);
+}

@@ -2,6 +2,7 @@
 // Run through `pnpm run pack-smoke` so npm_execpath identifies pnpm's real entrypoint
 // (rather than launching a POSIX .bin shim or a Windows .cmd file).
 import assert from 'node:assert/strict';
+import { fixtureGit } from '../packages/cli/test/fixture-git.ts';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -15,7 +16,7 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const work = realpathSync.native(mkdtempSync(join(tmpdir(), 'mutator pack-')));
 const pack = join(work, 'pack');
 mkdirSync(pack);
-const packages = ['core', 'vitest', 'jest', 'bun', 'playwright', 'typecheck', 'cli'];
+const packages = ['test-impact', 'core', 'vitest', 'jest', 'bun', 'playwright', 'typecheck', 'cli'];
 const json = (file: string) => JSON.parse(readFileSync(file, 'utf8'));
 const manifest = (name: string) => json(join(repo, 'packages', name, 'package.json'));
 const pnpm = process.env.npm_execpath;
@@ -95,6 +96,27 @@ try {
     console.log(`pack-smoke: packing ${name}`);
     run(pnpmCommand, [...pnpmArgs, 'pack', '--pack-destination', pack], join(repo, 'packages', name), {}, true);
   }
+  const impact = app('impact', 'packages/cli/test/fixtures/multi', ['src', 'test'], {
+    '@mizchi/test-impact': tarballs.get('@mizchi/test-impact')!,
+  });
+  // This consumer has no test runner, mutation packages or snapshot.
+  writeFileSync(join(impact, 'test/a.test.ts'), "import '../src/a.ts';");
+  writeFileSync(join(impact, 'test/b.test.ts'), "import '../src/b.ts';");
+  writeFileSync(join(impact, '.gitignore'), 'node_modules/\n');
+  fixtureGit(impact, 'init', '-q');
+  fixtureGit(impact, 'add', '.');
+  fixtureGit(impact, 'commit', '-qm', 'base');
+  writeFileSync(join(impact, 'src/a.ts'), 'export function double(n: number) { return n + n }');
+  const impactOutput = run(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict';
+    import { selectAffectedTests, createSourceCoverageMapper } from '@mizchi/test-impact';
+    assert.equal(typeof createSourceCoverageMapper, 'function');
+    console.log(JSON.stringify((await selectAffectedTests({ root: '.', since: 'HEAD' })).files));
+  `], impact, {}, true);
+  assert.deepEqual(JSON.parse(impactOutput), ['test/a.test.ts']);
+  const impactManifest = join(impact, 'node_modules/@mizchi/test-impact/package.json');
+  const impactCli = join(impact, 'node_modules/@mizchi/test-impact', json(impactManifest).bin['test-impact']);
+  assert.equal(run(process.execPath, [impactCli, '--since', 'HEAD'], impact, {}, true).trim(), 'test/a.test.ts');
   const mutator = tarballs.get('@mizchi/mutator')!;
   const basic = app('vitest', 'packages/vitest/test/fixtures/basic', ['src', 'test', 'vitest.config.ts'], { '@mizchi/mutator': mutator, vitest: json(join(repo, 'package.json')).devDependencies.vitest });
   mutation(basic, ['-j', '1'], 'age >= 18 -> age > 18');

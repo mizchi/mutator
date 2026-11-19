@@ -229,6 +229,9 @@ importers:
       '@mizchi/mutator-vitest':
         specifier: workspace:*
         version: link:../vitest
+      '@mizchi/test-impact':
+        specifier: workspace:*
+        version: link:../test-impact
       chokidar:
         specifier: 6.0.0
         version: 6.0.0
@@ -245,6 +248,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@mizchi/test-impact':
+        specifier: workspace:*
+        version: link:../test-impact
       magic-string:
         specifier: ^1.4.5
         version: 1.4.5
@@ -264,12 +270,12 @@ importers:
 
   packages/playwright:
     dependencies:
-      '@jridgewell/trace-mapping':
-        specifier: ^0.3.31
-        version: 0.3.31
       '@mizchi/mutator-core':
         specifier: workspace:*
         version: link:../core
+      '@mizchi/test-impact':
+        specifier: workspace:*
+        version: link:../test-impact
     devDependencies:
       '@playwright/test':
         specifier: 1.65.1
@@ -277,6 +283,22 @@ importers:
       vite:
         specifier: 8.3.8
         version: 8.3.8(@types/node@26.6.6)
+
+  packages/test-impact:
+    dependencies:
+      '@jridgewell/trace-mapping':
+        specifier: ^0.3.31
+        version: 0.3.31
+      oxc-parser:
+        specifier: 0.159.0
+        version: 0.159.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      '@playwright/test':
+        specifier: 1.65.1
+        version: 1.65.1
 
   packages/typecheck:
     dependencies:

@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator-bun",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "type": "module",
   "description": "Bun test runner adapter for @mizchi/mutator-core (experimental)",
   "keywords": [

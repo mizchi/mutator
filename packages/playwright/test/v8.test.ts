@@ -47,3 +47,17 @@ test('rejects unsupported browsers explicitly', async () => {
   await expect(b.start('firefox')).rejects.toThrow('requires Chromium');
   expect(b.events).toEqual([]);
 });
+
+test('dispose and finish share one stop for each attached page', async () => {
+  const b = browser();
+  const popup = browser();
+  const collector = await b.start();
+  b.context.emit('page', popup.page);
+  await Promise.all([collector.dispose(), collector.dispose()]);
+  expect(b.events).toEqual(['start', 'stop']);
+  expect(popup.events).toEqual(['start', 'stop']);
+  expect(b.context.listenerCount('page')).toBe(0);
+  const next = await b.start();
+  await Promise.all([next.finish(), next.dispose(), next.finish()]);
+  expect(b.events).toEqual(['start', 'stop', 'start', 'stop']);
+});

@@ -74,48 +74,7 @@ export function isReference(frame: Frame): boolean {
   return true;
 }
 
-// Calls in a declaration's initializer count as defining the binding: what they do
-// besides returning its value (e.g. registering into another module) is not tracked.
-const IMPURE = new Set(['AssignmentExpression', 'UpdateExpression', 'YieldExpression', 'StaticBlock']);
-
-/**
- * Bindings a top-level statement declares (exported names for `export { ... }`),
- * and whether evaluating it has no side effects. Imports, re-exports and types are
- * skipped by the walker and never become scopes.
- */
-export function topLevelInfo(statement: Node): { declares: string[]; pure: boolean } {
-  const declares: string[] = [];
-  if (statement.type === 'ExportNamedDeclaration' && !statement.declaration) {
-    return { declares: (statement.specifiers as Node[]).filter((s) => s.exportKind !== 'type').map((s) => moduleExportName(s.exported)), pure: true };
-  }
-  const decl = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration' ? statement.declaration : statement;
-  if (statement.type === 'ExportDefaultDeclaration') declares.push('default');
-  if (decl.type === 'VariableDeclaration') for (const d of decl.declarations) bindingNames(d.id, declares);
-  else if ((decl.type === 'ClassDeclaration' || decl.type === 'FunctionDeclaration') && decl.id) declares.push(decl.id.name);
-  else if (statement.type !== 'ExportDefaultDeclaration') return { declares, pure: false };
-  let pure = true;
-  const scan = (value: unknown): void => {
-    if (!pure || typeof value !== 'object' || value === null) return;
-    if (Array.isArray(value)) return value.forEach(scan);
-    const node = value as Node;
-    if (typeof node.type === 'string') {
-      if (IMPURE.has(node.type)) pure = false;
-      if (isFunction(node) || node.type === 'MethodDefinition') return; // bodies run later, not at load
-    }
-    for (const k in node) if (k !== 'parent') scan(node[k]);
-  };
-  scan(decl);
-  return { declares, pure };
-}
-
-function bindingNames(pattern: Node, out: string[]): void {
-  if (!pattern) return;
-  if (pattern.type === 'Identifier') out.push(pattern.name);
-  else if (pattern.type === 'ObjectPattern') for (const p of pattern.properties) bindingNames(p.type === 'RestElement' ? p.argument : p.value, out);
-  else if (pattern.type === 'ArrayPattern') for (const e of pattern.elements) bindingNames(e, out);
-  else if (pattern.type === 'AssignmentPattern') bindingNames(pattern.left, out);
-  else if (pattern.type === 'RestElement') bindingNames(pattern.argument, out);
-}
+export { topLevelInfo } from '@mizchi/test-impact/source';
 
 export function importBindings(program: Node): ImportBinding[] {
   const out: ImportBinding[] = [];

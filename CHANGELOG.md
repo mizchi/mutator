@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.5.0 - 2026-11-20
+
+### Added
+
+#### Run mutation tests with Bun
+
+The experimental Bun adapter runs ESM JavaScript and TypeScript tests with `bun test --isolate`. The CLI runs on Node.js 24 or newer and needs Bun 1.4 or newer on `PATH`. To mutate TypeScript under `src/` and discover tests under `test/`, add these two files at the project root. [PR #45](https://github.com/mizchi/mutator/pull/45)
+
+```ts
+// mutator.config.ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'bun',
+  include: ['src/**/*.ts'],
+  bunConfig: 'bunfig.toml',
+});
+```
+
+```toml
+# bunfig.toml
+[test]
+root = "./test"
+```
+
+Run `pnpm exec mutator`. For example, tests that call `isAdult(age)` with 3 and 30 both pass when `age >= 18` becomes `age > 18`. The report marks that mutant `Survived`. Adding `expect(isAdult(18)).toBe(true)` makes it `Killed`.
+
+#### Select affected tests before the first mutation run
+
+`@mizchi/test-impact` provides a standalone CLI and Node API. If `test/checkout.test.ts` imports an edited `src/price.ts`, the following command lists the checkout test without running it. Use `--format json` to see why each file was selected.
+
+```sh
+pnpm add -D @mizchi/test-impact
+pnpm exec test-impact --since HEAD
+```
+
+`mutator select-tests --since HEAD` now follows static imports when no snapshot exists. With a snapshot, it parses changed scopes and ranks tests using past kills and coverage. The standalone API also accepts per-test Chromium coverage to narrow the selection. [Test-impact guide](https://github.com/mizchi/mutator/tree/v0.5.0/packages/test-impact)
+
+### Fixed
+
+- **Diff reports agree on the score.** If both mutants in the diff are killed, the terminal and HTML report both show 100%, even when an unchanged file has a cached survivor. JSON marks out-of-selection mutants as `Pending`, and the kill matrix counts only selected mutants. [PR #29](https://github.com/mizchi/mutator/pull/29)
+- **Reordering module initialization invalidates cached results.** Swapping two route registrations can change which handler runs first. An incremental run now rechecks the tests that load the module, including when the registrations differ only inside inline callbacks. Upgrading rebuilds the old snapshot on the next mutation run. [PR #30](https://github.com/mizchi/mutator/pull/30)
+- **Deleted functions and renamed files keep their test history.** If a change removes `discount()` and edits `tax()`, `select-tests` can select tests of both functions. For a renamed module it also looks up tests importing the old path. [PR #31](https://github.com/mizchi/mutator/pull/31)
+- **Broad include globs select source files.** `mutator --include 'src/domain/**'` accepts nested directories and skips files such as `README.md`. [PR #41](https://github.com/mizchi/mutator/pull/41)
+- **The time budget covers mutant type checking.** With `--time-budget 30`, the checker consults the deadline between batches. Unchecked mutants remain `Pending` for the next run. [PR #42](https://github.com/mizchi/mutator/pull/42)
+- **CLI failure output is easier to use.** A failing baseline names the test and shows its first error. When a Vitest test logs to stdout, `mutator --reporter agent > report.json` still writes a single JSON document and sends the test output to stderr. [PR #43](https://github.com/mizchi/mutator/pull/43) · [PR #39](https://github.com/mizchi/mutator/pull/39)
+- Plugin examples import `definePlugin`, `defineMutator`, and `defineIgnorer` from the public `@mizchi/mutator` entry point so they resolve in pnpm projects. [PR #38](https://github.com/mizchi/mutator/pull/38)
+
 ## 0.4.5 - 2026-11-19
 
 ### Added

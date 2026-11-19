@@ -11,7 +11,7 @@ import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { type Placement, findPlacement } from './placement.ts';
 import { runtimeHeader } from './runtime.ts';
-import { ScopeTracker, isTopLevelScope, normalize } from './scope.ts';
+import { createScopeTracker, isTopLevelScope } from '@mizchi/test-impact/source';
 import { intersects, lineStarts, position } from './text.ts';
 import type { CallSite, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
 
@@ -27,12 +27,8 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     throw new Error(`Failed to parse ${file}: ${parsed.errors.map((e) => e.message).join('; ')}`);
   }
   const program = parsed.program as unknown as Node;
-  const comments: Range[] = parsed.comments.map((c) => ({ start: c.start, end: c.end }));
-  const { literals, functions } = collectRanges(program);
   const lines = lineStarts(source);
   const locate = (r: Range): Location => ({ start: position(lines, r.start), end: position(lines, r.end) });
-  // Nested functions are tracked as their own scopes, so they are holes in their parent's hash.
-  const scopeHash = (node: Node) => hash(normalize(source, node, comments, literals, functions.filter((f) => f.start !== node.start || f.end !== node.end)));
   const excluded = new Set<string>(options.excludedMutators ?? []);
   const active = [...mutators, ...(options.mutators ?? []).map((definition) => adaptMutator(definition, file))];
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
@@ -43,7 +39,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
   const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
 
-  const tracker = new ScopeTracker(source, scopeHash);
+  const tracker = createScopeTracker(source, program, parsed.comments);
   const path: string[] = [];
   const found: { candidate: Candidate; scope: Scope; astPath: string }[] = [];
   const calls: CallSite[] = [];
@@ -66,7 +62,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
           Object.assign(scope, topLevelInfo(info.node));
           // Two registrations can have the same scope hash and different inline callbacks.
           if (info.node.declaration?.type !== 'FunctionDeclaration') {
-            scope.initializationHash = hash(normalize(source, info.node, comments, literals));
+            scope.initializationHash = tracker.hashOf(info.node, true);
           }
         }
         scopes.set(info.node, scope);
@@ -201,29 +197,6 @@ function assertCustomMutantsParse(file: string, source: string, code: string, mu
 
 // ---- helpers ----------------------------------------------------------------
 
-function collectRanges(program: Node): { literals: Range[]; functions: Range[] } {
-  const literals: Range[] = [];
-  const functions: Range[] = [];
-  const visit = (value: unknown): void => {
-    if (Array.isArray(value)) {
-      for (const v of value) visit(v);
-      return;
-    }
-    if (typeof value !== 'object' || value === null) return;
-    const node = value as Node;
-    if ((node.type === 'Literal' && typeof node.value === 'string') || node.type === 'TemplateElement' || node.type === 'JSXText') {
-      literals.push({ start: node.start, end: node.end });
-      return;
-    }
-    if (isFunction(node)) functions.push({ start: node.start, end: node.end });
-    for (const k in node) {
-      if (k !== 'parent') visit(node[k]);
-    }
-  };
-  visit(program);
-  const byStart = (a: Range, b: Range) => a.start - b.start;
-  return { literals: literals.sort(byStart), functions: functions.sort(byStart) };
-}
 
 function toMap(s: MagicString, file: string) {
   const map = s.generateMap({ source: file, hires: true, includeContent: true });

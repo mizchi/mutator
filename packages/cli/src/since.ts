@@ -1,4 +1,5 @@
 // --since: which mutants the diff touches, and which outside it must be rechecked.
+import { TEST_FILE } from '@mizchi/test-impact';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Mutant, type MutantResult, type Range, type SelectMode, changedLines, lineRanges, parseUnifiedDiff, selectMutants } from '@mizchi/mutator-core';
@@ -47,7 +48,7 @@ export function sinceFocus(touched: ReadonlySet<string>, previous: readonly Muta
   return focus;
 }
 
-export const TEST_FILE = /(^|\/)__tests__\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+export { TEST_FILE };
 
 /**
  * Changed files that look like tests (`*.test.*`, `*.spec.*`, `__tests__/`) but are not among

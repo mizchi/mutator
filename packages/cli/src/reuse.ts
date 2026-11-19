@@ -7,7 +7,7 @@ import { type InstrumentOptions, type Mutant, type MutantResult, type RunSnapsho
 import { type CliSnapshot, type MergedDryRun, type SourceInfo, scopeTable } from './coverage-cache.ts';
 import type { RunOptions } from './run.ts';
 import type { Runner } from './runner.ts';
-import { collectSources, resolveSetup } from './setup.ts';
+import { resolveSetup } from './setup.ts';
 import { readSnapshot } from './snapshot.ts';
 import { snapshotFiles } from './snapshot-store.ts';
 
@@ -54,10 +54,11 @@ export class SnapshotError extends Error {}
  * only known to a runner session), so the snapshot must have been written by a run that
  * recorded them.
  */
-export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; mutants: Mutant[]; sources: Map<string, SourceInfo> }> {
+export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot: CliSnapshot; files: string[] } | undefined> {
   const root = resolve(options.root);
-  const setup = await resolveSetup(root, options, () => {});
   const candidates = snapshotFiles(root, options);
+  if (!candidates.some(path => existsSync(path))) return undefined;
+  const setup = await resolveSetup(root, options, () => {});
   const settings = mutationSettings(options, setup);
   const snapshotPath = candidates.find((path) => {
     const cached = readSnapshot(path, root) as CliSnapshot | undefined;
@@ -72,8 +73,7 @@ export async function loadWarmSnapshot(options: RunOptions): Promise<{ snapshot:
   if (snapshot.envHash !== environmentHash(root, mutationSettings(options, setup), snapshot.envFiles)) {
     throw new SnapshotError(`${rel} is from another environment (lockfile, tsconfig, runner config, node version or mutation options changed): run \`mutator\` once first`);
   }
-  const { mutants, sources } = collectSources(root, setup.files, setup.instrumentOptions);
-  return { snapshot, mutants, sources };
+  return { snapshot, files: setup.files };
 }
 
 /** The snapshot for the next run: this run's results over the reusable ones, plus the merged dry run's data. */

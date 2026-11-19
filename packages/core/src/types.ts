@@ -1,6 +1,9 @@
 // Contract layer of @mizchi/mutator-core.
 // Plain data and plugin contracts; no runtime / fs / test-runner dependency.
 
+import type { AstNode, Location, Range } from '@mizchi/test-impact/source';
+export type { AstNode, Location, Position, Range } from '@mizchi/test-impact/source';
+
 export const BUILTIN_MUTATOR_NAMES = [
   'ArithmeticOperator',
   'ArrayDeclaration',
@@ -26,23 +29,6 @@ export type BuiltinMutatorName = (typeof BUILTIN_MUTATOR_NAMES)[number];
 
 /** Built-in names, or the name of a custom mutator from a plugin. */
 export type MutatorName = BuiltinMutatorName | (string & {});
-
-/** 1-based line, 0-based column (same convention as most editors / sourcemaps). */
-export interface Position {
-  line: number;
-  column: number;
-}
-
-export interface Range {
-  /** byte offset (UTF-16 code unit index into the source string) */
-  start: number;
-  end: number;
-}
-
-export interface Location {
-  start: Position;
-  end: Position;
-}
 
 /** The enclosing unit used for identity and cache invalidation. */
 export interface Scope {
@@ -277,14 +263,6 @@ export type PlanEntry =
     };
 
 // ---- plugins ----------------------------------------------------------------
-
-/** An oxc ESTree node (TS-ESTree for TypeScript); type positions are never visited. */
-export interface AstNode {
-  type: string;
-  start: number;
-  end: number;
-  [key: string]: any;
-}
 
 export interface MutatorVisitContext {
   source: string;

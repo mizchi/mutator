@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator-core",
-  "version": "0.4.5",
+  "version": "0.5.0",
   "type": "module",
   "description": "Pure mutation testing core: mutant generation, mutation-switching instrumentation, identity, diff selection, result reuse",
   "keywords": [
@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "magic-string": "^1.4.5",
-    "oxc-parser": "0.159.0"
+    "oxc-parser": "0.159.0",
+    "@mizchi/test-impact": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

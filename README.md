@@ -170,13 +170,15 @@ npx vitest run $(npx mutator select-tests --since main)
 npx mutator select-tests --since main --format json
 ```
 
-`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. For a removed function, the snapshot identifies its former tests. When a module loses a binding, its importing test files are also selected because they may rely on the binding without calling it. For a deleted or renamed file, the command looks up importers of its old path. The ranking has three groups:
+`mutator select-tests` uses a previous snapshot when available to rank the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. It parses the changed sources to find their enclosing scopes. They are matched by file and scope id, because an edited function has a new hash. For a removed function, the snapshot identifies its former tests. When a module loses a binding, its importing test files are also selected because they may rely on the binding without calling it. For a deleted or renamed file, the command looks up importers of its old path. The ranking has three groups:
 
 1. tests that killed mutants in the changed functions, most kills first;
 2. other tests that executed those mutants. A changed function the snapshot has no results for, such as a new one, brings the test files importing its file instead;
 3. changed test files, and test files that import a changed helper or fixture, a removed file, or a module that lost a binding. A change to a module containing only re-exports also selects its importers.
 
-`--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. Without a snapshot, or with one from another mutator version or environment (lockfile, tsconfig, runner config, Node version, mutation options), the command exits 1 and asks for a `mutator` run first.
+`--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. On a first run it uses static dependencies to select test files. An incompatible existing snapshot still produces a diagnostic so CI can refresh it.
+
+The standalone [@mizchi/test-impact](./packages/test-impact/README.md) package provides a CLI and a Node API for the same cold selection. It can also select individual tests from recorded Chromium coverage without running mutation testing.
 
 ### Finding tests that detect nothing or are subsumed (kill matrix)
 
@@ -373,6 +375,27 @@ The adapter resolves `vite-plus/test/node` from the project before `vitest/node`
 
 `--runner bun` (or `runner: 'bun'`; `auto` picks Bun's test runner for a Bun project, one with a `bunfig.toml`, `bun.lock` or `bun.lockb` and neither a Vitest nor a Jest config or installation) runs the same pipeline with `bun test`. mutator itself runs on Node.js and starts `bun` from PATH (a `bun` devDependency works, as `node_modules/.bin` is on PATH).
 
+For an ESM project with application code in `src/` and tests in `test/`, put these files in the project root and run `pnpm exec mutator`.
+
+```ts
+// mutator.config.ts
+import { defineConfig } from '@mizchi/mutator';
+
+export default defineConfig({
+  runner: 'bun',
+  include: ['src/**/*.ts'],
+  bunConfig: 'bunfig.toml',
+});
+```
+
+```toml
+# bunfig.toml
+[test]
+root = "./test"
+```
+
+Use the `[test]` table shown above for discovery settings. In 0.5.0 the adapter can overlook the equivalent inline table `test = { root = "./test" }` and list tests outside that directory.
+
 **Supported**
 
 - Bun 1.4 or later (`bun test --isolate` is required), ESM JavaScript and TypeScript sources. Test files can import from `bun:test` (or from `vitest` / `@jest/globals`, which Bun maps to it).
@@ -533,9 +556,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.4.5
+      - uses: mizchi/mutator@v0.5.0
         with:
-          version: '0.4.5'
+          version: '0.5.0'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -609,10 +632,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Install @mizchi/mutator 0.4.5 or later in the project.
-      - uses: mizchi/mutator@v0.4.5
+      # Install @mizchi/mutator 0.5.0 or later in the project.
+      - uses: mizchi/mutator@v0.5.0
         with:
-          version: '0.4.5'
+          version: '0.5.0'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -652,6 +675,7 @@ On POSIX, stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) ki
 
 | package | role |
 |---|---|
+| `@mizchi/test-impact` | Standalone CLI and Node API for selecting affected tests from source dependencies and per-test Chromium coverage. |
 | `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
 | `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
@@ -669,7 +693,7 @@ pnpm run pack-smoke      # install the packed packages and test all runtime adap
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.5`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.5.0`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest, Bun and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 
@@ -678,3 +702,13 @@ Both operating systems must pass before the Linux publish job checks the tag aga
 The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, bun, typecheck, cli.
 
 Design notes and the survey of StrykerJS / cargo-mutants / PIT live in [`docs/`](./docs).
+
+### Try jev-lint on this repository
+
+With `OPENROUTER_API_KEY` set, run the free Decider trial from the repository root:
+
+```sh
+npx -y jev-lint --no-config --model openrouter:perplexity/pplx-decider-v1.3:free
+```
+
+After confirmation, jev-lint uses up to 64 tracked filenames to suggest rules, prints the starter YAML, then lints up to three files (32 KiB total). For ongoing reviews and CI, we strongly recommend Jev with `TYPESAFE_API_KEY`, since the rule thresholds are calibrated on Jev. For mutator’s test-selection rules, see the [test-impact review guide](./tools/jev-lint/README.md).

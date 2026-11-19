@@ -137,11 +137,11 @@ describe('mutator select-tests', { timeout: 60_000 }, () => {
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-  test('without a snapshot, exits 1 asking for a run first', () => {
+  test('without a snapshot, selects dependents without executing tests', () => {
+    edit('src/a.ts', 'return n * 2;', 'return n + n;');
     const { status, stdout, stderr } = run('select-tests', '--since', 'HEAD');
-    expect(status).toBe(1);
-    expect(stdout).toBe('');
-    expect(stderr).toMatch(/no snapshot at .*run `mutator` once first/);
+    expect(status, stderr).toBe(0);
+    expect(stdout).toBe('test/a.test.ts\n');
   });
 
   test('after a run, an edited function selects the tests that killed its mutants, without running anything', async () => {

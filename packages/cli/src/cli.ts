@@ -24,7 +24,7 @@ import { VERSION } from './version.ts';
 const USAGE = `usage: mutator [options]
        mutator accept <key>... --reason <text>   record undetected mutants as accepted (${ACCEPTED_FILE})
        mutator select-tests --since <ref> [--format files|json]   rank the tests a change can break,
-                       from the last run's snapshot without running anything: killers of mutants in
+                       using static imports on a first run or a cached ranking: killers of mutants in
                        the changed functions, other tests covering them, then changed test files
        mutator init-skill [--dir <dir>] [--force]   copy the agent skills shipped with mutator
                        (${shippedSkills().join(', ')}) into <dir>/<skill>/ (default dir:

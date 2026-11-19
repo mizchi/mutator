@@ -1,0 +1,85 @@
+{
+  "name": "@mizchi/test-impact",
+  "version": "0.5.0",
+  "type": "module",
+  "description": "Select tests affected by a Git diff using TypeScript dependencies and per-test V8 coverage",
+  "keywords": [
+    "typescript",
+    "test-impact-analysis",
+    "v8-coverage"
+  ],
+  "license": "MIT",
+  "author": "mizchi",
+  "homepage": "https://github.com/mizchi/mutator#readme",
+  "bugs": "https://github.com/mizchi/mutator/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizchi/mutator.git",
+    "directory": "packages/test-impact"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./source": "./src/source.ts",
+    "./git": "./src/git.ts",
+    "./coverage": "./src/source-coverage.ts",
+    "./playwright": "./src/playwright.ts"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
+    "oxc-parser": "0.159.0",
+    "typescript": "6.0.3"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./source": {
+        "types": "./dist/source.d.ts",
+        "default": "./dist/source.js"
+      },
+      "./git": {
+        "types": "./dist/git.d.ts",
+        "default": "./dist/git.js"
+      },
+      "./coverage": {
+        "types": "./dist/source-coverage.d.ts",
+        "default": "./dist/source-coverage.js"
+      },
+      "./playwright": {
+        "types": "./dist/playwright.d.ts",
+        "default": "./dist/playwright.js"
+      }
+    },
+    "bin": {
+      "test-impact": "./dist/cli.js"
+    }
+  },
+  "bin": {
+    "test-impact": "./src/cli.ts"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.50.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}

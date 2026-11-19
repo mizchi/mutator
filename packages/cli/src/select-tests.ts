@@ -1,11 +1,12 @@
 // select-tests: the tests a change can break, ranked from a warm snapshot without running anything.
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { type MutantResult, testFileOf, relativePath as relative } from '@mizchi/mutator-core';
+import { extractScopes, selectAffectedTests } from '@mizchi/test-impact';
 import { loadersOf } from './consumers.ts';
 import { loadWarmSnapshot } from './reuse.ts';
 import type { RunOptions } from './run.ts';
-import { TEST_FILE, changesSince, diffTouched } from './since.ts';
+import { TEST_FILE, changesSince } from './since.ts';
 
 export interface SelectionInput {
   root: string;
@@ -130,44 +131,41 @@ export function selectionFiles(selection: Selection): string[] {
  */
 export async function selectTestsSince(options: RunOptions & { since: string }): Promise<Selection> {
   const root = resolve(options.root);
-  const { snapshot, mutants, sources } = await loadWarmSnapshot(options);
+  const warm = await loadWarmSnapshot(options);
+  if (!warm) {
+    const { matches } = await selectAffectedTests({ root, since: options.since });
+    return { killers: [], covering: matches.filter(m => m.reason !== 'changed'), changedTests: matches.filter(m => m.reason === 'changed') };
+  }
+  const { snapshot, files } = warm;
   const { lines, removed } = changesSince(root, options.since);
   const changed = [...new Set([...lines.keys(), ...removed])].sort();
-  const checkImporters = new Set(removed);
-  const touched = diffTouched(root, lines, mutants, 'scope');
+  const scopedSources = new Set(files.map(file => relative(root, file)));
+  const historical = Map.groupBy(snapshot.results, result => result.file);
   const scopes = new Map<string, Set<string>>();
-  const legacyResults = snapshot.scopes ? undefined : Map.groupBy(snapshot.results, (result) => result.file);
-  for (const m of mutants) if (touched.has(m.key)) scopes.set(m.file, (scopes.get(m.file) ?? new Set()).add(m.scope.id));
   for (const rel of changed) {
     const file = join(root, rel);
-    const current = sources.get(file)?.scopes ?? [];
+    const current = scopedSources.has(rel) && lines.has(rel) ? extractScopes(file, readFileSync(file, 'utf8')) : [];
     const currentIds = new Set(current.map((s) => s.id));
     const previous = snapshot.scopes?.[rel];
-    const previousIds = legacyResults ? (legacyResults.get(file) ?? []).map((r) => r.scopeId) : Object.keys(previous ?? {});
-    const selected = scopes.get(file) ?? new Set<string>();
+    const previousIds = snapshot.scopes ? Object.keys(previous ?? {}) : (historical.get(file) ?? []).map(r => r.scopeId);
+    const selected = new Set<string>();
     // A removed scope has no new-side mutant or line, but its old results still identify tests.
     const missing = previousIds.filter((id) => !currentIds.has(id));
     for (const id of missing) selected.add(id);
     // Importing or inspecting a removed binding can fail without ever executing its body.
     const bindings = new Set(current.flatMap((scope) => scope.declares ?? []));
     const lostBinding = Object.values(previous ?? {}).some((s) => s.declares?.some((name) => !bindings.has(name)));
-    if (lostBinding || (legacyResults && missing.length > 0)) checkImporters.add(rel);
+    if (!current.length || lostBinding || (!snapshot.scopes && missing.length > 0)) scopedSources.delete(rel);
     const numbers = lines.get(rel);
-    if (snapshot.sourceCoverage && numbers !== undefined) {
-      // Include original scopes with no mutants, which `diffTouched` cannot see.
+    if (numbers !== undefined) {
+      const historicalIds = new Set(historical.get(file)?.map(result => result.scopeId));
       for (const scope of current) {
-        if (previous?.[scope.id]?.hash === scope.hash) continue;
-        if (numbers === null || numbers.some((line) => scope.location.start.line <= line && line <= scope.location.end.line)) selected.add(scope.id);
+        if (!historicalIds.has(scope.id) && previous?.[scope.id]?.hash === scope.hash) continue;
+        if (numbers === null || numbers.some(line => scope.location.start.line <= line && line <= scope.location.end.line)) selected.add(scope.id);
       }
     }
     if (selected.size) scopes.set(file, selected);
   }
-  // Source coverage can narrow scopes without mutants. Re-export-only modules have no scopes.
-  const sourceFiles = snapshot.sourceCoverage
-    ? [...sources].flatMap(([file, source]) => source.scopes.length > 0 ? [file] : [])
-    : mutants.map((m) => m.file);
-  const scopedSources = new Set(Array.from(sourceFiles, (file) => relative(root, file)));
-  for (const rel of checkImporters) scopedSources.delete(rel);
   const selection = selectTests({
     root,
     results: snapshot.results,

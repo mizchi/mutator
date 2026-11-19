@@ -56,10 +56,11 @@
       "type": "string"
     },
     "runner": {
-      "description": "Test runner; auto picks Vitest or Jest. Playwright browser mutation runs can be slow and require explicit opt-in.",
+      "description": "Test runner; auto picks Vitest, Jest or Bun. Playwright browser mutation runs can be slow and require explicit opt-in.",
       "enum": [
         "vitest",
         "jest",
+        "bun",
         "playwright",
         "auto"
       ]
@@ -70,6 +71,10 @@
     },
     "jestConfig": {
       "description": "Jest config file, relative to the root (experimental, native ESM only).",
+      "type": "string"
+    },
+    "bunConfig": {
+      "description": "bunfig.toml for Bun's test runner, relative to the root (experimental).",
       "type": "string"
     },
     "playwrightConfig": {

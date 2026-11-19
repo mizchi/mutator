@@ -59,6 +59,8 @@ export interface RunOptions {
   configFile?: string;
   /** Jest config file. */
   jestConfigFile?: string;
+  /** bunfig.toml for Bun's test runner. */
+  bunConfigFile?: string;
   /** Playwright config file. */
   playwrightConfigFile?: string;
   /** Experimental Chromium V8 source coverage, dry runs only. */

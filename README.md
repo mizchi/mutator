@@ -1,6 +1,6 @@
 # mutator
 
-Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest (and, experimentally, Jest in native ESM mode, and browser code driven by Playwright Test through a Vite dev server).
+Diff-driven mutation testing for TypeScript / JavaScript projects tested with Vitest (and, experimentally, Jest in native ESM mode, Bun's test runner, and browser code driven by Playwright Test through a Vite dev server).
 
 - **oxc-based instrumentation** – all mutants are compiled into the source once (mutation switching) by a pure function; formatting is preserved and a sourcemap is emitted.
 - **In-memory** – sources are instrumented by a Vite `transform` hook inside Vitest; no sandbox copy of the project.
@@ -39,7 +39,7 @@ Where the speed comes from:
 
 | | mutator | StrykerJS |
 |---|---|---|
-| test runners | Vitest 5; Jest 30 in native ESM mode and Playwright Test for browser code served by Vite (both experimental) | Jest, Vitest, Mocha, Jasmine, Karma, Cucumber, Tap, any command |
+| test runners | Vitest 5; Jest 30 in native ESM mode, `bun test` (Bun 1.4+) and Playwright Test for browser code served by Vite (all experimental) | Jest, Vitest, Mocha, Jasmine, Karma, Cucumber, Tap, any command |
 | scope of a run | the whole project, or only `git diff <ref>` (`--since`) | `mutate` globs (with line ranges); `--incremental` reuses unchanged results but reports everything |
 | undetected mutants | split by where the tests stopped short: not detected, not infected, not reached (with a fix for each) | Survived, NoCoverage |
 | equivalent mutants | `mutator accept <key>` (keyed, outside the source, reported when stale) and `?.` proven unneeded by types; disable comments | disable comments (`// Stryker disable`, also honoured by mutator) |
@@ -84,7 +84,7 @@ Inline Vitest `test.projects` keep their own plugins, environments and setup fil
 
 Relative paths in test IDs, mutant identities, snapshots and reports use `/` on every operating system, including Windows. Absolute paths passed to filesystem and runner APIs retain their platform's format.
 
-Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
+Options: `--scope node|scope` (diff granularity), `--include/--exclude <glob>`, `--runner vitest|jest|bun|playwright|auto`, `--config <runner config>`, `-j <n>`, `--mutants-per-line <n>`, `--time-budget <seconds>`, `--kill-matrix`, `--full-dry-run`, `--fail-on-survived`, `--threshold-break <n>`, `--no-arid` / `--arid-callee <pattern>`, `--config-file <mutator config>`. Run `mutator --help` for the full list.
 
 `--experimental-callgraph` re-runs, after an edit, only the survivors whose function is connected to the edited code in a static call graph. It is faster on widely used functions but can miss effects that flow through test code; see `docs/design.md`.
 
@@ -239,7 +239,7 @@ export default defineConfig({
   exclude: ['src/generated/**'],
   scope: 'node',                          // 'node' | 'scope'
   concurrency: 4,
-  runner: 'auto',                         // Vitest/Jest only; Playwright requires opt-in
+  runner: 'auto',                         // Vitest/Jest/Bun only; Playwright requires opt-in
   vitestConfig: 'vitest.config.ts',
   arid: { callees: ['metrics.*'] },       // or false (= --no-arid)
   experimentalCallgraph: false,
@@ -368,6 +368,29 @@ The adapter resolves `vite-plus/test/node` from the project before `vitest/node`
 - Every dry run and every mutant run is a separate Jest process (killed with its process group on timeout). That costs Jest's start-up per mutant (about 0.2–0.3 s on a small project) instead of re-running in a warm in-memory Vite pipeline.
 - No dependency tracking of test helpers: editing a helper a test file imports does not re-collect that file's coverage; use `--full-dry-run` after such edits.
 - Not supported: Jest `projects`, `test.concurrent` (hits are attributed to whichever test runs), retried tests, JS config files that contain functions (the config is re-serialized as JSON), `.tsx` without a project transformer, Jest's own coverage while mutating.
+
+## Bun (experimental)
+
+`--runner bun` (or `runner: 'bun'`; `auto` picks Bun's test runner for a Bun project, one with a `bunfig.toml`, `bun.lock` or `bun.lockb` and neither a Vitest nor a Jest config or installation) runs the same pipeline with `bun test`. mutator itself runs on Node.js and starts `bun` from PATH (a `bun` devDependency works, as `node_modules/.bin` is on PATH).
+
+**Supported**
+
+- Bun 1.4 or later (`bun test --isolate` is required), ESM JavaScript and TypeScript sources. Test files can import from `bun:test` (or from `vitest` / `@jest/globals`, which Bun maps to it).
+- Per-test coverage, weak mutation, static (module-level) mutants, killed / survived verdicts, hit-limit and wall-clock timeouts, `--since`, result reuse (test helpers included: editing one re-collects the test files that loaded it), `-j`, `--typecheck`, `--kill-matrix`, child-process detection (`node:child_process` and `Bun.spawn`).
+- Plugins as module paths or as objects: the sources are instrumented in the CLI process.
+- `--bun-config <file>` / `bunConfig` selects the bunfig.toml (implies `--runner bun`). Its `[test] root`, `pathIgnorePatterns` and preload files are taken into account.
+
+**How it works**
+
+- The sources are instrumented once, in the CLI process. Every dry run and every mutant run is a separate `bun test --isolate` process with a preload that serves the instrumented sources through a runtime plugin, installs the mutant switch and attributes hits to the running test. Bun starts in milliseconds, so a mutant run of a small project takes a few tens of milliseconds.
+- `--isolate` gives each test file a fresh global and module registry, so static mutants are attributed to every file that loads them. Dry runs use `--parallel` (up to `--max-workers` processes); mutants run in one process, killed with its process group on timeout.
+- Bun's hooks receive no test context: tests are numbered in the order they start and paired with the tests of Bun's JUnit report, which lists them in declaration order. `test.concurrent`, retried tests or a count that does not match fall back to crediting the file's hits to each of its tests, which costs runs but not verdicts.
+
+**Not supported**
+
+- CommonJS sources: Bun treats a runtime plugin's output as ESM, so tests of an instrumented CommonJS module fail in the baseline. Exclude them.
+- Sources imported by a bunfig.toml preload: those preloads run before mutator's, so the modules they load are not mutated.
+- `*_test.*` and `*_spec.*` files, which `bun test` collects, are tests and are excluded from the sources to mutate.
 
 ## Playwright (experimental)
 
@@ -623,7 +646,7 @@ The two timeouts are derived from the dry run, so a machine that is busier durin
 
 A `RuntimeError` (the run failed outside any test: a test file that fails to load, an unhandled error) is re-run once with the same budget, and counts only if it fails that way again. Without it, an error that a flaky test file raises under load is credited as a detection of whatever mutant was running. The summary reports these too: `runtime errors re-run to confirm them: 3 (1 failed again)`.
 
-On POSIX, stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every process it started (test workers, Jest and Playwright processes, dev servers) and exits with 130 / 143: a worker stuck in a mutant's loop cannot notice its parent going away, and would otherwise keep spinning. SIGKILL cannot be handled: a worker stuck in a loop then outlives mutator, and the next run in the project stops it. Each run records the processes it starts under `.mutator/processes/`; a later run kills those whose run is gone, that are still orphaned and that started when recorded, so another project's processes or a reused pid are never touched. This orphan reaping uses POSIX process information and is unavailable on Windows.
+On POSIX, stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) kills every process it started (test workers, Jest, Bun and Playwright processes, dev servers) and exits with 130 / 143: a worker stuck in a mutant's loop cannot notice its parent going away, and would otherwise keep spinning. SIGKILL cannot be handled: a worker stuck in a loop then outlives mutator, and the next run in the project stops it. Each run records the processes it starts under `.mutator/processes/`; a later run kills those whose run is gone, that are still orphaned and that started when recorded, so another project's processes or a reused pid are never touched. This orphan reaping uses POSIX process information and is unavailable on Windows.
 
 ## Packages
 
@@ -632,6 +655,7 @@ On POSIX, stopping a run with Ctrl-C (SIGINT) or SIGTERM (a cancelled CI job) ki
 | `@mizchi/mutator-core` | pure library: `instrument`, mutators, identity, diff parsing / selection, reuse planner, the runner `Session` contract. No fs / runner dependency. |
 | `@mizchi/mutator-vitest` | Vite plugin + Vitest session (dry run with coverage, run a mutant against selected tests). |
 | `@mizchi/mutator-jest` | Jest session (experimental, native ESM): wrapper transformer, setup files, one Jest process per run. |
+| `@mizchi/mutator-bun` | Bun session (experimental): sources instrumented in the CLI process, a preload serving them to `bun test --isolate`, one Bun process per run. |
 | `@mizchi/mutator-playwright` | Playwright session (experimental): Vite plugin for the dev server, test fixture for the page, one Playwright process per run. |
 | `@mizchi/mutator-typecheck` | type-checks mutants with the project's own TypeScript (compiler API for 6, native API for 7) so that ill-typed ones are reported as `CompileError`, and those the types prove equivalent as `Ignored`, without running. |
 | `@mizchi/mutator` | CLI / orchestration: git, snapshot, report. |
@@ -647,10 +671,10 @@ node scripts/robustness.ts <dir>...   # instrument every file and check the outp
 
 Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.5`, and update the reference explicitly when upgrading.
 
-The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
+The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest, Bun and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 
 Both operating systems must pass before the Linux publish job checks the tag against the package versions, packs with pnpm, publishes the tarballs with npm through trusted publishing (OIDC; each package lists `release.yml` of this repository as its trusted publisher on npmjs.com, no token), and creates the GitHub release from the changelog section.
 
-The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, typecheck, cli.
+The first version of a package has to be published by hand, because npm adds a trusted publisher only to a package that exists: pack each package with `pnpm pack` (it rewrites `workspace:*`) and run `npm publish <tarball> --access public` in the order core, vitest, jest, bun, typecheck, cli.
 
 Design notes and the survey of StrykerJS / cargo-mutants / PIT live in [`docs/`](./docs).

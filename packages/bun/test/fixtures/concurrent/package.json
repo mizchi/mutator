@@ -1,0 +1,5 @@
+{
+  "name": "mutator-bun-fixture-concurrent",
+  "private": true,
+  "type": "module"
+}

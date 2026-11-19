@@ -7,22 +7,20 @@ import { isFile } from './child-process.ts';
 import type { SourceInfo } from './coverage-cache.ts';
 import { loadPlugins } from './plugins.ts';
 import type { RunOptions } from './run.ts';
-import { type RunnerSessionOptions, detectRunner } from './runner.ts';
+import { type Runner, type RunnerSessionOptions, detectRunner } from './runner.ts';
 
 const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 // What the instrumenter parses; `--include 'dir/**'` also matches directories and other files.
 const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];
+/** `bun test` also collects `*_test.*` and `*_spec.*` files: they are tests, not sources. */
+const BUN_TEST_EXCLUDE = ['**/*_{test,spec}.*'];
 
 /** Target files, plugins, and the runner with the options its sessions are created with. */
 export async function resolveSetup(root: string, options: RunOptions, log: (message: string) => void) {
   if (options.maxWorkers !== undefined && (!Number.isSafeInteger(options.maxWorkers) || options.maxWorkers < 1)) {
     throw new RangeError('maxWorkers must be a positive safe integer');
   }
-  const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
-    cwd: root,
-    exclude: [...DEFAULT_EXCLUDE, ...(options.exclude ?? [])],
-  }).map((f) => join(root, f)).filter((f) => SOURCE_FILE.test(f) && isFile(f));
   const plugins = await loadPlugins(root, options.plugins ?? []);
   const arid = combineArid(options.arid, plugins.aridCallees);
   const instrumentOptions: InstrumentFlags = {
@@ -32,18 +30,16 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),
     ...(options.excludedMutators?.length ? { excludedMutators: options.excludedMutators } : {}),
   };
-  // An explicit runner config picks the runner; otherwise detect it from the project.
-  const runner =
-    options.runner && options.runner !== 'auto'
-      ? options.runner
-      : options.jestConfigFile
-        ? 'jest'
-        : options.playwrightConfigFile
-          ? 'playwright'
-          : options.configFile
-            ? 'vitest'
-            : detectRunner(root);
-  const configFile = { vitest: options.configFile, jest: options.jestConfigFile, playwright: options.playwrightConfigFile }[runner];
+  // An explicit runner config picks the runner (the first set, in this order); otherwise
+  // detect it from the project.
+  const configs: Record<Runner, string | undefined> = { jest: options.jestConfigFile, bun: options.bunConfigFile, playwright: options.playwrightConfigFile, vitest: options.configFile };
+  const runner: Runner =
+    options.runner && options.runner !== 'auto' ? options.runner : ((Object.keys(configs) as Runner[]).find((r) => configs[r]) ?? detectRunner(root));
+  const files = globSync([...(options.include ?? DEFAULT_INCLUDE)], {
+    cwd: root,
+    exclude: [...DEFAULT_EXCLUDE, ...(runner === 'bun' ? BUN_TEST_EXCLUDE : []), ...(options.exclude ?? [])],
+  }).map((f) => join(root, f)).filter((f) => SOURCE_FILE.test(f) && isFile(f));
+  const configFile = configs[runner];
   const workerLimit = options.maxWorkers === undefined ? '' : ` (total test worker limit: ${options.maxWorkers})`;
   log(`runner: ${runner}${workerLimit}`);
   const sessionOptions: RunnerSessionOptions = {

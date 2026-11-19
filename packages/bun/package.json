@@ -1,0 +1,45 @@
+{
+  "name": "@mizchi/mutator-bun",
+  "version": "0.4.5",
+  "type": "module",
+  "description": "Bun test runner adapter for @mizchi/mutator-core (experimental)",
+  "keywords": [
+    "mutation-testing",
+    "bun"
+  ],
+  "license": "MIT",
+  "author": "mizchi",
+  "homepage": "https://github.com/mizchi/mutator#readme",
+  "bugs": "https://github.com/mizchi/mutator/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mizchi/mutator.git",
+    "directory": "packages/bun"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@mizchi/mutator-core": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "tsc -p tsconfig.build.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  }
+}

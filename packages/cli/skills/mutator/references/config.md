@@ -34,9 +34,10 @@ export default defineConfig({
 | `maxWorkers` | `--max-workers <n>` | total active test workers for this invocation, shared across mutant sessions and applied to the baseline |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
 | `shard` | `--shard <index/count>` | CI partition of mutant keys, e.g. `1/4`; independent snapshots and default report directories, scores and gates cover this shard |
-| `runner` | `--runner <name>` | `auto` selects Vitest/Jest only; set `playwright` explicitly for slower browser E2E mutation runs |
+| `runner` | `--runner <name>` | `vitest`, `jest`, `bun`, `playwright`; `auto` selects Vitest/Jest/Bun only; set `playwright` explicitly for slower browser E2E mutation runs |
 | `vitestConfig` | `--config <file>` | Vitest config file |
 | `jestConfig` | `--jest-config <file>` | Jest config file (implies the Jest runner) |
+| `bunConfig` | `--bun-config <file>` | bunfig.toml for `bun test` (implies the Bun runner) |
 | `playwrightConfig` | `--playwright-config <file>` | Playwright config file; explicitly opts into the slower browser mutation runner |
 | `playwrightSourceCoverage` | config only | Experimental Chromium V8 coverage in dry runs, remapped to original function scopes; default false, adds CPU/memory overhead |
 | `arid` | `--no-arid`, `--arid-callee <pattern>` | logging-only code is reported `Ignored` and not run (defaults: `console.*`, `logger.*`, `log.*`, `*.debug`, `*.trace`, `debug`); `false` runs it; `{ callees }` and `--arid-callee` replace the defaults, a plugin's `aridCallees` adds to them ([plugins.md](plugins.md)) |

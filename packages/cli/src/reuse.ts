@@ -14,7 +14,7 @@ import { snapshotFiles } from './snapshot-store.ts';
 // Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
 // no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
 // without the tests that reached them while running), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.13';
+export const SNAPSHOT_VERSION = '0.0.14';
 
 export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', 'tsconfig.json', 'pnpm-workspace.yaml'];
 
@@ -96,6 +96,7 @@ export function buildSnapshot(
     hits: Object.fromEntries(merged.hits),
     spawns: Object.fromEntries(merged.spawns),
     scopes,
+    moduleLoads: Object.fromEntries([...run.sources].flatMap(([file, { loads }]) => loads?.length ? [[relative(root, file), loads]] : [])),
     ...(merged.sourceCoverage ? { sourceCoverage: Object.fromEntries([...merged.sourceCoverage].filter(([scope]) => aliveScopes!.has(scope))), sourceCoverageIncomplete: [...(merged.sourceCoverageIncomplete ?? [])] } : {}),
   };
 }

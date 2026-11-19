@@ -64,7 +64,7 @@ export function collectSources(root: string, files: readonly string[], instrumen
   const graphSources: CallGraphSource[] = [];
   const mutants = files.flatMap((file) => {
     const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
-    sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports });
+    sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports, loads: result.loads });
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;
   });

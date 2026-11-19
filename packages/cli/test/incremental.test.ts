@@ -180,14 +180,41 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     expect(warm.dryRunFiles).toEqual(fullDryRun ? ['test/limit.test.ts', 'test/other.test.ts'] : ['test/limit.test.ts']);
   });
 
-  test('reordering module initialization can break the baseline', async () => {
+  test.each(['generic', 'edited'])('reordering module initialization can break the baseline (%s callback)', async (next) => {
     const root = project({
       'src/routes.js': "const routes = [];\nfunction register(f) { routes.push(f); }\nregister(() => 'specific');\nregister(() => 'generic');\nexport function first() { return routes[0](); }\n",
       'test/routes.test.ts': "import { expect, test } from 'vitest';\nimport { first } from '../src/routes.js';\ntest('priority', () => expect(first()).toBe('specific'));\n",
     });
     await runMutation({ root, concurrency: 1 });
-    edit(root, 'src/routes.js', "register(() => 'specific');\nregister(() => 'generic');", "register(() => 'generic');\nregister(() => 'specific');");
+    edit(root, 'src/routes.js', "register(() => 'specific');\nregister(() => 'generic');", `register(() => '${next}');\nregister(() => 'specific');`);
     await expect(runMutation({ root, concurrency: 1 })).rejects.toBeInstanceOf(BaselineError);
+  });
+
+  test.each([';\nconst ', ', '])('moving and editing a declaration still checks module loading (%j)', async (separator) => {
+    const source = 'src/values.js';
+    const fn = '\nexport function f(n) { return n + 1; }\n';
+    const root = project({
+      [source]: `const a = 1${separator}b = a;${fn}`,
+      'test/f.test.ts': "import { expect, test } from 'vitest';\nimport { f } from '../src/values.js';\ntest('f', () => expect(f(1)).toBe(2));\n",
+    });
+    await runMutation({ root, concurrency: 1 });
+    write(root, source, `const b = a${separator}a = 2;${fn}`);
+    await expect(runMutation({ root, concurrency: 1 })).rejects.toBeInstanceOf(BaselineError);
+    await expect(runMutation({ root, concurrency: 1, snapshotPath: join(root, '.mutator/cold.json') })).rejects.toBeInstanceOf(BaselineError);
+  });
+
+  test('reordering side-effect imports checks the tests that load the module', async () => {
+    const root = project({
+      'src/state.js': 'export const routes = [];\n',
+      'src/specific.js': "import { routes } from './state.js';\nroutes.push('specific');\n",
+      'src/generic.js': "import { routes } from './state.js';\nroutes.push('generic');\n",
+      'src/routes.js': "import './specific.js';\nimport './generic.js';\nexport { routes } from './state.js';\n",
+      'test/routes.test.ts': "import { expect, test } from 'vitest';\nimport { routes } from '../src/routes.js';\ntest('priority', () => expect(routes[0]).toBe('specific'));\n",
+    });
+    await runMutation({ root, concurrency: 1 });
+    edit(root, 'src/routes.js', "import './specific.js';\nimport './generic.js';", "import './generic.js';\nimport './specific.js';");
+    await expect(runMutation({ root, concurrency: 1 })).rejects.toBeInstanceOf(BaselineError);
+    await expect(runMutation({ root, concurrency: 1, snapshotPath: join(root, '.mutator/cold.json') })).rejects.toBeInstanceOf(BaselineError);
   });
 
   test('moving hoisted function declarations still reuses their results', async () => {

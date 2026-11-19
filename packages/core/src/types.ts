@@ -106,6 +106,8 @@ export interface InstrumentResult {
   calls: CallSite[];
   /** Value imports of the file. */
   imports: ImportBinding[];
+  /** Modules loaded by static imports and re-exports, including side-effect imports. */
+  loads: string[];
   /** `export ... from` bindings: `local` is the exported name (`*` for `export *`). */
   reexports: ImportBinding[];
 }

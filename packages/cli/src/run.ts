@@ -31,7 +31,7 @@ import type { PluginSpec } from './plugins.ts';
 import { SNAPSHOT_VERSION, buildSnapshot, environmentFiles, environmentHash, mutationSettings } from './reuse.ts';
 import { type Runner, createRunnerSession } from './runner.ts';
 import { collectSources, importResolver, resolveSetup } from './setup.ts';
-import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
+import { changesSince, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { publishSnapshot, readSnapshot, writeSnapshot } from './snapshot.ts';
 import { snapshotFiles } from './snapshot-store.ts';
 import { score } from './status.ts';
@@ -274,7 +274,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
     // off this thread, so it overlaps the dry run.
-    const lines = options.since ? diffLines(root, options.since) : undefined;
+    const lines = options.since ? changesSince(root, options.since).lines : undefined;
     const touched = lines && diffTouched(root, lines, mutants, options.scope ?? 'node');
     const uncollected = lines && uncollectedTests([...lines.keys()], new Set(testFileList), (f) => session.excludesTestFile?.(join(root, f)) ?? false);
     const skipped = lines && skippedInDiff(root, lines);

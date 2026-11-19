@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { MutantResult } from '@mizchi/mutator-core';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { runMutation } from '../src/run.ts';
-import { type Picked, type SelectionInput, selectTests, selectionFiles } from '../src/select-tests.ts';
+import { type Picked, type SelectionInput, selectTests, selectTestsSince, selectionFiles } from '../src/select-tests.ts';
 import { fixtureGit } from './fixture-git.ts';
 
 const root = '/p';
@@ -177,6 +177,91 @@ describe('mutator select-tests', { timeout: 60_000 }, () => {
     expect(status).toBe(1);
     expect(stderr).toContain('is from another environment');
     expect(stderr).toContain('run `mutator` once first');
+  });
+
+  test.each([
+    ['delete a source', 'src/a.ts', undefined],
+    ['rename a source', 'src/a.ts', 'src/moved.ts'],
+    ['delete a test helper', 'test/helper.ts', undefined],
+  ] as const)('%s alongside an edit selects the importers of the old path', async (_, oldPath, newPath) => {
+    await runMutation({ root: dir, concurrency: 1 });
+    if (newPath) git('mv', oldPath, newPath);
+    else rmSync(join(dir, oldPath));
+    expect(run('select-tests', '--since', 'HEAD').stdout).toBe('test/a.test.ts\n');
+    edit('src/b.ts', 'name.length > 0', '0 < name.length');
+
+    const files = run('select-tests', '--since', 'HEAD');
+    expect(files.status, files.stderr).toBe(0);
+    expect(files.stdout.trim().split('\n').sort()).toEqual(['test/a.test.ts', 'test/b.test.ts']);
+    rmSync(join(dir, 'test/a.test.ts'));
+    expect(run('select-tests', '--since', 'HEAD').stdout).toBe('test/b.test.ts\n');
+  });
+
+  test('ranks tests of a removed function alongside tests of an edited function in the same file', async () => {
+    const positive = "import { expect, test } from 'vitest';\nimport { isPositive } from '../src/a.ts';\ntest('positive', () => expect(isPositive(-1)).toBe(false));\n";
+    writeFileSync(join(dir, 'test/positive.test.ts'), positive);
+    git('add', 'test/positive.test.ts');
+    git('commit', '-qm', 'add positive test');
+    await runMutation({ root: dir, concurrency: 1 });
+    writeFileSync(join(dir, 'src/a.ts'), 'export function double(n: number): number {\n  return n + n;\n}\n');
+
+    const json = run('select-tests', '--since', 'HEAD', '--format', 'json');
+    expect(json.status, json.stderr).toBe(0);
+    const selection = JSON.parse(json.stdout);
+    expect(selection.files.sort()).toEqual(['test/a.test.ts', 'test/positive.test.ts']);
+    expect([...selection.killers, ...selection.covering]).toContainEqual(expect.objectContaining({
+      test: 'test/positive.test.ts#positive', reason: expect.stringContaining('src/a.ts#isPositive'),
+    }));
+  });
+
+  test.each(['__tests__', 'a'])('selects importers of a removed helper under %s', async (directory) => {
+    const helper = `${directory}/helper.ts`;
+    mkdirSync(join(dir, directory));
+    git('mv', 'test/helper.ts', helper);
+    edit('test/a.test.ts', './helper.ts', `../${helper}`);
+    git('commit', '-qam', 'move helper');
+    await runMutation({ root: dir, concurrency: 1 });
+
+    rmSync(join(dir, helper));
+    edit('src/b.ts', 'name.length > 0', '0 < name.length');
+    const files = run('select-tests', '--since', 'HEAD');
+    expect(files.status, files.stderr).toBe(0);
+    expect(files.stdout.trim().split('\n').sort()).toEqual(['test/a.test.ts', 'test/b.test.ts']);
+  });
+
+  test('removing an export also selects tests that checked the binding without calling it', async () => {
+    const double = 'export function double(n: number) { return n * 2; }\n';
+    const other = 'function other(n: number) { return n + 1; }\n';
+    const api = join(dir, 'src/api.ts');
+    writeFileSync(api, double + other);
+    writeFileSync(join(dir, 'test/shape.test.ts'), "import { expect, test } from 'vitest';\nimport * as api from '../src/api.ts';\ntest('shape', () => expect(typeof api.double).toBe('function'));\n");
+    writeFileSync(join(dir, 'test/call.test.ts'), "import { expect, test } from 'vitest';\nimport { double } from '../src/api.ts';\ntest('call', () => expect(double(2)).toBe(4));\n");
+    git('add', '.');
+    git('commit', '-qm', 'add API');
+    await runMutation({ root: dir, concurrency: 1 });
+
+    writeFileSync(api, 'export ' + other);
+    const files = run('select-tests', '--since', 'HEAD');
+    expect(files.status, files.stderr).toBe(0);
+    const expected = ['test/call.test.ts', 'test/shape.test.ts'];
+    expect(files.stdout.trim().split('\n').sort()).toEqual(expected);
+
+    const legacy = JSON.parse(readFileSync(join(dir, '.mutator/snapshot.json'), 'utf8'));
+    delete legacy.scopes;
+    const snapshotPath = join(dir, '.mutator/legacy.json');
+    writeFileSync(snapshotPath, JSON.stringify(legacy));
+    expect(selectionFiles(await selectTestsSince({ root: dir, since: 'HEAD', snapshotPath })).sort()).toEqual(expected);
+  });
+
+  test('a directory at a deleted test path is never read or selected as a test file', async () => {
+    await runMutation({ root: dir, concurrency: 1 });
+    const oldTest = join(dir, 'test/a.test.ts');
+    rmSync(oldTest);
+    mkdirSync(oldTest);
+    edit('src/b.ts', 'name.length > 0', '0 < name.length');
+    const files = run('select-tests', '--since', 'HEAD');
+    expect(files.status, files.stderr).toBe(0);
+    expect(files.stdout).toBe('test/b.test.ts\n');
   });
 
   test('rejects an unknown format and a missing --since', () => {

@@ -366,7 +366,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const accepted = options.accepted && new Map([...options.accepted].filter(([key]) => owns(key)));
     const acceptance = accepted?.size ? applyAcceptance(report, accepted) : undefined;
     const final = acceptance?.entries ?? report;
-    const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
+    const inScoreScope = (entries: ReportEntry[]) => inScope ? entries.filter((e) => e.focus === 'diff') : entries;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
     // Coverage, not verdicts: a reached mutant may still be pending (time budget). The merged
     // coverage holds only mutants some test reached.
@@ -378,7 +378,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       entries: final,
       executed,
       dryRunFiles: [...dryFiles].sort(),
-      score: score(scored),
+      score: score(inScoreScope(final)),
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
       notRun,
@@ -396,7 +396,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
       ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),
       // Before acceptance: an accepted survivor still shows which tests kill nothing.
-      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
+      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(inScoreScope(report).map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
     };
   } finally {
     early?.cancel();

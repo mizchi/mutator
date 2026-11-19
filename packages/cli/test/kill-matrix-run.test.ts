@@ -57,6 +57,14 @@ describe('--kill-matrix', { timeout: 120_000 }, () => {
     expect(formatAgentReport(matrix, root).killMatrix).toEqual(analysis);
     expect(formatMutationTestingJson(matrix, root).killMatrix).toEqual(analysis);
 
+    const selected = await runMutation({ root, concurrency: 1, only: new Set([lowerBound.mutant.key]), killMatrix: true });
+    expect(selected.killMatrix!.mutants).toEqual({ full: 1, incomplete: 0, timeout: 0 });
+    expect(formatSummary(selected, root)).toContain('1 mutant with a full matrix, 4 collected tests');
+    expect(selected.killMatrix!.observations!.find((o) => o.test === THOROUGH)?.kills).toBe(1);
+    const json = formatMutationTestingJson(selected, root);
+    const reported = Object.values(json.files).flatMap((file) => file.mutants).filter((m) => m.status !== 'Pending');
+    expect(reported.map((m) => m.id)).toEqual([lowerBound.mutant.key]);
+
     // Full matrices are reused by the next matrix run, and their verdicts by a normal run.
     const again = await runMutation({ root, concurrency: 1, killMatrix: true });
     expect(again.executed).toBe(0);

@@ -56,7 +56,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
   const tests = new Set<string>();
   const childProcess = new Set(report.childProcessMutants);
   const critical = new Set(report.criticalMutants);
-  for (const { mutant, status, killedBy, coveredBy, reason, accepted } of report.entries) {
+  for (const { mutant, status, killedBy, coveredBy, reason, accepted, focus } of report.entries) {
     const path = relative(root, mutant.file);
     files[path] ??= {
       language: TS_EXTENSIONS.has(extname(path)) ? 'typescript' : 'javascript',
@@ -64,6 +64,16 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       mutants: [],
     };
     const { start, end } = mutant.location;
+    const location = { start: { line: start.line, column: start.column + 1 }, end: { line: end.line, column: end.column + 1 } };
+    const item = { id: mutant.key, mutatorName: mutant.mutator, replacement: mutant.replacement, location };
+    // Report consumers compute the score from these statuses. Keep the surrounding source visible.
+    if (report.scope === 'diff' && focus !== 'diff') {
+      files[path].mutants.push({
+        ...item, status: 'Pending', killedBy: [], coveredBy: [],
+        ...(focus === 'recheck' ? { statusReason: `Rechecked outside the selection: ${status}` } : {}),
+      });
+      continue;
+    }
     const statusReason =
       accepted !== undefined
         ? `accepted: ${accepted}`
@@ -76,10 +86,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
     const undetectedCritical = critical.has(mutant.key) && isUndetected(status);
     const reasons = [undetectedCritical ? CRITICAL_REASON : undefined, statusReason].filter(Boolean).join('; ');
     files[path].mutants.push({
-      id: mutant.key,
-      mutatorName: mutant.mutator,
-      replacement: mutant.replacement,
-      location: { start: { line: start.line, column: start.column + 1 }, end: { line: end.line, column: end.column + 1 } },
+      ...item,
       status,
       killedBy,
       coveredBy,

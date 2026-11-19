@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } f
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { formatMutationTestingJson } from '../src/mte-report.ts';
 import { runMutation } from '../src/run.ts';
 
 const fixture = fileURLToPath(new URL('../../vitest/test/fixtures/basic', import.meta.url));
@@ -176,6 +177,9 @@ describe('runMutation', { timeout: 60_000 }, () => {
     const inDiff = report.entries.filter((e) => e.source === 'run');
     const detected = inDiff.filter((e) => e.status === 'Killed' || e.status === 'Timeout').length;
     expect(report.score).toBeCloseTo(detected / inDiff.length);
+    const json = formatMutationTestingJson(report, root);
+    const reported = json.files['src/math.ts']!.mutants.filter((m) => m.status !== 'Pending');
+    expect(reported.map((m) => m.id)).toEqual(report.entries.filter((e) => e.focus === 'diff' && e.status !== 'Pending').map((e) => e.mutant.key));
   });
 
   test('a test-only change re-runs the mutants it covers', async () => {

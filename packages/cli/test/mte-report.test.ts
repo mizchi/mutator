@@ -99,6 +99,37 @@ describe('formatMutationTestingJson', () => {
     expect(accepted.files['add.ts']!.mutants[0]).toMatchObject({ status: 'Ignored', statusReason: 'accepted: equivalent' });
   });
 
+  test('counts only the selected mutants and keeps out-of-diff rechecks visible as findings', () => {
+    const entries = [
+      entry('add.ts', 'selected', 'Killed', { focus: 'diff', killedBy: ['test.ts#selected'] }),
+      entry('add.ts', 'cached', 'Killed', { source: 'reuse', killedBy: ['test.ts#cached'], coveredBy: ['test.ts#cached'] }),
+      entry('util.js', 'uncovered', 'NoCoverage', { source: 'static' }),
+      entry('util.js', 'accepted', 'Ignored', { accepted: 'equivalent' }),
+      entry('util.js', 'rechecked', 'Survived', { focus: 'recheck' }),
+    ];
+    const scoped = formatMutationTestingJson({ ...report, scope: 'diff', entries }, root);
+    const mutants = Object.values(scoped.files).flatMap((file) => file.mutants);
+    expect(mutants.map((m) => m.status)).toEqual(['Killed', 'Pending', 'Pending', 'Pending', 'Pending']);
+    expect(mutants.slice(1).every((m) => !m.coveredBy.length && !m.killedBy.length)).toBe(true);
+    expect(mutants[3]?.statusReason).toBeUndefined();
+    expect(mutants[4]?.statusReason).toContain('Survived');
+    expect(scoped.testFiles['test.ts']?.tests.map((t) => t.name)).toEqual(['selected']);
+    expect(scoped.findings).toMatchObject([{ kind: 'mutationGap', key: 'rechecked' }]);
+  });
+
+  test('rechecks keep the critical gap or acceptance reason without affecting the report score', () => {
+    const entries = [
+      entry('add.ts', 'gap', 'Survived', { focus: 'recheck', reason: 'notInfected' }),
+      entry('add.ts', 'waived', 'Ignored', { focus: 'recheck', accepted: 'equivalent for valid inputs' }),
+    ];
+    const json = formatMutationTestingJson({ ...report, scope: 'diff', criticalMutants: ['gap', 'waived'], entries }, root);
+    const [gap, waived] = json.files['add.ts']!.mutants;
+    expect(gap?.status).toBe('Pending');
+    expect(gap?.statusReason).toMatch(/^critical region:.*Survived.*not infected/);
+    expect(waived).toMatchObject({ status: 'Pending', statusReason: expect.stringContaining('accepted: equivalent for valid inputs') });
+    expect(json.findings).toMatchObject([{ kind: 'criticalGap', key: 'gap' }]);
+  });
+
   test('mutants proven equivalent by types carry the proof', () => {
     const proven = formatMutationTestingJson({ ...report, entries: [entry('add.ts', 'k9', 'Ignored', { reason: 'equivalent: a is never nullish' })] }, root);
     expect(proven.files['add.ts']!.mutants[0]).toMatchObject({ status: 'Ignored', statusReason: 'equivalent: a is never nullish' });

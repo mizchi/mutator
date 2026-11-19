@@ -11,7 +11,7 @@ mutator reports each mutant the tests miss, together with where the tests stoppe
 
 To set mutator up from scratch (runner, config file, CI), use the `mutator` skill; this one assumes it runs.
 
-- mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
+- mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM, or Bun 1.4+ for `bun test`). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
 - If `.mutator/` is not in `.gitignore`, add it. It holds the cache and the reports. `mutator.accepted.json` at the root is meant to be committed.
 
 ## 1. Find the gaps

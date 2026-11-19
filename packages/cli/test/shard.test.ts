@@ -106,6 +106,24 @@ describe('runSharded', () => {
     expect(done.get('j')).toEqual({ status: 'Timeout', killedBy: [], durationMs: 6 });
   });
 
+  test('a worker failure drains in-flight verdicts before the checkpoint closes', async () => {
+    const started: number[] = [];
+    const completed: number[] = [];
+    await expect(runSharded({
+      workers: 2,
+      jobs: [0, 1, 2].map((id) => ({ id, shards: [['a']] })),
+      run: async (_worker, job) => {
+        started.push(job.id);
+        if (job.id === 0) throw new Error('runner failed');
+        await tick();
+        return { status: 'Survived', killedBy: [], durationMs: 1 };
+      },
+      onDone: (job) => completed.push(job.id),
+    })).rejects.toThrow('runner failed');
+    expect(started).toEqual([0, 1]);
+    expect(completed).toEqual([1]);
+  });
+
   test('stops taking work once `shouldStop` says so', async () => {
     let calls = 0;
     const done: string[] = [];

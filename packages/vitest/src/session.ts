@@ -30,13 +30,15 @@ export type { DryRunResult, MutantRunResult, RunMutantOptions, Session, TestLoca
 
 // Published builds ship setup.js next to session.js.
 const SETUP_FILE = realpathSync.native(fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './setup.ts' : './setup.js', import.meta.url)));
+// Matches the setup file's module id, which Vite writes with forward slashes on every platform.
+const SETUP_ID = new RegExp(`^${SETUP_FILE.replaceAll('\\', '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[?#]|$)`);
 const debug = debuglog('mutator');
 
 export interface SessionOptions extends PluginOptions {
   root: string;
   /** Path to a vitest config file; defaults to vitest's own lookup from `root`. */
   configFile?: string;
-  /** Worker threads of this Vitest instance (sessions running mutants in parallel use 1 each). */
+  /** Maximum test workers for this Vitest session. */
   maxWorkers?: number;
   /** Stop a mutant run at the first failing test (default: true). */
   earlyExit?: boolean;
@@ -208,6 +210,13 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
     {
       name: 'mutator:test-runtime',
       enforce: 'pre',
+      config(config) {
+        // Installed, the setup file lives under node_modules and would be externalized; Node would then
+        // resolve its `vitest` import from this adapter's own peer, which may be another copy than the
+        // project's (pnpm splits Vitest by peer variants). Inline it so `resolveId` below applies.
+        const deps = ((config.test ??= {}).server ??= {}).deps ??= {};
+        if (deps.inline !== true) deps.inline = [...(deps.inline ?? []), SETUP_ID];
+      },
       resolveId(source, importer) {
         if (source !== 'vitest' || !importer || normalize(importer.split('?')[0]!) !== SETUP_FILE) return;
         return this.resolve(runtime.setup, runtime.importer, { skipSelf: true });
@@ -251,6 +260,10 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
         ...plugins(),
       ],
     },
+    // Workers' stdout (a logger in the code under test) goes to Vitest's output stream.
+    // The CLI's stdout carries the report (`--reporter agent` is one JSON document),
+    // so keep test output visible on stderr instead.
+    { stdout: process.stderr },
   );
   vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT, earlyExit: false });
   for (const project of vitest.projects) {

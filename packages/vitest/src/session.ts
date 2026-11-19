@@ -251,6 +251,10 @@ async function start(options: SessionOptions, registry: MutantRegistry): Promise
         ...plugins(),
       ],
     },
+    // Workers' stdout (a logger in the code under test) goes to Vitest's output stream.
+    // The CLI's stdout carries the report (`--reporter agent` is one JSON document),
+    // so keep test output visible on stderr instead.
+    { stdout: process.stderr },
   );
   vitest.provide('mutator', { active: null, hitLimit: DEFAULT_HIT_LIMIT, earlyExit: false });
   for (const project of vitest.projects) {

@@ -20,6 +20,8 @@ export interface DryRunResult {
   staticKeys: Set<string>;
   /** ids of tests (or modules) that failed without any mutant active */
   failed: string[];
+  /** id in `failed` -> its first error (message, then the first stack frame when known), for the baseline error. */
+  failures?: Map<string, string>;
   /** total hits per mutant, used to derive hit limits */
   hits: Map<string, number>;
   /** test id -> location, to hand to other sessions via `useTestIndex` */
@@ -111,6 +113,19 @@ export const testFileOf = (testId: string): string => testId.slice(0, testId.ind
 
 export function emptyDryRun(): DryRunResult {
   return { tests: [], coverage: new Map(), staticKeys: new Set(), failed: [], hits: new Map(), index: new Map(), staticByFile: new Map(), deps: new Map() };
+}
+
+/**
+ * An error as the baseline report shows it: the message, then the first stack frame below it
+ * (when the message does not already carry one). The CLI trims and bounds it.
+ */
+export function describeError(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return String(error);
+  const { message, stack, name } = error as { message?: unknown; stack?: unknown; name?: unknown };
+  const text = typeof message === 'string' ? (typeof name === 'string' && name && !message.startsWith(name) ? `${name}: ${message}` : message) : String(error);
+  if (/^\s+at /m.test(text) || typeof stack !== 'string') return text;
+  const frame = stack.split('\n').find((line) => /^\s+at /.test(line));
+  return frame ? `${text}\n${frame.trim()}` : text;
 }
 
 /** Numbers repeated ids `#2`, `#3`, ... in encounter order, so tests sharing a full name stay distinct. */

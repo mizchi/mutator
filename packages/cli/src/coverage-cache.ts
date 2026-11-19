@@ -208,7 +208,7 @@ export function planDryRun(input: {
 
 const sorted = (files: ReadonlySet<string>, testFiles: Readonly<Record<string, string>>) => [...files].filter((f) => f in testFiles).sort();
 
-export type MergedDryRun = Omit<DryRunResult, 'failed' | 'spawns'> & { spawns: Map<string, SpawnedCommand[]> };
+export type MergedDryRun = Omit<DryRunResult, 'failed' | 'failures' | 'spawns'> & { spawns: Map<string, SpawnedCommand[]> };
 
 /** Combine a partial dry run with the previous snapshot's data for the test files that were skipped. */
 export function mergeDryRun(input: {

@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Session } from '@mizchi/mutator-core';
+import { HIT_LIMIT_MESSAGE, type Session, classifyRun } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { createBunSession, fitsCommandLine, pathFilter } from '../src/session.ts';
+import { createBunSession, fitsCommandLine, pathFilter, withFailures } from '../src/session.ts';
 
 // Only a missing Bun skips; one that fails to start fails the tests.
 const hasBun = (spawnSync('bun', ['--version']).error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT';
@@ -26,6 +26,18 @@ test('a command line fits within the platform limit', () => {
   expect(fitsCommandLine(['bun', long, long], 'win32')).toBe(false);
   // There, quotes and backslashes are escaped.
   expect(fitsCommandLine(['bun', '"'.repeat(17_000)], 'win32')).toBe(false);
+});
+
+test('a selected failure of the first run counts next to a different one in the rerun', () => {
+  const selected = new Set(['t#a', 't#b']);
+  const run = (tests: { id: string; failed: boolean; messages: string[] }[]) => ({ tests, fileErrors: [], runErrors: [], selected });
+  // `a` failed an assertion first, then reached the hit limit in the rerun.
+  const first = run([{ id: 't#a', failed: true, messages: ['expected 1 to be 2'] }, { id: 't#x', failed: true, messages: ['not selected'] }]);
+  const rerun = run([{ id: 't#a', failed: true, messages: [HIT_LIMIT_MESSAGE] }, { id: 't#b', failed: false, messages: [] }]);
+  expect(classifyRun(rerun).status).toBe('Timeout');
+  expect(classifyRun(withFailures(rerun, first))).toMatchObject({ status: 'Killed', killedBy: ['t#a'] });
+  // Only selected tests are added.
+  expect(withFailures(rerun, first).tests.map((t) => t.id)).toEqual(['t#a', 't#b', 't#a']);
 });
 
 describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {

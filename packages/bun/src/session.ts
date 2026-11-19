@@ -506,13 +506,12 @@ function leftOut(
   return { missed: testIds.some((id) => locations.has(id) && !ran.has(id)), selectedFailed, otherFailed };
 }
 
-/** `report` with the selected tests that failed in `earlier` counted as failed too. */
-function withFailures(report: RunReport, earlier: RunReport): RunReport {
-  const tests = new Map(report.tests.map((t) => [t.id, t] as const));
-  for (const test of earlier.tests) {
-    if (test.failed && report.selected.has(test.id) && !tests.get(test.id)?.failed) tests.set(test.id, test);
-  }
-  return { ...report, tests: [...tests.values()] };
+/**
+ * `report` with the failures of selected tests in `earlier` added: a test may fail in both
+ * runs in different ways (an assertion, then the hit limit), and each failure counts.
+ */
+export function withFailures(report: RunReport, earlier: RunReport): RunReport {
+  return { ...report, tests: [...report.tests, ...earlier.tests.filter((t) => t.failed && report.selected.has(t.id))] };
 }
 
 /**

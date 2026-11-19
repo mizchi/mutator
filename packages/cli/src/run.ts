@@ -252,7 +252,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
-    let dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    let dryPlan = planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
       const related = await session.relatedTestFiles(files);
       if (related) {
@@ -260,7 +260,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         dryPlan = { all: false, files: selected, stale: selected, impacted: [] };
       }
     }
-    const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
+    const collectFiles = dryPlan.all || options.fullDryRun ? undefined : dryPlan.files;
+    const dryFiles = new Set(collectFiles ?? Object.keys(testFiles));
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
     // off this thread, so it overlaps the dry run.
@@ -272,7 +273,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
     early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => owns(m.key) && m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
     const dryStarted = performance.now();
-    const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
+    const dry = await session.dryRun(collectFiles?.map((f) => join(root, f)));
     const dryRunMs = performance.now() - dryStarted;
     if (dryFiles.size > 0) log(`dry run finished in ${(dryRunMs / 1000).toFixed(1)}s`);
     if (dry.failed.length > 0) throw new BaselineError(`tests fail without mutants: ${dry.failed.join(', ')}`);

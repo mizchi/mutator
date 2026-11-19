@@ -62,7 +62,13 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       if (tracker.enter(frame, path.length)) {
         const info = tracker.current!;
         const scope: Scope = { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) };
-        if (isTopLevelScope(info.id)) Object.assign(scope, topLevelInfo(info.node));
+        if (isTopLevelScope(info.id)) {
+          Object.assign(scope, topLevelInfo(info.node));
+          // Two registrations can have the same scope hash and different inline callbacks.
+          if (info.node.declaration?.type !== 'FunctionDeclaration') {
+            scope.initializationHash = hash(normalize(source, info.node, comments, literals));
+          }
+        }
         scopes.set(info.node, scope);
         refs.set(info.node, new Set());
       }

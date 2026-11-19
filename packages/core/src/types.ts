@@ -58,6 +58,8 @@ export interface Scope {
   declares?: string[];
   /** Top-level statements: a declaration whose evaluation has no side effects. */
   pure?: boolean;
+  /** Complete top-level statement for comparing initialization order. Hoisted functions are omitted. */
+  initializationHash?: string;
 }
 
 export interface Mutant {

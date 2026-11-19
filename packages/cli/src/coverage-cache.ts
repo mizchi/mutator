@@ -48,15 +48,30 @@ export interface ScopeEntry {
   hash: string;
   declares?: string[];
   pure?: boolean;
+  initializationHash?: string;
 }
 
 export function scopeTable(root: string, sources: ReadonlyMap<string, SourceInfo>): Record<string, Record<string, ScopeEntry>> {
   return Object.fromEntries(
     [...sources].map(([file, { scopes }]) => [
       relative(root, file),
-      Object.fromEntries(scopes.map((s) => [s.id, s.declares ? { hash: s.hash, declares: s.declares, pure: s.pure ?? false } : { hash: s.hash }])),
+      Object.fromEntries(scopes.map(({ id, hash, declares, pure, initializationHash }) => [
+        id, declares ? { hash, declares, pure: pure ?? false, ...(initializationHash ? { initializationHash } : {}) } : { hash },
+      ])),
     ]),
   );
+}
+
+/** Both tables retain source order. Other checks handle added, removed and edited statements. */
+function statementsReordered(before: Iterable<ScopeEntry>, after: Iterable<ScopeEntry>): boolean {
+  const order = (scopes: Iterable<ScopeEntry>) => Array.from(scopes, (s) => s.initializationHash).filter((h) => h !== undefined);
+  const oldOrder = order(before);
+  const newOrder = order(after);
+  const oldHashes = new Set(oldOrder);
+  const newHashes = new Set(newOrder);
+  const surviving = oldOrder.filter((h) => newHashes.has(h));
+  const existing = newOrder.filter((h) => oldHashes.has(h));
+  return surviving.length !== existing.length || surviving.some((h, i) => h !== existing[i]);
 }
 
 /**
@@ -175,6 +190,7 @@ export function planDryRun(input: {
     }
     const before = previous.scopes[file] ?? {};
     const after = current.get(file) ?? new Map<string, Scope>();
+    if (statementsReordered(Object.values(before), after.values())) invalidate(file);
     for (const id of new Set([...Object.keys(before), ...after.keys()])) {
       const b = before[id];
       const a = after.get(id);

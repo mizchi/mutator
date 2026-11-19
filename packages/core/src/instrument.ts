@@ -6,7 +6,7 @@ import { createAridCheck } from './arid.ts';
 import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { criticalLines, disabledBy } from './disable.ts';
 import { emitPlacement, headerInsertion } from './emit.ts';
-import { calleeName, importBindings, isReference, reexportBindings, topLevelInfo } from './facts.ts';
+import { calleeName, importBindings, isReference, moduleLoads, reexportBindings, topLevelInfo } from './facts.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
 import { type Placement, findPlacement } from './placement.ts';
@@ -62,7 +62,13 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       if (tracker.enter(frame, path.length)) {
         const info = tracker.current!;
         const scope: Scope = { id: info.id, hash: tracker.hashOf(info.node), range: { start: info.node.start, end: info.node.end }, location: locate(info.node) };
-        if (isTopLevelScope(info.id)) Object.assign(scope, topLevelInfo(info.node));
+        if (isTopLevelScope(info.id)) {
+          Object.assign(scope, topLevelInfo(info.node));
+          // Two registrations can have the same scope hash and different inline callbacks.
+          if (info.node.declaration?.type !== 'FunctionDeclaration') {
+            scope.initializationHash = hash(normalize(source, info.node, comments, literals));
+          }
+        }
         scopes.set(info.node, scope);
         refs.set(info.node, new Set());
       }
@@ -133,9 +139,10 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     mutants.push(mutant);
   }
 
+  const modules = { imports: importBindings(program), reexports: reexportBindings(program), loads: moduleLoads(program) };
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportBindings(program) };
+    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, ...modules };
   }
 
   const s = new MagicString(source);
@@ -147,7 +154,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   s.prependRight(at, text);
   const code = s.toString();
   if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
-  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, imports: importBindings(program), reexports: reexportBindings(program) };
+  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, ...modules };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);

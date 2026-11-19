@@ -31,7 +31,7 @@ import type { PluginSpec } from './plugins.ts';
 import { SNAPSHOT_VERSION, buildSnapshot, environmentFiles, environmentHash, mutationSettings } from './reuse.ts';
 import { type Runner, createRunnerSession } from './runner.ts';
 import { collectSources, importResolver, resolveSetup } from './setup.ts';
-import { diffLines, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
+import { changesSince, diffTouched, sinceFocus, skippedInDiff, uncollectedTests } from './since.ts';
 import { publishSnapshot, readSnapshot, writeSnapshot } from './snapshot.ts';
 import { snapshotFiles } from './snapshot-store.ts';
 import { score } from './status.ts';
@@ -59,6 +59,8 @@ export interface RunOptions {
   configFile?: string;
   /** Jest config file. */
   jestConfigFile?: string;
+  /** bunfig.toml for Bun's test runner. */
+  bunConfigFile?: string;
   /** Playwright config file. */
   playwrightConfigFile?: string;
   /** Experimental Chromium V8 source coverage, dry runs only. */
@@ -261,7 +263,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
-    let dryPlan = options.fullDryRun ? ({ all: true } as const) : planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
+    let dryPlan = planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
       const related = await session.relatedTestFiles(files);
       if (related) {
@@ -269,11 +271,12 @@ export async function runMutation(options: RunOptions): Promise<Report> {
         dryPlan = { all: false, files: selected, stale: selected, impacted: [] };
       }
     }
-    const dryFiles = new Set(dryPlan.all ? Object.keys(testFiles) : dryPlan.files);
+    const collectFiles = dryPlan.all || options.fullDryRun ? undefined : dryPlan.files;
+    const dryFiles = new Set(collectFiles ?? Object.keys(testFiles));
     log(`dry run: ${dryFiles.size}/${Object.keys(testFiles).length} test files, ${files.length} source files`);
     // Mutants inside the diff need a type check whatever the dry run finds: start it now,
     // off this thread, so it overlaps the dry run.
-    const lines = options.since ? diffLines(root, options.since) : undefined;
+    const lines = options.since ? changesSince(root, options.since).lines : undefined;
     const touched = lines && diffTouched(root, lines, mutants, options.scope ?? 'node');
     const uncollected = lines && uncollectedTests([...lines.keys()], new Set(testFileList), (f) => session.excludesTestFile?.(join(root, f)) ?? false);
     const skipped = lines && skippedInDiff(root, lines);
@@ -281,7 +284,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
     early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => owns(m.key) && m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
     const dryStarted = performance.now();
-    const dry = await session.dryRun(dryPlan.all ? undefined : [...dryFiles].map((f) => join(root, f)));
+    const dry = await session.dryRun(collectFiles?.map((f) => join(root, f)));
     const dryRunMs = performance.now() - dryStarted;
     if (dryFiles.size > 0) log(`dry run finished in ${(dryRunMs / 1000).toFixed(1)}s`);
     if (dry.failed.length > 0) throw new BaselineError(formatBaselineFailure(dry, root));
@@ -395,7 +398,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const accepted = options.accepted && new Map([...options.accepted].filter(([key]) => owns(key)));
     const acceptance = accepted?.size ? applyAcceptance(report, accepted) : undefined;
     const final = acceptance?.entries ?? report;
-    const scored = inScope ? final.filter((e) => e.focus === 'diff') : final;
+    const inScoreScope = (entries: ReportEntry[]) => inScope ? entries.filter((e) => e.focus === 'diff') : entries;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });
     // Coverage, not verdicts: a reached mutant may still be pending (time budget). The merged
     // coverage holds only mutants some test reached.
@@ -407,7 +410,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       entries: final,
       executed,
       dryRunFiles: [...dryFiles].sort(),
-      score: score(scored),
+      score: score(inScoreScope(final)),
       scope: inScope ? 'diff' : 'all',
       durationMs: performance.now() - started,
       notRun,
@@ -425,7 +428,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       ...(acceptance ? { acceptance: { killed: acceptance.killed, stale: acceptance.stale } } : {}),
       ...(spawned.tests.length ? { childProcessTests: spawned.tests, childProcessMutants: possiblyInChildProcess(final, spawned.files, root) } : {}),
       // Before acceptance: an accepted survivor still shows which tests kill nothing.
-      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(report.map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
+      ...(options.killMatrix ? { killMatrix: analyzeKillMatrix(inScoreScope(report).map((e) => ({ ...e, key: e.mutant.key })), merged.tests.map((t) => t.id)) } : {}),
     };
   } finally {
     checkpoint?.close();

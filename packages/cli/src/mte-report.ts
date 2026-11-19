@@ -56,7 +56,7 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
   const tests = new Set<string>();
   const childProcess = new Set(report.childProcessMutants);
   const critical = new Set(report.criticalMutants);
-  for (const { mutant, status, killedBy, coveredBy, reason, accepted } of report.entries) {
+  for (const { mutant, status, killedBy, coveredBy, reason, accepted, focus } of report.entries) {
     const path = relative(root, mutant.file);
     files[path] ??= {
       language: TS_EXTENSIONS.has(extname(path)) ? 'typescript' : 'javascript',
@@ -64,6 +64,17 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
       mutants: [],
     };
     const { start, end } = mutant.location;
+    const location = { start: { line: start.line, column: start.column + 1 }, end: { line: end.line, column: end.column + 1 } };
+    // Report consumers compute their score from these statuses.
+    const scored = report.scope === 'all' || focus === 'diff';
+    const record: MteMutant = {
+      id: mutant.key, mutatorName: mutant.mutator, replacement: mutant.replacement, location,
+      status: scored ? status : 'Pending',
+      killedBy: scored ? killedBy : [],
+      coveredBy: scored ? coveredBy : [],
+    };
+    files[path].mutants.push(record);
+    if (!scored && focus !== 'recheck') continue;
     const statusReason =
       accepted !== undefined
         ? `accepted: ${accepted}`
@@ -74,18 +85,13 @@ export function formatMutationTestingJson(report: Report, root: string, threshol
             : (reason ?? mutant.ignored);
     // An undetected mutant in a critical region fails the run (accepted ones are Ignored).
     const undetectedCritical = critical.has(mutant.key) && isUndetected(status);
-    const reasons = [undetectedCritical ? CRITICAL_REASON : undefined, statusReason].filter(Boolean).join('; ');
-    files[path].mutants.push({
-      id: mutant.key,
-      mutatorName: mutant.mutator,
-      replacement: mutant.replacement,
-      location: { start: { line: start.line, column: start.column + 1 }, end: { line: end.line, column: end.column + 1 } },
-      status,
-      killedBy,
-      coveredBy,
-      ...(reasons ? { statusReason: reasons } : {}),
-    });
-    for (const id of [...coveredBy, ...killedBy]) tests.add(id);
+    const reasons = [
+      undetectedCritical ? CRITICAL_REASON : undefined,
+      scored ? undefined : `Rechecked outside the selection: ${status}`,
+      statusReason,
+    ].filter(Boolean).join('; ');
+    if (reasons) record.statusReason = reasons;
+    for (const id of [...record.coveredBy, ...record.killedBy]) tests.add(id);
   }
 
   // Test ids are `<file>#<full name>`.

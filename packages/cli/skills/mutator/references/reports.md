@@ -24,7 +24,7 @@ With `--kill-matrix`, `killMatrix.observations` includes every collected test. `
 | group | means | fix |
 |---|---|---|
 | not detected | tests run it and the value changes, nothing fails | assert on the result that differs (`toBe` instead of `toBeTruthy`, an exact `toEqual`) |
-| not infected | tests run it, never with an input where original and mutant differ (Vitest and Playwright, for side-effect-free expression mutants only; elsewhere such gaps show as not detected) | add an input that separates them, e.g. the boundary value for `>=` → `>` |
+| not infected | tests run it, never with an input where original and mutant differ (Vitest, Bun and Playwright, for side-effect-free expression mutants only; elsewhere such gaps show as not detected) | add an input that separates them, e.g. the boundary value for `>=` → `>` |
 | not reached | no test runs it | add a test case reaching it |
 | possibly reached in a child process | only a process a test spawns (`node src/cli.js`) may run it; not counted by `--fail-on-survived` | test the behaviour in process, or leave it |
 | killed before, undetected now (`--since`) | outside the diff, its killing tests are gone | restore or replace the removed test |

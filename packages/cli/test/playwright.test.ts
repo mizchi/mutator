@@ -14,6 +14,14 @@ const fixture = fileURLToPath(new URL('../../playwright/test/fixtures/app', impo
 // Inside packages/playwright, so the copy resolves @playwright/test, vite and the adapter.
 const tmpRoot = fileURLToPath(new URL('../../playwright/.tmp', import.meta.url));
 
+function commitFixture(root: string) {
+  writeFileSync(join(root, '.gitignore'), '.mutator/\n');
+  const git = (...args: string[]) => fixtureGit(root, ...args);
+  git('init', '-q');
+  git('add', '.');
+  git('commit', '-qm', 'baseline');
+}
+
 describe('runMutation with Playwright (E2E through a Vite dev server)', { timeout: 300_000 }, () => {
   let root: string;
   beforeEach(async () => {
@@ -78,9 +86,7 @@ test('other', async ({ page }) => { await page.goto('/other.html'); await expect
     writeFileSync(identity, 'export const identity = (value: number) => value;\n');
     const main = join(root, 'src/main.ts');
     writeFileSync(main, "import { identity } from './identity.ts';\n" + readFileSync(main, 'utf8').replace('const n = inc(Number(count.textContent));', 'const n = identity(inc(Number(count.textContent)));'));
-    writeFileSync(join(root, '.gitignore'), '.mutator/\n');
-    const git = (...args: string[]) => fixtureGit(root, ...args);
-    git('init', '-q'); git('add', '.'); git('commit', '-qm', 'baseline');
+    commitFixture(root);
     const options = { root, runner: 'playwright' as const, playwrightSourceCoverage: true, include: ['src/*.ts'], excludedMutators: ['ArrowFunction'], typecheck: false as const, concurrency: 1, timeBudget: 60 };
     const key = (await listMutants(options)).find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!.key;
     const first = await runMutation({ ...options, only: new Set([key]) });
@@ -105,6 +111,22 @@ test('wrong count', async ({ page }) => { await page.goto('/'); await expect(pag
     const message = (error as Error).message;
     expect(message).toMatch(/tests\/fails\.spec\.ts#.*wrong count/);
     expect(message).toContain('toHaveText');
+  });
+
+  test('removing a re-export selects the browser tests that load a module with no scopes', async () => {
+    const api = join(root, 'src/api.ts');
+    writeFileSync(api, "export { inc, label } from './counter.ts';\n");
+    const main = join(root, 'src/main.ts');
+    writeFileSync(main, readFileSync(main, 'utf8').replace("from './counter.ts'", "from './api.ts'"));
+    commitFixture(root);
+    const options = { root, runner: 'playwright' as const, playwrightSourceCoverage: true, typecheck: false as const, include: ['src/*.ts'], concurrency: 1 };
+    const key = (await listMutants(options)).find((m) => m.original === 'n + 1' && m.replacement === 'n - 1')!.key;
+    await runMutation({ ...options, only: new Set([key]) });
+
+    writeFileSync(api, "export { label } from './counter.ts';\n");
+    const selection = await selectTestsSince({ ...options, since: 'HEAD' });
+    expect(selectionFiles(selection)).toEqual(['tests/app.spec.ts']);
+    expect(selection.changedTests).toContainEqual({ file: 'tests/app.spec.ts', reason: 'imports src/api.ts' });
   });
 
   test('a dev server port already in use is an error message with exit 1, not a crash', async () => {

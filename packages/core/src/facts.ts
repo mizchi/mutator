@@ -34,17 +34,23 @@ const moduleExportName = (node: Node): string => node.name ?? node.value;
 const OUT_OF_PROCESS = new Set(['node:child_process', 'child_process', 'node:worker_threads', 'worker_threads']);
 const opaqueModule = (source: string) => OUT_OF_PROCESS.has(source) || source === 'node:module' || source === 'module';
 
+/** Modules loaded by static imports and re-exports, in first-request order. */
+export function moduleLoads(program: Node): string[] {
+  const loads = new Set<string>();
+  for (const st of program.body as Node[]) {
+    const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;
+    if (st.source && kind !== 'type') loads.add(st.source.value);
+  }
+  return [...loads];
+}
+
 /**
  * Value imports and re-exports of a module, without instrumenting it, and the specifiers of
  * every module it loads statically (`loads`: side-effect imports included, type-only ones not).
  */
 export function scanImports(file: string, source: string): ImportScan {
   const { program, errors } = parseSource(file, source);
-  const loads: string[] = [];
-  for (const st of program.body as Node[]) {
-    const kind = st.type === 'ImportDeclaration' ? st.importKind : st.exportKind;
-    if (st.source && kind !== 'type' && !loads.includes(st.source.value)) loads.push(st.source.value);
-  }
+  const loads = moduleLoads(program);
   const imports = importBindings(program);
   let opaque = errors.length > 0 || loads.some(opaqueModule);
   walk(program as unknown as Node, ({ node }) => {

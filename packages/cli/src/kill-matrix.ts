@@ -20,7 +20,7 @@ export interface KillMatrixAnalysis {
    * complete kill set (killed with early exit, runtime errors, not run).
    */
   mutants: { full: number; timeout: number; incomplete: number };
-  /** Tests covering at least one mutant with a full matrix. */
+  /** Number of collected tests when supplied, otherwise tests covering a full matrix. */
   tests: number;
   /** Tests covering such a mutant that kill none of them. */
   noKills: string[];

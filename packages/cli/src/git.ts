@@ -22,7 +22,8 @@ export function runGit(root: string, args: readonly string[]): string {
 
 /** Unified diff of the working tree against the merge base of `since` and HEAD. */
 export function gitDiff(root: string, since: string): string {
-  return runGit(root, ['diff', '--relative', '--no-prefix', '--no-ext-diff', '--no-color', '-M', '--unified=0', mergeBase(root, since), '--', '.']);
+  // Explicit prefixes distinguish Git's headers from real directories named a/ or b/.
+  return runGit(root, ['diff', '--relative', '--src-prefix=a/', '--dst-prefix=b/', '--no-ext-diff', '--no-color', '-M', '--unified=0', mergeBase(root, since), '--', '.']);
 }
 
 /** Paths relative to `root` that differ from `since` (optionally including untracked files). */

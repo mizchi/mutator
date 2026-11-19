@@ -12,11 +12,12 @@
 // node process; orphaned vitest/stryker workers (ppid 1) left by earlier bench runs are
 // killed and logged. Results go to .tmp/bench2/results/<name>.json; `node bench/report.ts`
 // turns them into the tables of docs/benchmark.md.
-import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { applyEdit, log, parseOurCounts, setupClone, sh, shellQuote } from './lib.ts';
 
 export interface Edit {
   file: string;
@@ -77,16 +78,6 @@ const { values, positionals } = parseArgs({
 const phases = new Set(values.phase.split(','));
 const reps = Number(values.reps);
 
-function log(message: string): void {
-  console.error(`[bench ${new Date().toISOString().slice(11, 19)}] ${message}`);
-}
-
-function sh(cmd: string, cwd: string, allowFail = false): SpawnSyncReturns<string> {
-  const r = spawnSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', maxBuffer: 1 << 30 });
-  if (r.status !== 0 && !allowFail) throw new Error(`${cmd} (in ${cwd}) failed:\n${r.stdout}\n${r.stderr}`);
-  return r;
-}
-
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -134,63 +125,6 @@ function preflight(label: string): number {
 
 // ---------- setup ----------
 
-function applyEdit(dir: string, edit: Edit): () => void {
-  const path = join(dir, edit.file);
-  const original = readFileSync(path, 'utf8');
-  const count = original.split(edit.from).length - 1;
-  if (count !== 1) throw new Error(`${edit.file}: expected exactly one occurrence of ${JSON.stringify(edit.from)}, found ${count}`);
-  writeFileSync(path, original.replace(edit.from, edit.to));
-  return () => writeFileSync(path, original);
-}
-
-function setupClone(spec: Spec, variant: 'ours' | 'stryker'): string {
-  const dir = join(WORK, variant === 'ours' ? spec.name : `${spec.name}-stryker`);
-  if (existsSync(join(dir, '.bench-ready'))) return dir;
-  rmSync(dir, { recursive: true, force: true });
-  log(`${spec.name}: cloning ${variant} clone`);
-  sh(`git clone -q ${spec.repo} ${dir}`, WORK);
-  sh(`git checkout -q ${spec.commit} && git switch -q -c bench`, dir);
-
-  // Standalone pnpm project (otherwise pnpm joins the mutator workspace) and a local
-  // vitest config (otherwise Vitest walks up into mutator's own config).
-  if (!existsSync(join(dir, 'pnpm-workspace.yaml'))) writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "."\n# do not run dependency build scripts (esbuild etc. ship prebuilt binaries)\nstrictDepBuilds: false\n');
-  const configs = readdirSync(dir).filter((f) => /^(vitest|vite)\.config\.(ts|mts|js|mjs|cjs)$/.test(f));
-  if (configs.length === 0) writeFileSync(join(dir, 'vitest.config.mts'), "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: {} });\n");
-
-  const pkgPath = join(dir, 'package.json');
-  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
-  delete pkg.packageManager; // use the installed pnpm, not a per-project download
-  pkg.devDependencies ??= {};
-  for (const name of Object.keys(pkg.devDependencies)) if (name.startsWith('@vitest/')) delete pkg.devDependencies[name];
-  pkg.devDependencies.vitest = variant === 'ours' ? (spec.vitestOurs ?? '5.0.3') : (spec.vitestStryker ?? '4.1.5');
-  if (variant === 'stryker') {
-    pkg.devDependencies['@stryker-mutator/core'] = '10.0.0';
-    pkg.devDependencies['@stryker-mutator/vitest-runner'] = '10.0.0';
-  }
-  writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  if (variant === 'stryker') {
-    const config = {
-      testRunner: 'vitest',
-      plugins: ['@stryker-mutator/vitest-runner'],
-      mutate: spec.mutate,
-      coverageAnalysis: 'perTest',
-      reporters: ['clear-text', 'json', 'progress-append-only'],
-      jsonReporter: { fileName: 'reports/mutation/mutation.json' },
-      incrementalFile: 'reports/stryker-incremental.json',
-    };
-    writeFileSync(join(dir, 'stryker.config.json'), `${JSON.stringify(config, null, 2)}\n`);
-  }
-  writeFileSync(join(dir, '.git', 'info', 'exclude'), 'node_modules/\n.mutator/\nreports/\n.stryker-tmp/\n.bench-ready\n');
-  log(`${spec.name}: installing ${variant} clone`);
-  sh(spec.install ?? 'pnpm install --no-frozen-lockfile', dir);
-  sh('git add -A && git -c user.name=bench -c user.email=bench@localhost commit -q -m "bench setup" --no-verify', dir);
-
-  const r = sh('node_modules/.bin/vitest run', dir, true);
-  if (r.status !== 0) throw new Error(`${spec.name} (${variant}): vitest run fails at the pinned commit\n${r.stdout.slice(-3000)}\n${r.stderr.slice(-3000)}`);
-  writeFileSync(join(dir, '.bench-ready'), `${spec.commit}\n`);
-  return dir;
-}
-
 /** Every edit must keep the suite green: the point is changes a PR could actually merge. */
 function verifyEdits(spec: Spec, dir: string, edits: Edit[]): void {
   for (const edit of edits) {
@@ -215,11 +149,8 @@ function score(statuses: Record<string, number>): number {
 }
 
 function parseOurs(stdout: string): Counts | null {
-  const head = stdout.match(/^mutants: (\d+) \(executed (\d+), reused (\d+)\)\n(.*)$/m);
-  if (!head) return null;
-  const statuses: Record<string, number> = {};
-  for (const m of head[4]!.matchAll(/(\w+) (\d+)/g)) statuses[m[1]!] = Number(m[2]);
-  return { total: Number(head[1]), executed: Number(head[2]), reused: Number(head[3]), statuses, score: score(statuses) };
+  const counts = parseOurCounts(stdout);
+  return counts && { ...counts, score: score(counts.statuses) };
 }
 
 function parseStryker(dir: string, stdout: string): Counts | null {
@@ -268,8 +199,8 @@ function measureOurs(spec: Spec, dir: string, measurements: Measurement[]): void
   const state = join(WORK, 'state', spec.name);
   mkdirSync(state, { recursive: true });
   const snapshot = join(dir, '.mutator', 'snapshot.json');
-  const include = spec.mutate.map((g) => `--include '${g}'`).join(' ');
-  const base = `node ${CLI} --root ${dir} ${include} --reporter text --reporter json`;
+  const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
+  const base = `node ${shellQuote(CLI)} --root ${shellQuote(dir)} ${include} --reporter text --reporter json`;
   const reset = (from?: string) => {
     rmSync(join(dir, '.mutator'), { recursive: true, force: true });
     if (from) {
@@ -383,8 +314,8 @@ for (const specPath of positionals) {
   const result: Record<string, unknown> = { ...previous, spec, node: process.version, date: new Date().toISOString() };
   const save = () => writeFileSync(resultPath, `${JSON.stringify({ ...result, preflight: [...((previous.preflight as string[]) ?? []), ...preflightLog] }, null, 2)}\n`);
 
-  const oursDir = phases.has('setup') || phases.has('ours') || phases.has('callgraph') ? setupClone(spec, 'ours') : '';
-  const strykerDir = phases.has('setup') || phases.has('stryker') ? setupClone(spec, 'stryker') : '';
+  const oursDir = phases.has('setup') || phases.has('ours') || phases.has('callgraph') ? setupClone(WORK, spec, 'ours') : '';
+  const strykerDir = phases.has('setup') || phases.has('stryker') ? setupClone(WORK, spec, 'stryker') : '';
   if (phases.has('setup')) {
     verifyEdits(spec, oursDir, [spec.edit, ...spec.callgraphEdits]);
     verifyEdits(spec, strykerDir, [spec.edit]);

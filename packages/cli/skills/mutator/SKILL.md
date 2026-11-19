@@ -1,8 +1,8 @@
 ---
 name: mutator
-description: Set up and run mutator (@mizchi/mutator), diff-driven mutation testing for TypeScript/JavaScript projects tested with Vitest, Jest (native ESM) or Playwright Test. Use when asked to add mutation testing to a project, to run it on a change or in CI, to read its report (killed, survived, not detected / not infected / not reached), or to configure thresholds, critical regions, accepted mutants or the GitHub Action.
+description: Set up and run mutator (@mizchi/mutator), diff-driven mutation testing for TypeScript/JavaScript projects tested with Vitest, Jest (native ESM), Bun's test runner or Playwright Test. Use when asked to add mutation testing to a project, to run it on a change or in CI, to read its report (killed, survived, not detected / not infected / not reached), or to configure thresholds, critical regions, accepted mutants or the GitHub Action.
 license: MIT
-compatibility: Node.js 24+, git; Vitest 5, Jest 30 (native ESM) or Playwright Test with a Vite dev server
+compatibility: Node.js 24+, git; Vitest 5, Jest 30 (native ESM), Bun 1.4+ (bun test) or Playwright Test with a Vite dev server
 ---
 
 # mutator
@@ -22,7 +22,7 @@ pnpm add -D @mizchi/mutator    # or npm i -D / yarn add -D
 
 ## 2. Pick the runner
 
-`--runner auto` (the default) selects unit runners only: `vitest.config.*` / `vite.config.*` → Vitest, `jest.config.*` (or a `jest` field) → Jest, then installed Vitest / Vite+ or Jest. Playwright browser mutation testing is opt-in and can take much longer: enable it with `runner: 'playwright'` in `mutator.config.ts` (or an explicit `--runner playwright` / `--playwright-config` flag). Installing Playwright or adding `playwright.config.*` does not enable it. Details per runner: [references/runners.md](references/runners.md).
+`--runner auto` (the default) selects unit runners only: `vitest.config.*` / `vite.config.*` → Vitest, `jest.config.*` (or a `jest` field) → Jest, then installed Vitest / Vite+ or Jest, then `bun test` in a Bun project (`bunfig.toml` / `bun.lock`). Playwright browser mutation testing is opt-in and can take much longer: enable it with `runner: 'playwright'` in `mutator.config.ts` (or an explicit `--runner playwright` / `--playwright-config` flag). Installing Playwright or adding `playwright.config.*` does not enable it. Details per runner: [references/runners.md](references/runners.md).
 
 For a complete Vite/Chromium project, see the [runnable Playwright source-coverage sample](https://github.com/mizchi/mutator/blob/main/examples/playwright-source-coverage/README.md). From a checkout of the repository, run `pnpm --dir examples/playwright-source-coverage run verify` after installing dependencies and Chromium as described there. It verifies ordinary E2Es, source-to-test correspondence, cache reuse, source-only edits and incremental/cold agreement in a disposable copy.
 
@@ -52,7 +52,7 @@ The text summary gives the score (detected / run, in %) and lists undetected mut
 
 `dry run: 1/12 test files` is the coverage run: it re-collects only the test files a change can affect, so `0/12` on a later run is normal. With `--since`, check `mutants: N in the diff`: a diff with no mutant (only tests or docs changed) shows a score of 100% over nothing. `Timeout` counts as detected: the mutant made the tests hang or loop.
 
-The label after the score is `[high]` (at or above `thresholds.high`, default 80), `[low]` (at or above `thresholds.low`, default 60) or `[danger]`. A `Survived` mutant may not have run: weak mutation decides a covered mutant that no test reaches with a different value without running it (it is listed as not infected). Only Vitest and Playwright do this, and only for mutants of side-effect-free expressions (operators, comparisons, literals); the others are reported as not detected even when no test input tells them apart.
+The label after the score is `[high]` (at or above `thresholds.high`, default 80), `[low]` (at or above `thresholds.low`, default 60) or `[danger]`. A `Survived` mutant may not have run: weak mutation decides a covered mutant that no test reaches with a different value without running it (it is listed as not infected). Only Vitest, Bun and Playwright do this, and only for mutants of side-effect-free expressions (operators, comparisons, literals); the others are reported as not detected even when no test input tells them apart.
 
 A mutant no input can observe (an *equivalent* mutant, e.g. `?.` on a value that is never nullish) is recorded with `npx mutator accept <key> --reason "..."`. The text summary shows no keys: they are in the `--reporter agent` / `json` output and in the GitHub annotations, so re-run with `--reporter agent` to get them. Statuses, reporters and warnings: [references/reports.md](references/reports.md).
 

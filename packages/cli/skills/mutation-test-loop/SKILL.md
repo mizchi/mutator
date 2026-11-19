@@ -11,7 +11,7 @@ mutator reports each mutant the tests miss, together with where the tests stoppe
 
 To set mutator up from scratch (runner, config file, CI), use the `mutator` skill; this one assumes it runs.
 
-- mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
+- mutator needs Node.js 24+ and Vitest 5 (or Jest 30 with native ESM, or Bun 1.4+ for `bun test`). If it is missing, install it: `pnpm add -D @mizchi/mutator`.
 - If `.mutator/` is not in `.gitignore`, add it. It holds the cache and the reports. `mutator.accepted.json` at the root is meant to be committed.
 
 ## 1. Find the gaps
@@ -41,7 +41,7 @@ Handle the gaps one function at a time (group them by `scope.id`). Read the test
 | `gap` | What to do |
 |---|---|
 | `notReached` | No test runs this code. Add a test case that reaches it: the branch, the early return or the fallback. |
-| `notInfected` | Tests run it, but never with an input where `original` and `replacement` differ. Add an input that separates them. For `>=` → `>`, test the boundary value itself. (Only Vitest and Playwright report it, for operator and literal mutants; with Jest, or for other mutants, such a gap is a `notDetected`.) |
+| `notInfected` | Tests run it, but never with an input where `original` and `replacement` differ. Add an input that separates them. For `>=` → `>`, test the boundary value itself. (Only Vitest, Bun and Playwright report it, for operator and literal mutants; with Jest, or for other mutants, such a gap is a `notDetected`.) |
 | `notDetected` | Tests run it, but nothing fails: either no assertion notices, or (see `notInfected`) no input changes the value; check the input first for a comparison. Assert on the result that differs: the return value, the thrown error, the state change, the call made. Often this means tightening an existing assertion, for example `toBe` instead of `toBeTruthy`, or an exact `toEqual` instead of a partial match. |
 
 Rules for every test you write:

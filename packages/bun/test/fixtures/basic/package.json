@@ -1,0 +1,5 @@
+{
+  "name": "mutator-bun-fixture-basic",
+  "private": true,
+  "type": "module"
+}

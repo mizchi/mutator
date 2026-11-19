@@ -1,6 +1,6 @@
 # Runners
 
-`--runner auto` selects unit runners only: the root's `vitest.config.*` / `vite.config.*`, then `jest.config.*` or a `jest` field in package.json, then installed Vitest / Vite+ or Jest. Playwright is never selected automatically from its config files or installed package.
+`--runner auto` selects unit runners only: the root's `vitest.config.*` / `vite.config.*`, then `jest.config.*` or a `jest` field in package.json, then installed Vitest / Vite+ or Jest, then Bun's test runner in a Bun project (`bunfig.toml`, `bun.lock` or `bun.lockb`) that has neither. Playwright is never selected automatically from its config files or installed package.
 
 ## Vitest (the reference runner)
 
@@ -16,6 +16,16 @@
 - No weak mutation: a gap that needs another input (a boundary value for `>=` → `>`) is reported as not detected, not as not infected.
 - Plugins only as module paths. Not supported: Jest `projects`, `test.concurrent`, retried tests, configs with functions.
 - Editing a test helper does not re-collect coverage: use `--full-dry-run` after such edits.
+
+## Bun (experimental)
+
+- `bun test` from Bun 1.4 or later (`bun test --isolate` is required), with `bun` on PATH. The CLI itself still runs on Node.js.
+- ESM JavaScript and TypeScript sources. CommonJS sources cannot be mutated: Bun treats a runtime plugin's output as ESM, so their tests fail in the baseline. Exclude them.
+- One `bun test` process per run, with a preload that serves the instrumented sources (a few tens of milliseconds each on a small project).
+- Per-test coverage, weak mutation, static (module-level) mutants, hit-limit and wall-clock timeouts, `--since`, result reuse, `-j`, `--typecheck`, child-process detection (`Bun.spawn` included), test helper tracking, plugins as modules or objects.
+- `test.concurrent` and retried tests: the hits of the whole file are credited to each of its tests (more runs, the same verdicts).
+- `--bun-config <file>` / `bunConfig` selects the bunfig.toml (implies the Bun runner). Preloads from bunfig.toml run before mutator's: a source they import is not mutated.
+- `*_test.*` and `*_spec.*` files, which `bun test` collects, are excluded from the sources to mutate.
 
 ## Playwright (experimental)
 

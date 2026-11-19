@@ -38,6 +38,8 @@ export interface CliSnapshot extends RunSnapshot {
   spawns?: Record<string, SpawnedCommand[]>;
   /** source file (relative) -> scope id -> entry */
   scopes?: Record<string, Record<string, ScopeEntry>>;
+  /** Source file (relative) -> static module requests in evaluation order. */
+  moduleLoads?: Record<string, readonly string[]>;
   /** Original source scope (`relative file#scopeId`) -> tests that executed it. */
   sourceCoverage?: Record<string, string[]>;
   sourceCoverageIncomplete?: string[];
@@ -48,15 +50,41 @@ export interface ScopeEntry {
   hash: string;
   declares?: string[];
   pure?: boolean;
+  initializationHash?: string;
 }
 
 export function scopeTable(root: string, sources: ReadonlyMap<string, SourceInfo>): Record<string, Record<string, ScopeEntry>> {
   return Object.fromEntries(
     [...sources].map(([file, { scopes }]) => [
       relative(root, file),
-      Object.fromEntries(scopes.map((s) => [s.id, s.declares ? { hash: s.hash, declares: s.declares, pure: s.pure ?? false } : { hash: s.hash }])),
+      Object.fromEntries(scopes.map(({ id, hash, declares, pure, initializationHash }) => [
+        id, declares ? { hash, declares, pure: pure ?? false, ...(initializationHash ? { initializationHash } : {}) } : { hash },
+      ])),
     ]),
   );
+}
+
+const sameOrder = (before: readonly string[], after: readonly string[]) => before.length === after.length && before.every((item, i) => item === after[i]);
+
+function initializationOrder(scopes: Iterable<ScopeEntry>): string[] {
+  const order: string[] = [];
+  for (const { initializationHash, declares } of scopes) {
+    if (initializationHash === undefined) continue;
+    order.push(initializationHash);
+    // A binding still identifies its position when its initializer is edited or its declaration is split.
+    for (const name of declares ?? []) order.push(`binding:${name}`);
+  }
+  return order;
+}
+
+/** Compare the relative order of statements and bindings present in both versions. */
+function statementsReordered(before: Iterable<ScopeEntry>, after: Iterable<ScopeEntry>): boolean {
+  const oldOrder = initializationOrder(before);
+  const newOrder = initializationOrder(after);
+  if (sameOrder(oldOrder, newOrder)) return false;
+  const oldItems = new Set(oldOrder);
+  const newItems = new Set(newOrder);
+  return !sameOrder(oldOrder.filter((item) => newItems.has(item)), newOrder.filter((item) => oldItems.has(item)));
 }
 
 /**
@@ -175,10 +203,17 @@ export function planDryRun(input: {
     }
     const before = previous.scopes[file] ?? {};
     const after = current.get(file) ?? new Map<string, Scope>();
+    const oldLoads = previous.moduleLoads?.[file] ?? [];
+    const newLoads = sources.get(join(root, file))?.loads ?? [];
+    if (!sameOrder(oldLoads, newLoads) || statementsReordered(Object.values(before), after.values())) invalidate(file);
     for (const id of new Set([...Object.keys(before), ...after.keys()])) {
       const b = before[id];
       const a = after.get(id);
-      if (b?.hash === a?.hash) continue;
+      if (b?.hash === a?.hash) {
+        // The scope hash omits callback bodies, but a module-level call can observe them at load time.
+        if (a?.pure === false && b?.initializationHash !== a.initializationHash) invalidate(file);
+        continue;
+      }
       if (isTopLevelScope(id)) {
         if (b) topLevel(file, b);
         if (a) topLevel(file, { hash: a.hash, declares: a.declares ?? [], pure: a.pure ?? false });

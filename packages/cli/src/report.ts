@@ -116,7 +116,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 function killMatrixSection(lines: string[], k: KillMatrixAnalysis): void {
   const { full, timeout, incomplete } = k.mutants;
   const excluded = [...(timeout ? [`${timeout} timed out`] : []), ...(incomplete ? [`${incomplete} without one (not run, killed with early exit, or a test file failing to load)`] : [])];
-  lines.push('', `kill matrix: ${plural(full, 'mutant')} with a full matrix, ${plural(k.tests, 'covering test')}${excluded.length ? `; excluded: ${excluded.join(', ')}` : ''}`);
+  lines.push('', `kill matrix: ${plural(full, 'mutant')} with a full matrix, ${plural(k.tests, k.observations ? 'collected test' : 'covering test')}${excluded.length ? `; excluded: ${excluded.join(', ')}` : ''}`);
   const section = (heading: string, items: readonly string[]) => {
     if (items.length === 0) return;
     lines.push('', heading, ...items.slice(0, MAX_LISTED).map((item) => `  ${item}`));

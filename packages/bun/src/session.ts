@@ -346,7 +346,9 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
       // With early exit, a selected test that failed decides the mutant; without it (kill
       // matrix), every selected test has to run.
       const left = !outcome.timedOut && outcome.junit ? leftOut(outcome, root, testIds, locations) : undefined;
+      let first: RunOutcome | undefined;
       if (left?.missed && !(earlyExit && left.selectedFailed) && (filter.length > 0 || (earlyExit && left.otherFailed))) {
+        first = outcome;
         outcome = await run([], false);
         durationMs += outcome.wallMs;
       }
@@ -354,7 +356,9 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
       // The process died: a mutant calling process.exit, a crash.
       if (noOutput(outcome)) return { status: 'RuntimeError', killedBy: [], durationMs };
       measure(outcome);
-      return { ...classifyRun(runReport(outcome, root, testIds)), durationMs };
+      // A selected test that failed in the first run counts, also when it passes in the rerun.
+      const report = runReport(outcome, root, testIds);
+      return { ...classifyRun(first ? withFailures(report, runReport(first, root, testIds)) : report), durationMs };
     },
 
     async close() {
@@ -500,6 +504,15 @@ function leftOut(
     }
   }
   return { missed: testIds.some((id) => locations.has(id) && !ran.has(id)), selectedFailed, otherFailed };
+}
+
+/** `report` with the selected tests that failed in `earlier` counted as failed too. */
+function withFailures(report: RunReport, earlier: RunReport): RunReport {
+  const tests = new Map(report.tests.map((t) => [t.id, t] as const));
+  for (const test of earlier.tests) {
+    if (test.failed && report.selected.has(test.id) && !tests.get(test.id)?.failed) tests.set(test.id, test);
+  }
+  return { ...report, tests: [...tests.values()] };
 }
 
 /**

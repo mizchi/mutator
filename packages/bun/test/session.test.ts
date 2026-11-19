@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Session } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -221,8 +221,8 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
       expect(dry.failed).toEqual([]);
       // The NUL is gone from the reported name.
       const id = 'test/scheme.test.ts#javascript:';
-      const [first, plain] = ['test/scheme.test.ts#first', 'test/scheme.test.ts#plain'];
-      expect(dry.tests.map((t) => t.id)).toEqual([first, id, plain]);
+      const [first, plain, once] = ['test/scheme.test.ts#first', 'test/scheme.test.ts#plain', 'test/once.test.ts#once'];
+      expect(dry.tests.map((t) => t.id)).toEqual([once, first, id, plain]);
       const mutant = session.mutants().find((m) => m.original === "input.startsWith('\\0')" && m.replacement === 'false')!;
       expect(dry.coverage.get(mutant.key)).toEqual([first, id, plain]);
       // The pattern misses the test named with a NUL, so its file runs again whole. There,
@@ -232,7 +232,14 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
       // Without early exit (kill matrix), the rerun also follows a selected test that failed.
       const all = await session.runMutant(mutant.key, [first, id], { timeoutMs: 10_000, earlyExit: false });
       expect(all).toMatchObject({ status: 'Killed', killedBy: [first, id] });
+      // A selected test that failed in the first run still counts when it passes in the rerun.
+      process.env.MUTATOR_TEST_ONCE = join(mkdtempSync(join(tmpdir(), 'mutator-bun-once-')), 'marker');
+      const flaky = await session.runMutant('no-such-mutant', [once, id], { timeoutMs: 10_000, earlyExit: false });
+      expect(flaky).toMatchObject({ status: 'Killed', killedBy: [once] });
+      expect(existsSync(process.env.MUTATOR_TEST_ONCE)).toBe(true);
     } finally {
+      if (process.env.MUTATOR_TEST_ONCE) rmSync(dirname(process.env.MUTATOR_TEST_ONCE), { recursive: true, force: true });
+      delete process.env.MUTATOR_TEST_ONCE;
       await session.close();
     }
   });

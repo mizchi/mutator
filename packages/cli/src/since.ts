@@ -1,5 +1,5 @@
 // --since: which mutants the diff touches, and which outside it must be rechecked.
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Mutant, type MutantResult, type Range, type SelectMode, changedLines, lineRanges, parseUnifiedDiff, selectMutants } from '@mizchi/mutator-core';
 import { changedFiles, gitDiff } from './git.ts';
@@ -8,12 +8,13 @@ import { changedFiles, gitDiff } from './git.ts';
 export function changesSince(root: string, since: string) {
   const lines = new Map<string, number[] | null>();
   const removed: string[] = [];
+  const isFile = (rel: string) => statSync(join(root, rel), { throwIfNoEntry: false })?.isFile();
   for (const fd of parseUnifiedDiff(gitDiff(root, since))) {
     if (fd.oldPath && fd.oldPath !== fd.newPath) removed.push(fd.oldPath);
-    if (fd.newPath && existsSync(join(root, fd.newPath))) lines.set(fd.newPath, changedLines(fd));
+    if (fd.newPath && isFile(fd.newPath)) lines.set(fd.newPath, changedLines(fd));
   }
   for (const rel of changedFiles(root, since, { untracked: true })) {
-    if (!lines.has(rel) && existsSync(join(root, rel))) lines.set(rel, null);
+    if (!lines.has(rel) && isFile(rel)) lines.set(rel, null);
   }
   return { lines, removed };
 }

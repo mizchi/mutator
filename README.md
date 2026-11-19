@@ -166,11 +166,11 @@ npx vitest run $(npx mutator select-tests --since main)
 npx mutator select-tests --since main --format json
 ```
 
-`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. For a removed function, the snapshot identifies its former tests. For a deleted or renamed file, the old path also selects test files that imported it. The ranking has three groups:
+`mutator select-tests` reads the snapshot of the last run and ranks the tests to run first for `git diff <ref>`. It runs nothing, so it takes well under a second. The changed functions are the enclosing scopes of the diff's mutants. They are matched by file and scope id, because an edited function has a new hash. For a removed function, the snapshot identifies its former tests. When a module loses a binding, its importing test files are also selected because they may rely on the binding without calling it. For a deleted or renamed file, the command looks up importers of its old path. The ranking has three groups:
 
 1. tests that killed mutants in the changed functions, most kills first;
 2. other tests that executed those mutants. A changed function the snapshot has no results for, such as a new one, brings the test files importing its file instead;
-3. changed test files, and test files importing a changed helper or fixture.
+3. changed test files, and test files that import a changed helper, a removed file, or a module that lost a binding.
 
 `--format files` (default) prints the unique test files in that order, one per line. `--format json` prints the groups, with each test id, its kill and cover counts, and the reason it was picked. The snapshot records only the first test that killed each mutant, because runs stop at the first failure, so group 1 is a subset of the tests that can detect a break there. Test-name filters (`vitest -t`) are not generated, because a test file changed in the diff may hold tests the snapshot has never seen. Without a snapshot, or with one from another mutator version or environment (lockfile, tsconfig, runner config, Node version, mutation options), the command exits 1 and asks for a `mutator` run first.
 

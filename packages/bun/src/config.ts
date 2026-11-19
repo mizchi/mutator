@@ -1,9 +1,10 @@
-// What the session needs from the project's Bun setup: the bunfig.toml (`[test]` root and
-// preload), and the test files `bun test` would collect. Bun has no list mode, so the files
-// are found with Bun's own rules: `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` with a
-// JavaScript / TypeScript extension, outside node_modules and hidden directories.
+// What the session needs from the project's Bun setup: the bunfig.toml (`[test]` root,
+// preload and pathIgnorePatterns), and the test files `bun test` would collect. Bun has no
+// list mode, so the files are found with Bun's own rules: `*.test.*`, `*_test.*`, `*.spec.*`
+// and `*_spec.*` with a JavaScript / TypeScript extension, outside node_modules and hidden
+// directories.
 import { existsSync, globSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, matchesGlob, relative, resolve } from 'node:path';
 
 export interface Bunfig {
   /** The bunfig.toml in effect, if any (absolute). */
@@ -12,6 +13,8 @@ export interface Bunfig {
   testRoot: string | undefined;
   /** Preload modules, from `preload` and `[test] preload` (absolute). */
   preload: string[];
+  /** `[test] pathIgnorePatterns`: globs of test files Bun leaves out, relative to the project root. */
+  ignore: string[];
 }
 
 /** Reads the keys the session uses from bunfig.toml: an explicit file, else `<root>/bunfig.toml`. */
@@ -19,7 +22,7 @@ export function readBunfig(root: string, configFile?: string): Bunfig {
   const path = configFile ? resolve(root, configFile) : join(root, 'bunfig.toml');
   if (!existsSync(path)) {
     if (configFile) throw new Error(`mutator: bun config ${path} does not exist`);
-    return { path: undefined, testRoot: undefined, preload: [] };
+    return { path: undefined, testRoot: undefined, preload: [], ignore: [] };
   }
   const values = tomlValues(readFileSync(path, 'utf8'));
   const base = dirname(path);
@@ -30,6 +33,7 @@ export function readBunfig(root: string, configFile?: string): Bunfig {
     testRoot: testRoot === undefined ? undefined : resolve(base, testRoot),
     // Package names (no leading `.` or `/`) are left out: they are not project files.
     preload: preload.filter((p) => /^(?:\.{1,2}[\\/]|[\\/]|[A-Za-z]:[\\/])/.test(p)).map((p) => resolve(base, p)),
+    ignore: values.get('test.pathIgnorePatterns') ?? [],
   };
 }
 
@@ -41,7 +45,7 @@ export function tomlValues(text: string): Map<string, string[]> {
   const values = new Map<string, string[]>();
   let table = '';
   let pending: { key: string; text: string } | undefined;
-  const strings = (s: string) => [...s.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[2] ?? JSON.parse(`"${m[1]}"`) as string);
+  const strings = (s: string) => [...s.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) => m[2] ?? decodeEscapes(m[1]!));
   for (const raw of text.split(/\r?\n/)) {
     const line = stripComment(raw).trim();
     if (pending) {
@@ -67,6 +71,18 @@ export function tomlValues(text: string): Map<string, string[]> {
   return values;
 }
 
+const ESCAPES: Record<string, string> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', e: '\x1b', '"': '"', '\\': '\\' };
+
+/** A basic string's escapes decoded: TOML's \uXXXX, \UXXXXXXXX and \xXX too. An invalid one is kept as written. */
+function decodeEscapes(s: string): string {
+  return s.replace(/\\(?:u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|x([0-9A-Fa-f]{2})|(.))/g, (escape, u?: string, U?: string, x?: string, c?: string) => {
+    const hex = u ?? U ?? x;
+    if (hex === undefined) return ESCAPES[c!] ?? escape;
+    const code = Number.parseInt(hex, 16);
+    return code <= 0x10ffff ? String.fromCodePoint(code) : escape;
+  });
+}
+
 function stripComment(line: string): string {
   let quote: string | undefined;
   for (let i = 0; i < line.length; i++) {
@@ -82,9 +98,10 @@ function stripComment(line: string): string {
 
 const TEST_FILES = '**/*{.test,_test,.spec,_spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}';
 
-/** The test files `bun test` collects under `dir` (absolute, sorted). */
-export function listTestFiles(dir: string): string[] {
+/** The test files `bun test` collects under `dir` (absolute, sorted); `ignore` globs are relative to `root`. */
+export function listTestFiles(dir: string, root = dir, ignore: readonly string[] = []): string[] {
   return globSync(TEST_FILES, { cwd: dir, exclude: ['**/node_modules/**', '**/.*/**'] })
     .map((file) => join(dir, file))
+    .filter((file) => !ignore.some((pattern) => matchesGlob(relative(root, file), pattern)))
     .sort();
 }

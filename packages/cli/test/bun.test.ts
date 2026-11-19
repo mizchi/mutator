@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { runMutation } from '../src/run.ts';
 import { fixtureGit as git } from './fixture-git.ts';
 
-const hasBun = !spawnSync('bun', ['--version']).error;
+// Only a missing Bun skips; one that fails to start fails the tests.
+const hasBun = (spawnSync('bun', ['--version']).error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT';
 const fixture = fileURLToPath(new URL('../../bun/test/fixtures/basic', import.meta.url));
 const tmpRoot = fileURLToPath(new URL('../.tmp', import.meta.url));
 

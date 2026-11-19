@@ -378,7 +378,7 @@ The adapter resolves `vite-plus/test/node` from the project before `vitest/node`
 - Bun 1.4 or later (`bun test --isolate` is required), ESM JavaScript and TypeScript sources. Test files can import from `bun:test` (or from `vitest` / `@jest/globals`, which Bun maps to it).
 - Per-test coverage, weak mutation, static (module-level) mutants, killed / survived verdicts, hit-limit and wall-clock timeouts, `--since`, result reuse (test helpers included: editing one re-collects the test files that loaded it), `-j`, `--typecheck`, `--kill-matrix`, child-process detection (`node:child_process` and `Bun.spawn`).
 - Plugins as module paths or as objects: the sources are instrumented in the CLI process.
-- `--bun-config <file>` / `bunConfig` selects the bunfig.toml (implies `--runner bun`). Its `[test] root` and preload files are taken into account.
+- `--bun-config <file>` / `bunConfig` selects the bunfig.toml (implies `--runner bun`). Its `[test] root`, `pathIgnorePatterns` and preload files are taken into account.
 
 **How it works**
 

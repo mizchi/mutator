@@ -122,7 +122,7 @@ try {
   mutation(jest, ['-j', '2'], 'age >= 18 -> age > 18');
 
   // bun test is a separate binary: CI installs it, a local run without it skips this adapter.
-  if (spawnSync('bun', ['--version']).error) console.log('pack-smoke: bun not found, skipping the Bun adapter');
+  if ((spawnSync('bun', ['--version']).error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') console.log('pack-smoke: bun not found, skipping the Bun adapter');
   else {
     const bun = app('bun', 'packages/bun/test/fixtures/basic', ['src', 'test'], { '@mizchi/mutator': mutator }, allowBuilds);
     mutation(bun, ['--runner', 'bun', '-j', '2'], 'age >= 18 -> age > 18');

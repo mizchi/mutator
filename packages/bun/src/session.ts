@@ -50,14 +50,14 @@ export interface BunSessionOptions {
   weak?: InstrumentOptions['weak'];
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
-  /** Module paths behind `mutators` / `ignorers`; sessions with the same ones share the instrumented sources. */
-  pluginModules?: readonly string[];
 }
 
 /** Bun start-up allowance added to every mutant timeout until a run has been measured. */
 const DEFAULT_STARTUP_MS = 2000;
-/** Longer name patterns run whole files instead (a command-line argument has a size limit). */
-const MAX_PATTERN = 32 * 1024;
+/** Longest argument passed outside Windows (Linux limits one to 128 KiB); longer name patterns run whole files instead. */
+const MAX_ARG = 32 * 1024;
+/** Windows limits the whole command line, quoted, to this many characters. */
+const MAX_WINDOWS_COMMAND_LINE = 32_767;
 
 /** One test file's record, written by the preload once its tests are done. */
 interface FileRecord {
@@ -89,10 +89,12 @@ interface RunOutcome {
   wallMs: number;
 }
 
-/** Instrumented sources, shared by the sessions of one run (they all mutate the same targets). */
+/**
+ * Instrumented sources, shared by the sessions of one run: they are open at the same time and
+ * must all see the mutants the run listed, also when a source is edited during the run.
+ */
 interface Prepared {
-  /** Key in `prepared`; none when plugin objects make the sources unshareable. */
-  key: string | undefined;
+  key: string;
   dir: string;
   manifest: string;
   mutants: Mutant[];
@@ -101,32 +103,51 @@ interface Prepared {
 
 const prepared = new Map<string, Prepared>();
 
+/** Numbers plugin objects, so that only sessions given the very same mutators and ignorers share sources. */
+const pluginIds = new WeakMap<object, number>();
+let nextPluginId = 0;
+function pluginId(plugin: object): number {
+  let id = pluginIds.get(plugin);
+  if (id === undefined) pluginIds.set(plugin, (id = nextPluginId++));
+  return id;
+}
+
 function prepare(options: BunSessionOptions): Prepared {
-  const objects = (options.mutators?.length || options.ignorers?.length) && !options.pluginModules?.length;
-  const key = objects
-    ? undefined
-    : JSON.stringify([options.root, [...options.targets].sort(), portableFlags(options), [...(options.pluginModules ?? [])].sort()]);
-  const shared = key === undefined ? undefined : prepared.get(key);
+  const plugins = [(options.mutators ?? []).map(pluginId), (options.ignorers ?? []).map(pluginId)];
+  const key = JSON.stringify([options.root, [...options.targets].sort(), portableFlags(options), plugins]);
+  const shared = prepared.get(key);
   if (shared) {
     shared.refs++;
     return shared;
   }
   const dir = mkdtempSync(join(tmpdir(), 'mutator-bun-'));
-  mkdirSync(join(dir, 'src'));
-  const files: [string, string, string][] = [];
-  const mutants: Mutant[] = [];
-  options.targets.forEach((file, i) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(options.root, file), ...instrumentFlags(options) });
-    mutants.push(...result.mutants);
-    const code = join(dir, 'src', `${i}${extname(file)}`);
-    writeFileSync(code, result.code);
-    files.push([file, code, loaderOf(file)]);
-  });
-  const manifest = join(dir, 'manifest.json');
-  writeFileSync(manifest, JSON.stringify({ files, filter: pathFilter(options.targets) }));
-  const value = { key, dir, manifest, mutants, refs: 1 };
-  if (key !== undefined) prepared.set(key, value);
-  return value;
+  try {
+    mkdirSync(join(dir, 'src'));
+    const files: [string, string, string][] = [];
+    const mutants: Mutant[] = [];
+    options.targets.forEach((file, i) => {
+      const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(options.root, file), ...instrumentFlags(options) });
+      mutants.push(...result.mutants);
+      const code = join(dir, 'src', `${i}${extname(file)}`);
+      writeFileSync(code, result.code);
+      files.push([file, code, loaderOf(file)]);
+    });
+    const manifest = join(dir, 'manifest.json');
+    writeFileSync(manifest, JSON.stringify({ files, filter: pathFilter(options.targets) }));
+    const value = { key, dir, manifest, mutants, refs: 1 };
+    prepared.set(key, value);
+    return value;
+  } catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/** Drops a session's hold on the shared sources; the last one removes them. */
+function release(shared: Prepared): void {
+  if (--shared.refs > 0) return;
+  prepared.delete(shared.key);
+  rmSync(shared.dir, { recursive: true, force: true });
 }
 
 /**
@@ -180,29 +201,37 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
   checkBun(bin, root);
   const bunfig: Bunfig = readBunfig(root, options.configFile);
   const shared = prepare(options);
-  const dir = mkdtempSync(join(shared.dir, 'session-'));
+  let dir: string;
+  try {
+    dir = mkdtempSync(join(shared.dir, 'session-'));
+  } catch (error) {
+    release(shared);
+    throw error;
+  }
 
   const locations = new Map<string, TestLocation>();
   let startupMs = DEFAULT_STARTUP_MS;
   let runs = 0;
   const children = new Set<ChildProcess>();
 
+  const argvOf = (run: number, args: readonly string[]) => [
+    'test',
+    '--isolate',
+    '--preload',
+    PRELOAD,
+    '--reporter=junit',
+    `--reporter-outfile=${join(dir, `junit-${run}.xml`)}`,
+    '--pass-with-no-tests',
+    ...(options.configFile ? [`--config=${bunfig.path}`] : []),
+    ...args,
+  ];
+
   const bunTest = async (args: readonly string[], env: Record<string, string>, timeoutMs = Infinity): Promise<RunOutcome> => {
     const run = runs++;
     const junitFile = join(dir, `junit-${run}.xml`);
     const outDir = join(dir, `out-${run}`);
     mkdirSync(outDir);
-    const argv = [
-      'test',
-      '--isolate',
-      '--preload',
-      PRELOAD,
-      '--reporter=junit',
-      `--reporter-outfile=${junitFile}`,
-      '--pass-with-no-tests',
-      ...(options.configFile ? [`--config=${bunfig.path}`] : []),
-      ...args,
-    ];
+    const argv = argvOf(run, args);
     const started = performance.now();
     const child = spawn(bin, argv, {
       cwd: root,
@@ -269,7 +298,7 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
     },
 
     async testFiles() {
-      return listTestFiles(bunfig.testRoot ?? root);
+      return listTestFiles(bunfig.testRoot ?? root, root, bunfig.ignore);
     },
 
     async dryRun(files) {
@@ -299,18 +328,21 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
         names.add(location.taskId);
       }
       if (files.size === 0) return { status: 'Survived', killedBy: [], durationMs: 0 };
-      // A static mutant runs whole files, as it is active while they load.
-      const pattern = `^(?:${[...names].map(escapeRegExp).join('|')})$`;
-      const filter = isStatic || pattern.length > MAX_PATTERN ? [] : [`--test-name-pattern=${pattern}`];
-      const run = (args: readonly string[]) =>
-        bunTest([...(earlyExit ? ['--bail'] : []), ...args, ...files], { MUTATOR_ACTIVE: mutantKey, MUTATOR_HIT_LIMIT: String(hitLimit) }, timeoutMs + startupMs);
-      let outcome = await run(filter);
+      const run = (filter: readonly string[], bail: boolean) =>
+        bunTest([...(bail ? ['--bail'] : []), ...filter, ...files], { MUTATOR_ACTIVE: mutantKey, MUTATOR_HIT_LIMIT: String(hitLimit) }, timeoutMs + startupMs);
+      // A static mutant runs whole files, as it is active while they load. So does a pattern
+      // too long for the command line.
+      const pattern = [`--test-name-pattern=^(?:${[...names].map(escapeRegExp).join('|')})$`];
+      const filter = isStatic || !fitsCommandLine([bin, ...argvOf(runs, ['--bail', ...pattern, ...files])]) ? [] : pattern;
+      let outcome = await run(filter, earlyExit);
       let durationMs = outcome.wallMs;
-      // The report drops characters XML cannot hold (NUL and other control characters), so a
-      // pattern built from it misses a test named with them. Selected tests that did not run,
-      // with nothing failing, are run again through their whole files.
-      if (filter.length > 0 && !outcome.timedOut && outcome.junit && notRun(outcome, root, testIds, locations)) {
-        outcome = await run([]);
+      // Selected tests that did not run, with none of them failing, run again through their
+      // whole files. The report drops characters XML cannot hold (NUL and other control
+      // characters), so a pattern built from it misses a test named with them. And --bail
+      // stops at the first failing test, also one that was not selected: that rerun goes without it.
+      const left = !outcome.timedOut && outcome.junit ? leftOut(outcome, root, testIds, locations) : undefined;
+      if (left?.missed && (filter.length > 0 || (earlyExit && left.otherFailed))) {
+        outcome = await run([], earlyExit && !left.otherFailed);
         durationMs += outcome.wallMs;
       }
       if (outcome.timedOut) return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
@@ -323,10 +355,7 @@ export async function createBunSession(options: BunSessionOptions): Promise<Sess
     async close() {
       for (const child of children) killGroup(child);
       rmSync(dir, { recursive: true, force: true });
-      if (--shared.refs === 0) {
-        if (shared.key !== undefined) prepared.delete(shared.key);
-        rmSync(shared.dir, { recursive: true, force: true });
-      }
+      release(shared);
     },
   };
 }
@@ -427,11 +456,12 @@ function collectDryRun(outcome: RunOutcome, root: string): DryRunResult {
 }
 
 /**
- * Neither a report nor a record: the process died before writing either. Bun writes no
- * report when no file loaded, but the preload has recorded each of those files.
+ * The process died before Bun wrote its report. Bun writes none when no file loaded, but the
+ * preload has recorded each of those files; a record of a file that loaded means a later
+ * file ended the process (a mutant calling process.exit, a crash).
  */
 function noOutput(outcome: RunOutcome): boolean {
-  return !outcome.junit && outcome.records.size === 0;
+  return !outcome.junit && (outcome.records.size === 0 || [...outcome.records.values()].some((r) => r.loaded));
 }
 
 /** `bun test` failed outside any test; with the first error line of its output. */
@@ -440,17 +470,34 @@ function exitError(outcome: RunOutcome): string {
   return `bun test exited with code ${outcome.code}${line ? `: ${line.trim()}` : ''}`;
 }
 
-/** Whether a run that failed nothing left out some of the selected tests. */
-function notRun(outcome: RunOutcome, root: string, testIds: readonly string[], locations: ReadonlyMap<string, TestLocation>): boolean {
-  if ([...outcome.records.values()].some((r) => !r.loaded)) return false;
+/**
+ * For a run in which no selected test failed and every file loaded: whether it left out some
+ * of the selected tests, and whether a test that was not selected failed.
+ */
+function leftOut(outcome: RunOutcome, root: string, testIds: readonly string[], locations: ReadonlyMap<string, TestLocation>): { missed: boolean; otherFailed: boolean } | undefined {
+  if ([...outcome.records.values()].some((r) => !r.loaded)) return undefined;
+  const selected = new Set(testIds);
   const ran = new Set<string>();
+  let otherFailed = false;
   for (const file of outcome.junit ?? []) {
     for (const { id, test } of identify(file, root)) {
-      if (test.state === 'failed') return false;
-      if (test.state !== 'skipped') ran.add(id);
+      if (test.state === 'failed') {
+        if (selected.has(id)) return undefined;
+        otherFailed = true;
+      } else if (test.state !== 'skipped') ran.add(id);
     }
   }
-  return testIds.some((id) => locations.has(id) && !ran.has(id));
+  return { missed: testIds.some((id) => locations.has(id) && !ran.has(id)), otherFailed };
+}
+
+/**
+ * Whether a command line is short enough to start. Windows limits the whole line, with each
+ * argument quoted (its quotes and backslashes escaped) and separated by a space; elsewhere one
+ * argument stays within MAX_ARG.
+ */
+export function fitsCommandLine(argv: readonly string[], platform: NodeJS.Platform = process.platform): boolean {
+  if (platform !== 'win32') return argv.every((arg) => arg.length <= MAX_ARG);
+  return argv.reduce((n, arg) => n + arg.length + (arg.match(/["\\]/g)?.length ?? 0) + 3, 0) <= MAX_WINDOWS_COMMAND_LINE;
 }
 
 /** The run as classifyRun reads it. */

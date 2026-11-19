@@ -1,19 +1,31 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Session } from '@mizchi/mutator-core';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { createBunSession, pathFilter } from '../src/session.ts';
+import { createBunSession, fitsCommandLine, pathFilter } from '../src/session.ts';
 
-const hasBun = !spawnSync('bun', ['--version']).error;
+// Only a missing Bun skips; one that fails to start fails the tests.
+const hasBun = (spawnSync('bun', ['--version']).error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT';
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 
 test('the plugin filter matches exactly the targets, with either separator', () => {
   const filter = new RegExp(pathFilter(['/p/src/a.ts', '/p/src/b+c.ts', '/p/lib/a.ts', 'C:\\p\\src\\d.ts']));
   for (const hit of ['/p/src/a.ts', '/p/src/b+c.ts', '/p/lib/a.ts', '\\p\\src\\a.ts', 'C:\\p\\src\\d.ts', 'C:/p/src/d.ts']) expect(filter.test(hit), hit).toBe(true);
   for (const miss of ['/p/src/a.tsx', '/p/src/bbc.ts', '/p/lib/b+c.ts', '/q/p/src/a.ts', '/p/src/a.ts/x']) expect(filter.test(miss), miss).toBe(false);
+});
+
+test('a command line fits within the platform limit', () => {
+  const long = 'x'.repeat(20_000);
+  expect(fitsCommandLine(['bun', long, long], 'linux')).toBe(true);
+  expect(fitsCommandLine(['bun', 'x'.repeat(40_000)], 'linux')).toBe(false);
+  // Windows limits the whole command line.
+  expect(fitsCommandLine(['bun', long], 'win32')).toBe(true);
+  expect(fitsCommandLine(['bun', long, long], 'win32')).toBe(false);
+  // There, quotes and backslashes are escaped.
+  expect(fitsCommandLine(['bun', '"'.repeat(17_000)], 'win32')).toBe(false);
 });
 
 describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
@@ -73,6 +85,13 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
     test('static mutants are active while the module loads', async () => {
       const result = await session.runMutant(find('10 * 2', '10 / 2').key, [`${T}#limit`], { timeoutMs: 10_000, isStatic: true });
       expect(result).toMatchObject({ status: 'Killed', killedBy: [`${T}#limit`] });
+    });
+
+    test('a failing test that was not selected does not stop the selected ones', async () => {
+      // A whole-file run, as for a static mutant: --bail stops at `isAdult adult`, which fails
+      // first but is not selected, so `isAdult child` runs again without it.
+      const result = await session.runMutant(find('age >= 18', 'age < 18').key, [`${T}#isAdult child`], { timeoutMs: 10_000, isStatic: true });
+      expect(result).toMatchObject({ status: 'Killed', killedBy: [`${T}#isAdult child`] });
     });
 
     test('only the selected tests run', async () => {
@@ -221,8 +240,46 @@ describe.skipIf(!hasBun)('bun session', { timeout: 60_000 }, () => {
       const mutant = session.mutants().find((m) => m.original === '!ok' && m.replacement === 'ok')!;
       const result = await session.runMutant(mutant.key, ['test/guard.test.ts#check'], { timeoutMs: 10_000 });
       expect(result.status).toBe('RuntimeError');
+      // Also after an earlier file finished and wrote its record.
+      const later = await session.runMutant(mutant.key, ['test/early.test.ts#first', 'test/guard.test.ts#check'], { timeoutMs: 10_000 });
+      expect(later.status).toBe('RuntimeError');
     } finally {
       await session.close();
+    }
+  });
+
+  test('sessions share instrumented sources only with the same plugin objects', async () => {
+    const root = fixture('matrix');
+    const targets = [join(root, 'src/add.ts')];
+    const all = { name: 'all', shouldIgnore: () => 'everything' };
+    const none = { name: 'none', shouldIgnore: () => undefined };
+    const sessions = await Promise.all([all, none, all].map((ignorer) => createBunSession({ root, targets, ignorers: [ignorer] })));
+    try {
+      expect(sessions[2]!.mutants()).toBe(sessions[0]!.mutants());
+      expect(sessions[1]!.mutants()).not.toBe(sessions[0]!.mutants());
+    } finally {
+      await Promise.all(sessions.map((s) => s.close()));
+    }
+  });
+
+  test('a target that fails to instrument leaves no sources behind', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mutator-bun-broken-'));
+    // A temporary directory of its own: other test files create sources at the same time.
+    const temp = join(root, 'tmp');
+    const saved = { TMPDIR: process.env.TMPDIR, TEMP: process.env.TEMP, TMP: process.env.TMP };
+    try {
+      mkdirSync(join(root, 'src'));
+      mkdirSync(temp);
+      writeFileSync(join(root, 'src/broken.ts'), 'export const x = (;\n');
+      Object.assign(process.env, { TMPDIR: temp, TEMP: temp, TMP: temp });
+      await expect(createBunSession({ root, targets: [join(root, 'src/broken.ts')] })).rejects.toThrow('Failed to parse');
+      expect(readdirSync(temp)).toEqual([]);
+    } finally {
+      for (const [name, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

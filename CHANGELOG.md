@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.3 - 2026-11-19
+
+### Added
+
+- **Progress for long runs.** After the baseline and type check, the CLI shows a progress bar when mutant execution is estimated to take at least 10 seconds or there are at least 100 mutants to run. The bar shows completed mutants, elapsed time and ETA on stderr. Redirected output keeps line-by-line progress, so `--reporter agent` still writes a single JSON document to stdout.
+- **Resume after interruption.** Run the same command again after Ctrl-C or a terminated process. The CLI saves each completed verdict to a SQLite checkpoint, rechecks the baseline and type information on restart, and reports how many verdicts it restored. Unfinished mutants run again. Changes to sources, tracked tests or execution settings can invalidate saved verdicts.
+
 ## 0.4.2 - 2026-11-19
 
 ### Fixed

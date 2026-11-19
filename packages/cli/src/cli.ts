@@ -10,6 +10,7 @@ import { qualityGate } from './gate.ts';
 import { DEFAULT_SKILL_DIR, initSkills, shippedSkills } from './init-skill.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveValues } from './options.ts';
+import { terminalProgress } from './progress.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { SnapshotError } from './reuse.ts';
 import { BaselineError, listMutants, runMutation } from './run.ts';
@@ -70,7 +71,8 @@ const USAGE = `usage: mutator [options]
   -v, --version
 
 Boolean flags can be negated (--no-fail-on-survived) to override the config file.
-After the baseline, estimated mutant execution time is shown; large runs also report ETA.
+After the baseline, estimated mutant execution time is shown; large runs show progress and ETA.
+After interruption, repeat the command to reuse completed mutant verdicts.
 
 exit codes:
   0  ok
@@ -116,11 +118,13 @@ try {
   stopRecording = recordProcesses(processes);
   if (options.configPath) console.error(`config: ${options.configPath}`);
   const accepted = readAccepted(join(root, ACCEPTED_FILE));
+  const terminal = process.stderr.isTTY && process.env.TERM !== 'dumb' ? terminalProgress(process.stderr) : undefined;
   const report = await runMutation({
     root,
     ...options.run,
     ...(accepted.size > 0 ? { accepted } : {}),
     log: (message) => console.error(message),
+    ...terminal,
   });
   const critical = criticalMutants(report.entries, root, options.critical);
   if (critical.length > 0) report.criticalMutants = critical;

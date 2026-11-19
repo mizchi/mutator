@@ -103,6 +103,30 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(report.noCoverage).toBeUndefined();
   });
 
+  test.each(['unchanged', 'source', 'test', 'kill-matrix'])('resuming interrupted execution (%s)', async (change) => {
+    const options = { root, concurrency: 1, typecheck: false, killMatrix: false };
+    const interruptAfter = (count: number) => (line: string) => {
+      if (line.startsWith(`[${count}/`)) throw new Error('interrupted');
+    };
+    await expect(runMutation({ ...options, log: interruptAfter(1) })).rejects.toThrow('interrupted');
+    if (change === 'source' || change === 'test') {
+      const path = join(root, change === 'source' ? 'src/math.ts' : 'test/math.test.ts');
+      writeFileSync(path, readFileSync(path, 'utf8') + '\n// changed input\n');
+    } else if (change === 'kill-matrix') {
+      options.killMatrix = true;
+    } else {
+      // A second interruption retains both the restored verdict and the new one.
+      await expect(runMutation({ ...options, log: interruptAfter(2) })).rejects.toThrow('interrupted');
+    }
+    const resumed = await runMutation(options);
+    const cold = await runMutation({ ...options, snapshotPath: join(root, '.mutator/control.json') });
+    const restored = change === 'unchanged' ? 2 : 0;
+    expect(byStatus(resumed)).toEqual(byStatus(cold));
+    expect(resumed.executed).toBe(cold.executed - restored);
+    expect(resumed.entries.filter((entry) => entry.source === 'reuse')).toHaveLength(restored);
+    expect((await runMutation(options)).executed).toBe(0);
+  });
+
   test('parallel execution gives the same verdicts as sequential', async () => {
     const sequential = await runMutation({ root, concurrency: 1, snapshotPath: join(root, '.mutator/seq.json') });
     const parallel = await runMutation({ root, concurrency: 3, snapshotPath: join(root, '.mutator/par.json') });

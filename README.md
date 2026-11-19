@@ -506,9 +506,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.4.2
+      - uses: mizchi/mutator@v0.4.3
         with:
-          version: '0.4.2'
+          version: '0.4.3'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -540,7 +540,9 @@ Snapshots store paths relative to the project root, so a cache restored in anoth
 
 ### Large projects
 
-After the baseline and type checking, mutator prints an approximate time for the remaining mutant execution. It uses previous timings where available, otherwise selected test durations plus file-loading overhead observed in the dry run, divided by the parallel sessions. Large runs add an ETA to progress lines and print a heartbeat every 15 seconds. The ETA adapts to measured mutant timings; early kills, retries, module loading and CPU contention can change it. Discovery, the baseline and type checking have already finished when this estimate appears.
+After the baseline and type checking, mutator prints an approximate time for the remaining mutant execution. It uses previous timings where available, otherwise selected test durations plus file-loading overhead observed in the dry run, divided by the parallel sessions. When the estimate reaches 10 seconds or there are at least 100 mutants to run, an interactive terminal shows a progress bar with the completed count, elapsed time and ETA. Redirected stderr keeps line-by-line output and a heartbeat every 15 seconds. The ETA adapts to measured mutant timings; early kills, retries, module loading and CPU contention can change it. Discovery, the baseline and type checking have already finished when this estimate appears.
+
+**Resuming an interrupted run.** Run the same command again after Ctrl-C or a terminated process. Each completed mutant verdict is committed to a `.resume.sqlite` file beside the scoped snapshot before its progress is displayed. The next run checks the baseline and type information, reports how many verdicts it restored, and runs the remaining mutants. A mutant still executing at interruption is retried. Changing a target source, a tracked test or dependency, or the execution settings can require fresh verdicts. Once the final snapshot is saved, the CLI removes its verdicts from the checkpoint.
 
 Split mutant execution across CI jobs with `--shard INDEX/COUNT` (one-based):
 
@@ -569,10 +571,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # Install @mizchi/mutator 0.4.2 or later in the project.
-      - uses: mizchi/mutator@v0.4.2
+      # Install @mizchi/mutator 0.4.3 or later in the project.
+      - uses: mizchi/mutator@v0.4.3
         with:
-          version: '0.4.2'
+          version: '0.4.3'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -628,7 +630,7 @@ pnpm run pack-smoke      # install the packed packages and test all runtime adap
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.2`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.4.3`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 

@@ -2,7 +2,7 @@
 // with the options its sessions are created with.
 import { globSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, instrument, relativePath as relative } from '@mizchi/mutator-core';
+import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, hash, instrument, relativePath as relative } from '@mizchi/mutator-core';
 import { isFile } from './child-process.ts';
 import type { SourceInfo } from './coverage-cache.ts';
 import { loadPlugins } from './plugins.ts';
@@ -62,13 +62,17 @@ function combineArid(arid: InstrumentOptions['arid'], extra: readonly string[]):
 export function collectSources(root: string, files: readonly string[], instrumentOptions: InstrumentFlags) {
   const sources = new Map<string, SourceInfo>();
   const graphSources: CallGraphSource[] = [];
+  const sourceHashes: Record<string, string> = {};
   const mutants = files.flatMap((file) => {
-    const result = instrument(file, readFileSync(file, 'utf8'), { identity: relative(root, file), ...instrumentOptions });
+    const content = readFileSync(file, 'utf8');
+    const identity = relative(root, file);
+    sourceHashes[identity] = hash(content);
+    const result = instrument(file, content, { identity, ...instrumentOptions });
     sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports });
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
     return result.mutants;
   });
-  return { mutants, sources, graphSources };
+  return { mutants, sources, graphSources, sourceHashes };
 }
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];

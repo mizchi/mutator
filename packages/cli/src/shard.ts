@@ -50,8 +50,9 @@ export async function runSharded<J extends ShardedJob>(input: {
 }): Promise<J[]> {
   const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false, outcomes: [] as MutantRunResult[] }));
   let unstarted = 0;
+  let failed = false;
   const take = () => {
-    if (input.shouldStop?.()) return undefined;
+    if (failed || input.shouldStop?.()) return undefined;
     if (unstarted < state.length) return state[unstarted++]!;
     return state.find((s) => s.next > 0 && !s.settled && s.next < s.job.shards.length);
   };
@@ -59,24 +60,29 @@ export async function runSharded<J extends ShardedJob>(input: {
     s.settled = true;
     input.onDone(s.job, { ...outcome, durationMs: s.durationMs });
   };
-  await Promise.all(
-    Array.from({ length: input.workers }, async (_, worker) => {
-      for (let s = take(); s; s = take()) {
-        const index = s.next++;
-        const shard = s.job.shards[index]!;
-        s.running++;
-        const outcome = await input.run(worker, s.job, shard);
-        s.running--;
-        if (s.settled) continue;
-        s.durationMs += outcome.durationMs;
-        // Kept in shard order: killers stay in the planned order.
-        s.outcomes[index] = outcome;
-        const decisive = input.allShards ? outcome.status === 'Timeout' : outcome.status !== 'Survived';
-        if (decisive) settle(s, outcome);
-        else if (s.next >= s.job.shards.length && s.running === 0) settle(s, input.allShards ? combine(s.outcomes) : outcome);
-      }
-    }),
-  );
+  const workers = Array.from({ length: input.workers }, async (_, worker) => {
+    for (let s = take(); s; s = take()) {
+      const index = s.next++;
+      const shard = s.job.shards[index]!;
+      s.running++;
+      const outcome = await input.run(worker, s.job, shard);
+      s.running--;
+      if (s.settled) continue;
+      s.durationMs += outcome.durationMs;
+      // Kept in shard order: killers stay in the planned order.
+      s.outcomes[index] = outcome;
+      const decisive = input.allShards ? outcome.status === 'Timeout' : outcome.status !== 'Survived';
+      if (decisive) settle(s, outcome);
+      else if (s.next >= s.job.shards.length && s.running === 0) settle(s, input.allShards ? combine(s.outcomes) : outcome);
+    }
+  });
+  try {
+    await Promise.all(workers);
+  } catch (error) {
+    failed = true;
+    await Promise.allSettled(workers);
+    throw error;
+  }
   return state.filter((s) => !s.settled).map((s) => s.job);
 }
 

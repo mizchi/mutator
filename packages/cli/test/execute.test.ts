@@ -66,3 +66,19 @@ test('completed mutant timings update the ETA on progress lines', async () => {
   finish({ status: 'Survived', killedBy: [], durationMs: 1000 });
   expect((await running).executed).toBe(2);
 });
+
+test('interactive long runs show progress from zero and close the bar on error', async () => {
+  const work = execution(async () => { throw new Error('stopped'); });
+  const onProgress = vi.fn();
+  await expect(executeJobs(work.jobs, work.tally, { ...work.ctx, onProgress })).rejects.toThrow('stopped');
+  expect(onProgress.mock.calls[0]?.[0]).toMatchObject({ completed: 0, total: 1 });
+  expect(onProgress).toHaveBeenLastCalledWith(undefined);
+});
+
+test('the bar counts restored verdicts and a budget stop leaves its actual count', async () => {
+  const work = execution(async () => ({ status: 'Survived', killedBy: [], durationMs: 1 }));
+  const onProgress = vi.fn();
+  await executeJobs(work.jobs, work.tally, { ...work.ctx, resumed: 3, timeBudget: 0, onProgress });
+  expect(onProgress.mock.calls).toEqual([[expect.objectContaining({ completed: 3, total: 4 })], [undefined]]);
+  expect(work.tally.notRun.budget).toBe(1);
+});

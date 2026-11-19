@@ -1,8 +1,8 @@
 // Snapshot namespaces keep independent include scopes and worktree environments apart.
-import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hash } from '@mizchi/mutator-core';
+import { runGit } from './git.ts';
 import { ConfigError } from './config.ts';
 import type { RunOptions } from './run.ts';
 import { shardName } from './ci-shard.ts';
@@ -18,7 +18,7 @@ export function snapshotFiles(root: string, options: RunOptions, environment?: s
   }
   let directory: string;
   try {
-    const git = (...args: string[]) => execFileSync('git', ['rev-parse', ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const git = (...args: string[]) => runGit(root, ['rev-parse', ...args]).trim();
     const common = resolve(root, git('--path-format=absolute', '--git-common-dir'));
     directory = join(common, 'mutator', hash(git('--show-prefix')));
   } catch { throw new ConfigError('--shared-cache requires a Git repository'); }

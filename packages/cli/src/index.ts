@@ -2,6 +2,7 @@ export { BaselineError, type Report, type ReportEntry, type RunOptions, runMutat
 export { SNAPSHOT_VERSION } from './reuse.ts';
 export { VERSION } from './version.ts';
 export type { Shard } from './ci-shard.ts';
+export type { MutationProgress } from './progress.ts';
 export type { RunEstimate } from './estimate.ts';
 export { formatAnnotations, formatSummary } from './report.ts';
 export { MTE_VERSION, type MteReport, formatHtml, formatMutationTestingJson } from './mte-report.ts';

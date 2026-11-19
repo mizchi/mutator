@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { isAbsolute, join, resolve } from 'node:path';
 import { RunnerSetupError, relativePath as relative } from '@mizchi/mutator-core';
 import { formatAgentReport } from './agent-report.ts';
 import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
@@ -10,6 +11,7 @@ import { qualityGate } from './gate.ts';
 import { DEFAULT_SKILL_DIR, initSkills, shippedSkills } from './init-skill.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
 import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveValues } from './options.ts';
+import { terminalProgress } from './progress.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { SnapshotError } from './reuse.ts';
 import { BaselineError, listMutants, runMutation } from './run.ts';
@@ -28,6 +30,8 @@ const USAGE = `usage: mutator [options]
                        (${shippedSkills().join(', ')}) into <dir>/<skill>/ (default dir:
                        ${DEFAULT_SKILL_DIR}); --force overwrites copies that differ from the shipped ones
 
+  --watch              rerun on edits (Git defaults: --since HEAD --include-test-changes)
+  --watch-throttle <ms>  wait before the first run and batch changes in fixed intervals (default: 1000)
   --since <ref>        only run and report mutants inside \`git diff <ref>\` (+ those whose killing tests are gone)
   --scope node|scope   diff granularity: changed nodes, or whole enclosing functions (default: node)
   --include-test-changes  with --since, also check code covered or imported by changed tests
@@ -42,6 +46,7 @@ const USAGE = `usage: mutator [options]
   --config-file <file> mutator config (default: <root>/mutator.config.{ts,mts,mjs,js,json})
   --root <dir>         project root (default: cwd)
   -j, --concurrency <n>  parallel test-runner sessions (default: half the CPUs)
+  --max-workers <n>    total test workers across sessions, including the dry run
   --shard <index/count>  CI partition of mutant keys, e.g. 1/4 (one-based; independent cache/report)
   --full-dry-run       collect coverage from every test file (ignore the cached coverage)
   --experimental-callgraph  after edits, re-run only survivors connected to changed code
@@ -70,7 +75,8 @@ const USAGE = `usage: mutator [options]
   -v, --version
 
 Boolean flags can be negated (--no-fail-on-survived) to override the config file.
-After the baseline, estimated mutant execution time is shown; large runs also report ETA.
+After the baseline, estimated mutant execution time is shown; large runs show progress and ETA.
+After interruption, repeat the command to reuse completed mutant verdicts.
 
 exit codes:
   0  ok
@@ -105,6 +111,16 @@ try {
     console.log(VERSION);
     await exit(0);
   }
+  const watchChild = values.watch && process.send && process.env.MUTATOR_WATCH_PARENT === String(process.ppid);
+  if (values.watch && !watchChild) {
+    const { watchCommand } = await import('./watch.ts');
+    await watchCommand(realpathSync.native(resolve(values.root ?? '.')), fileURLToPath(import.meta.url), process.argv.slice(2), values.watchThrottleMs);
+    await exit(0);
+  }
+  if (watchChild) {
+    delete process.env.MUTATOR_WATCH_PARENT;
+    process.once('disconnect', () => process.kill(process.pid, 'SIGTERM'));
+  }
   const options = await resolveValues(values, process.cwd());
   const { reporters } = options;
   const root = realpathSync.native(options.root);
@@ -116,19 +132,28 @@ try {
   stopRecording = recordProcesses(processes);
   if (options.configPath) console.error(`config: ${options.configPath}`);
   const accepted = readAccepted(join(root, ACCEPTED_FILE));
+  const terminal = process.stderr.isTTY && process.env.TERM !== 'dumb' ? terminalProgress(process.stderr) : undefined;
   const report = await runMutation({
     root,
     ...options.run,
     ...(accepted.size > 0 ? { accepted } : {}),
     log: (message) => console.error(message),
+    ...terminal,
   });
   const critical = criticalMutants(report.entries, root, options.critical);
   if (critical.length > 0) report.criticalMutants = critical;
   if (reporters.has('text')) console.log(formatSummary(report, root, options.thresholds));
   if (reporters.has('simplify')) console.log(`${reporters.has('text') ? '\n' : ''}${formatSimplify(simplifyCandidates(report, root))}`);
-  if (reporters.has('agent')) console.log(JSON.stringify(formatAgentReport(report, root), null, 2));
+  if (reporters.has('agent')) console.log(JSON.stringify(formatAgentReport(report, root), null, watchChild ? undefined : 2));
   if (reporters.has('json') || reporters.has('html')) {
     mkdirSync(options.reportDir, { recursive: true });
+    if (watchChild) {
+      const dir = realpathSync.native(options.reportDir);
+      process.send?.([
+        ...(reporters.has('json') ? [join(dir, 'mutation.json')] : []),
+        ...(reporters.has('html') ? [join(dir, 'index.html')] : []),
+      ]);
+    }
     const json = formatMutationTestingJson(report, root, options.thresholds);
     if (reporters.has('json')) writeFileSync(join(options.reportDir, 'mutation.json'), JSON.stringify(json));
     if (reporters.has('html')) writeFileSync(join(options.reportDir, 'index.html'), formatHtml(json));

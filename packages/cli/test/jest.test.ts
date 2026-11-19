@@ -1,16 +1,13 @@
-import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { runMutation } from '../src/run.ts';
+import { fixtureGit as git } from './fixture-git.ts';
 
 const fixture = fileURLToPath(new URL('../../jest/test/fixtures/esm', import.meta.url));
 // Inside packages/cli so the fixture resolves `jest` from this package's node_modules.
 const tmpRoot = fileURLToPath(new URL('../.tmp', import.meta.url));
-
-const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
 describe('runMutation with Jest (ESM)', { timeout: 120_000 }, () => {
   let root: string;

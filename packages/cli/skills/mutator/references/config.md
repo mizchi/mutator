@@ -31,6 +31,7 @@ export default defineConfig({
 | `includeTestChanges` | `--include-test-changes` | with `since`, also select mutants covered or imported by changed tests; report detection regressions when a compatible snapshot exists |
 | `sharedCache` | `--shared-cache` | reuse snapshots across worktrees via Git's common directory, separated by package, scope and environment |
 | `scope` | `--scope node\|scope` | diff granularity: changed nodes (default) or whole enclosing functions |
+| `maxWorkers` | `--max-workers <n>` | total active test workers for this invocation, shared across mutant sessions and applied to the baseline |
 | `concurrency` | `-j, --concurrency <n>` | parallel test-runner sessions (default: half the CPUs) |
 | `shard` | `--shard <index/count>` | CI partition of mutant keys, e.g. `1/4`; independent snapshots and default report directories, scores and gates cover this shard |
 | `runner` | `--runner <name>` | `auto` selects Vitest/Jest only; set `playwright` explicitly for slower browser E2E mutation runs |
@@ -47,7 +48,7 @@ export default defineConfig({
 | `failOnSurvived` | `--fail-on-survived` | exit 2 when any mutant survives |
 | `typecheck` | `--[no-]typecheck` | type-check mutants with the project's TypeScript first; ill-typed ones are `CompileError` and not run (default `auto`) |
 | `weakMutation` | `--no-weak-mutation` | weak mutation decides a covered mutant no test reaches with a different value as Survived without running it (default on) |
-| `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator-core`; see [plugins.md](plugins.md)) |
+| `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator`; see [plugins.md](plugins.md)) |
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |
 | `mutantsPerLine` | `--mutants-per-line <n>` | run at most n mutants per line, most productive first; the rest stay `Pending` |
 | `timeBudget` | `--time-budget <s>` | after s seconds from the start (dry run included), type-check no further mutant and start no new mutant run; the rest stay `Pending` and run next time. The dry run itself and the in-flight type-check batch and runs are not interrupted |

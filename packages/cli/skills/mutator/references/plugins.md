@@ -50,7 +50,7 @@ A plugin module's default export is a plugin, a mutator, an ignorer, or an array
 
 ```ts
 // mutators/fallbacks.ts
-import { defineIgnorer, defineMutator, definePlugin } from '@mizchi/mutator-core';
+import { defineIgnorer, defineMutator, definePlugin } from '@mizchi/mutator';
 
 export default definePlugin({
   name: 'fallbacks',

@@ -16,9 +16,9 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe('typecheckJobs under a deadline', () => {
-  const mutant = (n: number) => ({ key: `k${n}`, file: `/nowhere/src/m${n}.ts` }) as unknown as Mutant;
+const mutant = (n: number) => ({ key: `k${n}`, file: `/nowhere/src/m${n}.ts` }) as unknown as Mutant;
 
+describe('typecheckJobs under a deadline', () => {
   function fakeChecker(clock: { now: number }, calls: string[][]): TypeChecker {
     return {
       version: 'fake',
@@ -71,6 +71,27 @@ describe('typecheckJobs under a deadline', () => {
     });
     expect(calls.flat()).toEqual(['k0', 'k1', 'k2']);
     expect(result.unchecked.size).toBe(0);
+  });
+
+  test('without a deadline all mutants go in one call', async () => {
+    const calls: string[][] = [];
+    await typecheckJobs('/nowhere', 'auto', [0, 1, 2].map(mutant), () => {}, { createChecker: async () => fakeChecker({ now: 0 }, calls) });
+    expect(calls).toEqual([['k0', 'k1', 'k2']]);
+  });
+});
+
+describe('typecheckJobs without a checker', () => {
+  const mutants = [mutant(0)];
+
+  test('auto says why type checking is skipped', async () => {
+    const logs: string[] = [];
+    const result = await typecheckJobs('/nowhere', 'auto', mutants, (message) => logs.push(message), { createChecker: async () => undefined });
+    expect(result.errors.size).toBe(0);
+    expect(logs).toEqual([expect.stringMatching(/^typecheck skipped: needs a tsconfig\.json and either the typescript package or Bun 1\.4\+/)]);
+  });
+
+  test('true fails with the same reason', async () => {
+    await expect(typecheckJobs('/nowhere', true, mutants, () => {}, { createChecker: async () => undefined })).rejects.toThrow(/^typecheck: needs a tsconfig\.json/);
   });
 });
 

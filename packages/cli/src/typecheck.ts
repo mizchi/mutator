@@ -24,7 +24,10 @@ export interface EarlyTypecheck {
 
 const EMPTY = (): TypecheckResult => ({ errors: new Map(), equivalent: new Map(), unchecked: new Set() });
 
-/** Mutants per `check` call; the deadline is looked at between calls, so it is overrun by one batch at most. */
+/**
+ * Mutants per `check` call under a time budget; the deadline is looked at between calls, so it is overrun
+ * by one batch at most. Without a budget all go in one call, which saves Bun's checker a build per batch.
+ */
 const BATCH_SIZE = 50;
 
 export interface TypecheckOptions {
@@ -32,6 +35,8 @@ export interface TypecheckOptions {
   cache?: TypecheckCache | undefined;
   /** `performance.now()` after which no further batch is checked (the run's time budget). */
   deadline?: number | undefined;
+  /** The project runs on Bun, so Bun's checker may find the type errors (see createTypeChecker). */
+  preferBun?: boolean | undefined;
   /** Test seams. */
   now?: () => number;
   batchSize?: number;
@@ -39,12 +44,12 @@ export interface TypecheckOptions {
 }
 
 /** Type-check `mutants` on a worker thread; a failure there leaves them to `typecheckJobs`. */
-export function startTypecheck(root: string, mutants: readonly Mutant[], cache?: TypecheckCache): EarlyTypecheck | undefined {
+export function startTypecheck(root: string, mutants: readonly Mutant[], { cache, preferBun }: Pick<TypecheckOptions, 'cache' | 'preferBun'> = {}): EarlyTypecheck | undefined {
   mutants = cachedTypechecks(root, cache, mutants).missing;
   if (mutants.length === 0) return undefined;
   const started = performance.now();
   const abort = new AbortController();
-  const result = checkInWorker({ root, signal: abort.signal }, mutants).then(
+  const result = checkInWorker({ root, preferBun, signal: abort.signal }, mutants).then(
     (checked) => checked && { ...checked, equivalent: checked.equivalent as TypecheckResult['equivalent'], durationMs: performance.now() - started },
     () => undefined,
   );
@@ -52,7 +57,8 @@ export function startTypecheck(root: string, mutants: readonly Mutant[], cache?:
 }
 
 export async function typecheckJobs(root: string, setting: boolean | 'auto', mutants: readonly Mutant[], log: (message: string) => void, options: TypecheckOptions = {}): Promise<TypecheckResult> {
-  const { early, cache, deadline = Infinity, now = () => performance.now(), batchSize = BATCH_SIZE } = options;
+  const { early, cache, deadline = Infinity, now = () => performance.now() } = options;
+  const batchSize = options.batchSize ?? (deadline === Infinity ? Infinity : BATCH_SIZE);
   let all = mutants.filter((m) => TS_FILE.test(m.file));
   if (setting === false || all.length === 0) {
     early?.cancel();
@@ -89,9 +95,11 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
     return { errors, equivalent, unchecked, ...(next ? { cache: next } : {}) };
   };
   if (candidates.length === 0) return finish();
-  const checker = await (options.createChecker ?? ((r) => createTypeChecker({ root: r })))(root);
+  const checker = await (options.createChecker ?? ((r) => createTypeChecker({ root: r, preferBun: options.preferBun })))(root);
   if (!checker) {
-    if (setting === true) throw new Error('typecheck: no typescript package or tsconfig.json found in the project');
+    const missing = 'needs a tsconfig.json and either the typescript package or Bun 1.4+ (bun check)';
+    if (setting === true) throw new Error(`typecheck: ${missing}`);
+    log(`typecheck skipped: ${missing}; mutants that do not compile run as tests instead`);
     return EMPTY();
   }
   try {

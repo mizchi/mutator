@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as ts6 from 'typescript6';
 import * as ts7api from 'typescript7/unstable/sync';
+import { bunTypescriptVersion, createBunChecker } from '../src/bun.ts';
 import { createClassicChecker } from '../src/classic.ts';
 import { createNativeChecker } from '../src/native.ts';
 import type { TypeChecker, TypecheckMutant } from '../src/types.ts';
@@ -13,18 +14,27 @@ const ts7version: string = createRequire(import.meta.url)('typescript7/package.j
 const root = fileURLToPath(new URL('./fixtures/basic', import.meta.url));
 const file = join(root, 'src', 'a.ts');
 const source = readFileSync(file, 'utf8');
+const chainFile = `${root}/src/chain.ts`;
+const chainSource = readFileSync(chainFile, 'utf8');
 
-const replace = (key: string, original: string, replacement: string): TypecheckMutant => {
-  const start = source.indexOf(original);
-  return { key, file, range: { start, end: start + original.length }, replacement };
+/** The mutant replacing the first `original` in `text` (the source of `at`). */
+const replace = (key: string, original: string, replacement: string, at = file, text = source): TypecheckMutant => {
+  const start = text.indexOf(original);
+  return { key, file: at, range: { start, end: start + original.length }, replacement };
 };
 
 const backends: [string, (at?: string) => TypeChecker][] = [
   ['TypeScript 6 (compiler API)', (at = root) => createClassicChecker(ts6, { root: at, tsconfig: join(at, 'tsconfig.json') })],
   ['TypeScript 7 (native API)', (at = root) => createNativeChecker(ts7api, { root: at, tsconfig: join(at, 'tsconfig.json') }, ts7version)],
 ];
+// Bun's checker proves no equivalences, so it only joins the type-error tests.
+const bunVersion = bunTypescriptVersion(root)!;
+const checkers: typeof backends = [
+  ...backends,
+  ['Bun (bun check)', (at = root) => createBunChecker({ root: at, tsconfig: join(at, 'tsconfig.json') }, bunVersion)],
+];
 
-describe.each(backends)('%s', (_name, create) => {
+describe.each(checkers)('%s', (_name, create) => {
   test('canonicalizes the virtual file path before applying and reverting overrides', () => {
     const checker = create();
     try {
@@ -44,6 +54,36 @@ describe.each(backends)('%s', (_name, create) => {
       ]);
       expect([...result.keys()].sort()).toEqual(['bad-bool', 'bad-return']);
       expect(result.get('bad-return')).toMatch(/not assignable to type 'number'/);
+    } finally {
+      checker.close();
+    }
+  });
+
+  test('a mutant that does not parse fails, and hides the type errors of no other mutant', () => {
+    const checker = create();
+    try {
+      const result = checker.check([
+        replace('syntax', 's.length', 's.length +'),
+        replace('bad-return', '{\n  return s.length;\n}', '{\n  return "";\n}'),
+        replace('chain-bad', 'box?.value?.name', '1', chainFile, chainSource),
+        replace('ok-arith', 's.length', 's.length + 1'),
+      ]);
+      expect([...result.keys()].sort()).toEqual(['bad-return', 'chain-bad', 'syntax']);
+    } finally {
+      checker.close();
+    }
+  });
+
+  test('checks mutants of several files in one call, each against its own file', () => {
+    const checker = create();
+    try {
+      const result = checker.check([
+        replace('a-bad', '`hello ${name}`', 'true'),
+        replace('chain-bad', 'box?.value?.name', '1', chainFile, chainSource),
+        replace('a-ok', 's.length', 's.length + 1'),
+        replace('chain-ok', "'y'", "''", chainFile, chainSource),
+      ]);
+      expect([...result.keys()].sort()).toEqual(['a-bad', 'chain-bad']);
     } finally {
       checker.close();
     }
@@ -80,9 +120,6 @@ describe.each(backends)('%s', (_name, create) => {
   });
 });
 
-const chainFile = `${root}/src/chain.ts`;
-const chainSource = readFileSync(chainFile, 'utf8');
-
 /** The OptionalChaining mutant on the `?.` inside the first `needle` (keyed by it). */
 const unchain = (needle: string, at = chainFile, text = chainSource): TypecheckMutant => {
   const start = text.indexOf(needle) + needle.indexOf('?.');
@@ -106,10 +143,6 @@ describe.each(backends)('%s: equivalent mutants', (_name, create) => {
   test('nullable, any, unknown and type parameters prove nothing; neither does `??`', () => {
     const checker = create();
     try {
-      const swap = (key: string, original: string, replacement: string): TypecheckMutant => {
-        const start = chainSource.indexOf(original);
-        return { key, file: chainFile, range: { start, end: start + original.length }, replacement };
-      };
       const result = checker.equivalent([
         unchain('box?.maybe'),
         unchain('maybe?.name'),
@@ -118,7 +151,7 @@ describe.each(backends)('%s: equivalent mutants', (_name, create) => {
         unchain('y?.name'),
         unchain(')?.a'),
         // The existing mutator turns `??` into `&&`: a different value whenever the left side is truthy.
-        swap('a ??', "(a ?? 'x')", "(a && 'x')"),
+        replace('a ??', "(a ?? 'x')", "(a && 'x')", chainFile, chainSource),
       ]);
       expect([...result.keys()]).toEqual([]);
     } finally {

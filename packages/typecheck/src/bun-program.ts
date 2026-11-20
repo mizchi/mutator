@@ -54,6 +54,9 @@ export const readProgram = (tsconfig: string, base = process.cwd()): Program => 
   // These make Bun print diagnostics in agent or CI forms; the plain one is the most predictable.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !['AGENT', 'CLAUDECODE', 'REPL_ID', 'GITHUB_ACTIONS'].includes(name)));
   const args = ['check', '-p', tsconfig, '--no-script', '--no-pretty', '--listFilesOnly', '--explainFiles'];
-  const { stdout } = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 1 << 28, env });
-  return parseExplainFiles(stdout ?? '', base);
+  const { status, signal, error, stdout, stderr } = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 1 << 28, env });
+  // A failed listing must not pass for a program without imports, whose cycles would go unseen.
+  // Diagnostics of the configuration also exit non-zero, but list the files all the same.
+  if (error || signal || (status !== 0 && !stdout?.trim())) throw new Error(`bun check --explainFiles failed: ${error?.message ?? signal ?? stderr}`);
+  return parseExplainFiles(stdout, base);
 };

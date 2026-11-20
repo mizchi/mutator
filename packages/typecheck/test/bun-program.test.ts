@@ -1,6 +1,7 @@
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { inImportCycle, parseExplainFiles } from '../src/bun-program.ts';
+import { inImportCycle, parseExplainFiles, readProgram } from '../src/bun-program.ts';
 
 /** A path of the project at /p, spelled as this platform resolves it. */
 const at = (file: string) => resolve('/p', file);
@@ -36,6 +37,14 @@ describe('parseExplainFiles', () => {
 
   test('reads Windows line endings too', () => {
     expect(parseExplainFiles(output.replaceAll('\n', '\r\n'), '/p')).toEqual(parseExplainFiles(output, '/p'));
+  });
+});
+
+describe('readProgram', () => {
+  test('a listing that fails is an error, not a program without imports', () => {
+    // Run from Node, process.execPath is not Bun, so the listing fails.
+    const tsconfig = join(fileURLToPath(new URL('./fixtures/basic', import.meta.url)), 'tsconfig.json');
+    expect(() => readProgram(tsconfig)).toThrow(/^bun check --explainFiles failed/);
   });
 });
 

@@ -176,21 +176,41 @@ describe.skipIf(!bunVersion)('Bun (bun check) with a tsconfig other than the roo
     expect(checker.inputs.files).toEqual(expect.arrayContaining([loose, join(root, 'tsconfig.json'), file]));
   });
 
-  test('takes an extended package\'s tsconfig.json, never its main', () => {
+  test('takes the configuration a package names in `tsconfig`, else its tsconfig.json, never its main', () => {
     const at = mkdtempSync(join(tmpdir(), 'tc-bun-extends-'));
     try {
       cpSync(root, at, { recursive: true });
-      for (const [name, files] of [['with-config', { 'tsconfig.json': '{}' }], ['with-main', { 'index.js': 'export {};' }]] as const) {
-        mkdirSync(join(at, 'node_modules', name), { recursive: true });
-        writeFileSync(join(at, 'node_modules', name, 'package.json'), JSON.stringify({ name, main: 'index.js' }));
+      const packages = [
+        ['with-config', {}, { 'tsconfig.json': '{}' }],
+        ['with-field', { tsconfig: './configs/base.json' }, { 'tsconfig.json': '{}', 'configs/base.json': '{}' }],
+        ['with-main', {}, { 'index.js': 'export {};' }],
+      ] as const;
+      for (const [name, manifest, files] of packages) {
+        mkdirSync(join(at, 'node_modules', name, 'configs'), { recursive: true });
+        writeFileSync(join(at, 'node_modules', name, 'package.json'), JSON.stringify({ name, main: 'index.js', ...manifest }));
         for (const [fileName, text] of Object.entries(files)) writeFileSync(join(at, 'node_modules', name, fileName), text);
       }
       const tsconfig = join(at, 'tsconfig.packages.json');
-      writeFileSync(tsconfig, JSON.stringify({ extends: ['with-config', 'with-main', './tsconfig.json'] }));
+      writeFileSync(tsconfig, JSON.stringify({ extends: ['with-config', 'with-field', 'with-main', './tsconfig.json'] }));
       const { files } = createBunChecker({ root: at, tsconfig }, bunVersion).inputs;
       // A package's file is where Bun's resolver finds it, symlinks followed.
-      expect(files).toEqual(expect.arrayContaining([tsconfig, realpathSync(join(at, 'node_modules', 'with-config', 'tsconfig.json')), join(at, 'tsconfig.json')]));
-      expect(files.filter((path) => path.includes('with-main') || !isAbsolute(path))).toEqual([]);
+      const inPackage = (...path: string[]) => realpathSync(join(at, 'node_modules', ...path));
+      expect(files).toEqual(expect.arrayContaining([tsconfig, inPackage('with-config', 'tsconfig.json'), inPackage('with-field', 'configs', 'base.json'), join(at, 'tsconfig.json')]));
+      expect(files.filter((path) => path.includes('with-main') || path === inPackage('with-field', 'tsconfig.json') || !isAbsolute(path))).toEqual([]);
+    } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
+  });
+
+  test('records the directories where an included file may appear, even empty ones', () => {
+    const at = mkdtempSync(join(tmpdir(), 'tc-bun-dirs-'));
+    try {
+      cpSync(root, at, { recursive: true });
+      mkdirSync(join(at, 'src', 'extra'));
+      mkdirSync(join(at, 'node_modules', 'dep'), { recursive: true });
+      const { directories } = createBunChecker({ root: at, tsconfig: join(at, 'tsconfig.json') }, bunVersion).inputs;
+      expect(directories).toEqual(expect.arrayContaining([at, join(at, 'src'), join(at, 'src', 'extra')]));
+      expect(directories.filter((path) => path.includes('node_modules'))).toEqual([]);
     } finally {
       rmSync(at, { recursive: true, force: true });
     }

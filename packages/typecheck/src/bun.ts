@@ -22,13 +22,13 @@ export const bunTypescriptVersion = (root: string): string | undefined => {
   return /^\d+\.\d+/.test(version) ? version : undefined;
 };
 
-/** `files` (see bun-inputs.ts) and the project directories holding them, so that an added or removed source file invalidates cached verdicts. */
-const programInputs = (root: string, files: readonly string[]): TypecheckInputs => {
+/** What bun-inputs.ts lists, with the project directories of the files: an added or removed source file invalidates cached verdicts. */
+const programInputs = (root: string, { files, directories }: Readonly<{ files: readonly string[]; directories: readonly string[] }>): TypecheckInputs => {
   const inProject = (file: string) => {
     const path = relative(root, file);
     return !path.startsWith('..') && !isAbsolute(path) && !path.split(sep).includes('node_modules');
   };
-  return { files: [...files], directories: [...new Set(files.filter(inProject).map(dirname))], directoryChecks: [], searches: [] };
+  return { files: [...files], directories: [...new Set([...directories, ...files.filter(inProject).map(dirname)])], directoryChecks: [], searches: [] };
 };
 
 /** Runs a script of this package with Bun and parses its JSON output (side effect: a child process). */
@@ -41,7 +41,7 @@ const runScript = <T>(root: string, args: readonly string[], input?: string): T 
 export const createBunChecker = ({ root, tsconfig }: CheckerOptions, version: string): TypeChecker => ({
   version: `${version} via bun check`,
   get inputs() {
-    return programInputs(root, runScript<string[]>(root, [INPUTS_SCRIPT, tsconfig, root]));
+    return programInputs(root, runScript<{ files: string[]; directories: string[] }>(root, [INPUTS_SCRIPT, tsconfig, root]));
   },
   check: (mutants) => (mutants.length === 0 ? new Map() : new Map(runScript<[string, string][]>(root, [CHECK_SCRIPT], JSON.stringify({ tsconfig, mutants })))),
   // Equivalence needs the checker's types, which Bun does not expose.

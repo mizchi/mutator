@@ -1,7 +1,7 @@
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { inImportCycle, parseExplainFiles, readProgram } from '../src/bun-program.ts';
+import { inImportCycle, includeBase, parseExplainFiles, readProgram } from '../src/bun-program.ts';
 
 /** A path of the project at /p, spelled as this platform resolves it. */
 const at = (file: string) => resolve('/p', file);
@@ -45,6 +45,29 @@ describe('readProgram', () => {
     // Run from Node, process.execPath is not Bun, so the listing fails.
     const tsconfig = join(fileURLToPath(new URL('./fixtures/basic', import.meta.url)), 'tsconfig.json');
     expect(() => readProgram(tsconfig)).toThrow(/^bun check --explainFiles failed/);
+  });
+});
+
+describe('includeBase', () => {
+  const from = resolve('/p/config');
+  const noFiles = () => false;
+  test.each([
+    ['a wildcard first', '**/*', from],
+    ['a relative prefix', '../src/**/*.ts', resolve('/p/src')],
+    ['an absolute prefix', '/abs/src/**/*.ts', resolve('/abs/src')],
+    ['a wildcard right after the root', '/*/src/**/*.ts', resolve('/')],
+    ['a directory', 'src', resolve(from, 'src')],
+    ['a source file not created yet', '../types/globals.d.ts', resolve('/p/types')],
+  ])('%s', (_name, pattern, base) => {
+    expect(includeBase(pattern, from, noFiles)).toBe(base);
+  });
+
+  test('an existing file without a source extension', () => {
+    expect(includeBase('../data/list', from, (path) => path === resolve('/p/data/list'))).toBe(resolve('/p/data'));
+  });
+
+  test.runIf(process.platform === 'win32')('a wildcard right after a drive', () => {
+    expect(includeBase('C:\\*\\src\\**\\*.ts', 'C:\\p\\config', noFiles)).toBe('C:\\');
   });
 });
 

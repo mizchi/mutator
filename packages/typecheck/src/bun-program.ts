@@ -1,7 +1,7 @@
 // The program Bun's checker builds for a tsconfig, from `bun check --listFilesOnly --explainFiles`:
 // its files, and which file imports which (type-only imports and `/// <reference>`s included).
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 export type Program = Readonly<{
   files: readonly string[];
@@ -30,6 +30,24 @@ export const parseExplainFiles = (output: string, cwd: string): Program => {
     imports.set(from, [...(imports.get(from) ?? []), current]);
   }
   return { files, imports };
+};
+
+/** A path naming a file TypeScript reads, rather than a directory to include. */
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|json)$/;
+
+/**
+ * The directory below which an `include` pattern, declared by a configuration in `from`, can match:
+ * its part before the first wildcard, or the directory of a file it names (present or not yet).
+ */
+export const includeBase = (pattern: string, from: string, isFile: (path: string) => boolean): string => {
+  const parts = pattern.split(/[\\/]/);
+  const wildcard = parts.findIndex((part) => /[*?[{]/.test(part));
+  if (wildcard < 0) {
+    const base = resolve(from, pattern);
+    return SOURCE_FILE.test(base) || isFile(base) ? dirname(base) : base;
+  }
+  // Each part keeps its separator, so that a root before the first wildcard (`/`, `C:\`) stays one.
+  return resolve(from, parts.slice(0, wildcard).map((part) => `${part}/`).join(''));
 };
 
 /** Whether `file` reaches itself through its imports. */

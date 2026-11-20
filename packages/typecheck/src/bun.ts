@@ -1,15 +1,15 @@
 // Without the project's `typescript`: Bun's own type checker (`bun check`, TypeScript 7),
 // run in a `bun` child process (bun-check.ts) because only Bun can call it.
 import { spawnSync } from 'node:child_process';
-import { dirname, isAbsolute, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { CheckerOptions, TypeChecker, TypecheckInputs, TypecheckMutant } from './types.ts';
+import type { CheckerOptions, TypeChecker, TypecheckInputs } from './types.ts';
 
-// Published builds ship bun-check.js next to bun.js.
-const SCRIPT = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './bun-check.ts' : './bun-check.js', import.meta.url));
+// Published builds ship the .js scripts next to bun.js.
+const script = (name: string) => fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? `./${name}.ts` : `./${name}.js`, import.meta.url));
+const CHECK_SCRIPT = script('bun-check');
+const INPUTS_SCRIPT = script('bun-inputs');
 const BUN = process.versions.bun ? process.execPath : 'bun';
-/** Mutants per build: a build holds a copy of the mutated file per mutant (about 0.5 MB each on a 300-line file). */
-const CHUNK_SIZE = 200;
 
 /** Runs `bun` in `root` (side effect: a child process). */
 const bun = (root: string, args: readonly string[], input = '') => spawnSync(BUN, args, { cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, input });
@@ -22,38 +22,28 @@ export const bunTypescriptVersion = (root: string): string | undefined => {
   return /^\d+\.\d+/.test(version) ? version : undefined;
 };
 
-/**
- * The files of the program (`--listFilesOnly`, without Bun's bundled libs) and the project
- * directories holding them, so that an added or removed source file invalidates cached verdicts.
- */
-const programInputs = (root: string, tsconfig: string, listed: string): TypecheckInputs => {
-  const files = listed.split('\n').filter(isAbsolute);
+/** `files` (see bun-inputs.ts) and the project directories holding them, so that an added or removed source file invalidates cached verdicts. */
+const programInputs = (root: string, files: readonly string[]): TypecheckInputs => {
   const inProject = (file: string) => {
     const path = relative(root, file);
     return !path.startsWith('..') && !isAbsolute(path) && !path.split(sep).includes('node_modules');
   };
-  return { files: [tsconfig, ...files], directories: [...new Set(files.filter(inProject).map(dirname))], directoryChecks: [], searches: [] };
+  return { files: [...files], directories: [...new Set(files.filter(inProject).map(dirname))], directoryChecks: [], searches: [] };
 };
 
-/** The first new type error of each mutant that has one (side effect: a `bun` process). */
-const checkChunk = (root: string, mutants: readonly TypecheckMutant[]): [string, string][] => {
-  const { status, stdout, stderr, error } = bun(root, [SCRIPT], JSON.stringify({ mutants }));
-  if (status !== 0) throw new Error(`bun type check failed: ${error?.message ?? stderr}`);
-  return JSON.parse(stdout) as [string, string][];
+/** Runs a script of this package with Bun and parses its JSON output (side effect: a child process). */
+const runScript = <T>(root: string, args: readonly string[], input?: string): T => {
+  const { status, stdout, stderr, error } = bun(root, args, input);
+  if (status !== 0) throw new Error(`bun ${basename(args[0] ?? '')} failed: ${error?.message ?? stderr}`);
+  return JSON.parse(stdout) as T;
 };
 
 export const createBunChecker = ({ root, tsconfig }: CheckerOptions, version: string): TypeChecker => ({
   version: `${version} via bun check`,
   get inputs() {
-    return programInputs(root, tsconfig, bun(root, ['check', '-p', tsconfig, '--no-script', '--listFilesOnly']).stdout ?? '');
+    return programInputs(root, runScript<string[]>(root, [INPUTS_SCRIPT, tsconfig, root]));
   },
-  check(mutants) {
-    const errors = new Map<string, string>();
-    for (let i = 0; i < mutants.length; i += CHUNK_SIZE) {
-      for (const [key, error] of checkChunk(root, mutants.slice(i, i + CHUNK_SIZE))) errors.set(key, error);
-    }
-    return errors;
-  },
+  check: (mutants) => (mutants.length === 0 ? new Map() : new Map(runScript<[string, string][]>(root, [CHECK_SCRIPT], JSON.stringify({ tsconfig, mutants })))),
   // Equivalence needs the checker's types, which Bun does not expose.
   equivalent: () => new Map(),
   close() {},

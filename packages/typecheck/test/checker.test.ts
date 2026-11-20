@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 import * as ts6 from 'typescript6';
@@ -74,6 +75,38 @@ describe.each(checkers)('%s', (_name, create) => {
     }
   });
 
+  test('finds a type error that comes back through an import cycle', () => {
+    const checker = create();
+    try {
+      const cycleFile = join(root, 'src', 'cycle.ts');
+      const cycleSource = readFileSync(cycleFile, 'utf8');
+      const result = checker.check([
+        replace('cycle-bad', 'return 1;', 'return "x";', cycleFile, cycleSource),
+        replace('cycle-ok', 'return 1;', 'return 2;', cycleFile, cycleSource),
+        replace('cycle-syntax', 'return 1;', 'return 1 +;', cycleFile, cycleSource),
+        replace('a-bad', '`hello ${name}`', 'true'),
+      ]);
+      expect([...result.keys()].sort()).toEqual(['a-bad', 'cycle-bad', 'cycle-syntax']);
+    } finally {
+      checker.close();
+    }
+  });
+
+  test('follows a cycle of type imports: types derived from the mutant are no error', () => {
+    const checker = create();
+    try {
+      const kindsFile = join(root, 'src', 'kinds.ts');
+      const kindsSource = readFileSync(kindsFile, 'utf8');
+      const result = checker.check([
+        replace('kinds-ok', "'a', 'b'", "'c', 'b'", kindsFile, kindsSource),
+        replace('kinds-bad', 'KINDS[0]', "'z'", kindsFile, kindsSource),
+      ]);
+      expect([...result.keys()]).toEqual(['kinds-bad']);
+    } finally {
+      checker.close();
+    }
+  });
+
   test('checks mutants of several files in one call, each against its own file', () => {
     const checker = create();
     try {
@@ -126,6 +159,42 @@ const unchain = (needle: string, at = chainFile, text = chainSource): TypecheckM
   const computed = text[start + 2] === '(' || text[start + 2] === '[';
   return { key: needle, file: at, range: { start, end: start + 2 }, replacement: computed ? '' : '.' };
 };
+
+describe('Bun (bun check) with a tsconfig other than the root one', () => {
+  // tsconfig.loose.json extends tsconfig.json, turning strict off.
+  const loose = join(root, 'tsconfig.loose.json');
+
+  test('checks with that tsconfig', () => {
+    const mutant = replace('undefined-return', 's.length', 'undefined');
+    expect([...createBunChecker({ root, tsconfig: join(root, 'tsconfig.json') }, bunVersion).check([mutant]).keys()]).toEqual(['undefined-return']);
+    expect(createBunChecker({ root, tsconfig: loose }, bunVersion).check([mutant]).size).toBe(0);
+  });
+
+  test('records the tsconfig and every file it extends as inputs', () => {
+    const checker = createBunChecker({ root, tsconfig: loose }, bunVersion);
+    expect(checker.inputs.files).toEqual(expect.arrayContaining([loose, join(root, 'tsconfig.json'), file]));
+  });
+
+  test('takes an extended package\'s tsconfig.json, never its main', () => {
+    const at = mkdtempSync(join(tmpdir(), 'tc-bun-extends-'));
+    try {
+      cpSync(root, at, { recursive: true });
+      for (const [name, files] of [['with-config', { 'tsconfig.json': '{}' }], ['with-main', { 'index.js': 'export {};' }]] as const) {
+        mkdirSync(join(at, 'node_modules', name), { recursive: true });
+        writeFileSync(join(at, 'node_modules', name, 'package.json'), JSON.stringify({ name, main: 'index.js' }));
+        for (const [fileName, text] of Object.entries(files)) writeFileSync(join(at, 'node_modules', name, fileName), text);
+      }
+      const tsconfig = join(at, 'tsconfig.packages.json');
+      writeFileSync(tsconfig, JSON.stringify({ extends: ['with-config', 'with-main', './tsconfig.json'] }));
+      const { files } = createBunChecker({ root: at, tsconfig }, bunVersion).inputs;
+      // A package's file is where Bun's resolver finds it, symlinks followed.
+      expect(files).toEqual(expect.arrayContaining([tsconfig, realpathSync(join(at, 'node_modules', 'with-config', 'tsconfig.json')), join(at, 'tsconfig.json')]));
+      expect(files.filter((path) => path.includes('with-main') || !isAbsolute(path))).toEqual([]);
+    } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
+  });
+});
 
 describe.each(backends)('%s: equivalent mutants', (_name, create) => {
   test('`a?.b` -> `a.b` is equivalent when the type of `a` excludes null and undefined', () => {

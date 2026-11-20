@@ -88,10 +88,12 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
     log(`typecheck (TypeScript ${pre.version}): ${early!.keys.size} mutants in ${(pre.durationMs / 1000).toFixed(1)}s, alongside the dry run`);
   }
   const candidates = cached.missing.filter((m) => !pre || !early!.keys.has(m.key));
+  let listed = true;
   const finish = (): TypecheckResult => {
     // Only what was checked is cached: an unchecked mutant has no verdict yet.
     if (unchecked.size) all = all.filter((m) => !unchecked.has(m.key));
-    const next = storeTypechecks(root, inputs, all, errors, equivalent, cached.valid ? cache : undefined);
+    // Without the checker's inputs, a later change to them would go unnoticed: nothing is cached.
+    const next = listed ? storeTypechecks(root, inputs, all, errors, equivalent, cached.valid ? cache : undefined) : undefined;
     return { errors, equivalent, unchecked, ...(next ? { cache: next } : {}) };
   };
   if (candidates.length === 0) return finish();
@@ -118,7 +120,12 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
     for (const m of candidates.slice(checked)) unchecked.add(m.key);
     if (checked > 0) {
       log(`typecheck (TypeScript ${checker.version}): ${checked} mutants in ${((now() - started) / 1000).toFixed(1)}s`);
-      inputs.push(checker.inputs);
+      try {
+        inputs.push(checker.inputs);
+      } catch (error) {
+        listed = false;
+        log(`typecheck inputs not listed, so the verdicts are not cached: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     if (unchecked.size) log(`time budget exhausted during type checking: ${unchecked.size} mutants not type-checked`);
     return finish();

@@ -73,6 +73,15 @@ describe('typecheckJobs under a deadline', () => {
     expect(result.unchecked.size).toBe(0);
   });
 
+  test('a checker whose inputs cannot be listed keeps its verdicts, uncached', async () => {
+    const logs: string[] = [];
+    const failing: TypeChecker = { ...fakeChecker({ now: 0 }, []), get inputs(): never { throw new Error('no listing'); } };
+    const result = await typecheckJobs('/nowhere', 'auto', [0, 1].map(mutant), (message) => logs.push(message), { createChecker: async () => failing });
+    expect([...result.errors]).toEqual([['k1', 'TS2322 bad']]);
+    expect(result.cache).toBeUndefined();
+    expect(logs).toContain('typecheck inputs not listed, so the verdicts are not cached: no listing');
+  });
+
   test('without a deadline all mutants go in one call', async () => {
     const calls: string[][] = [];
     await typecheckJobs('/nowhere', 'auto', [0, 1, 2].map(mutant), () => {}, { createChecker: async () => fakeChecker({ now: 0 }, calls) });

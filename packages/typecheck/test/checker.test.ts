@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -196,7 +196,9 @@ describe.skipIf(!bunVersion)('Bun (bun check) with a tsconfig other than the roo
       // A package's file is where Bun's resolver finds it, symlinks followed.
       const inPackage = (...path: string[]) => realpathSync(join(at, 'node_modules', ...path));
       expect(files).toEqual(expect.arrayContaining([tsconfig, inPackage('with-config', 'tsconfig.json'), inPackage('with-field', 'configs', 'base.json'), join(at, 'tsconfig.json')]));
-      expect(files.filter((path) => path.includes('with-main') || path === inPackage('with-field', 'tsconfig.json') || !isAbsolute(path))).toEqual([]);
+      // Its `tsconfig` field chose the configuration, so editing it must invalidate cached verdicts.
+      expect(files).toContain(inPackage('with-field', 'package.json'));
+      expect(files.filter((path) => path.endsWith('index.js') || path === inPackage('with-field', 'tsconfig.json') || !isAbsolute(path))).toEqual([]);
     } finally {
       rmSync(at, { recursive: true, force: true });
     }
@@ -209,9 +211,28 @@ describe.skipIf(!bunVersion)('Bun (bun check) with a tsconfig other than the roo
       mkdirSync(join(at, 'src', 'extra'));
       mkdirSync(join(at, 'node_modules', 'dep'), { recursive: true });
       const { directories } = createBunChecker({ root: at, tsconfig: join(at, 'tsconfig.json') }, bunVersion).inputs;
-      expect(directories).toEqual(expect.arrayContaining([at, join(at, 'src'), join(at, 'src', 'extra')]));
+      // The fixture's tsconfig includes `src`.
+      expect(directories).toEqual(expect.arrayContaining([join(at, 'src'), join(at, 'src', 'extra')]));
       expect(directories.filter((path) => path.includes('node_modules'))).toEqual([]);
     } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
+  });
+
+  test('follows `include` out of the tsconfig\'s directory, and lists past an unreadable directory', () => {
+    const at = mkdtempSync(join(tmpdir(), 'tc-bun-include-'));
+    try {
+      cpSync(root, at, { recursive: true });
+      mkdirSync(join(at, 'src', 'extra'));
+      mkdirSync(join(at, 'src', 'private'));
+      chmodSync(join(at, 'src', 'private'), 0o000);
+      mkdirSync(join(at, 'config'));
+      const tsconfig = join(at, 'config', 'tsconfig.json');
+      writeFileSync(tsconfig, JSON.stringify({ extends: '../tsconfig.json', include: ['../src/**/*.ts'] }));
+      const { directories } = createBunChecker({ root: at, tsconfig }, bunVersion).inputs;
+      expect(directories).toEqual(expect.arrayContaining([join(at, 'src'), join(at, 'src', 'extra'), join(at, 'src', 'private')]));
+    } finally {
+      chmodSync(join(at, 'src', 'private'), 0o755);
       rmSync(at, { recursive: true, force: true });
     }
   });

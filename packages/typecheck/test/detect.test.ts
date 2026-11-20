@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
+import { bunTypescriptVersion } from '../src/bun.ts';
 import { checkInWorker, createTypeChecker } from '../src/index.ts';
 import type { TypecheckMutant } from '../src/types.ts';
 
@@ -11,6 +12,8 @@ const fixture = fileURLToPath(new URL('./fixtures/basic', import.meta.url));
 const tmp = fileURLToPath(new URL('../../../.tmp', import.meta.url));
 const require = createRequire(import.meta.url);
 const roots: string[] = [];
+// Only a missing Bun (or one without its checker) skips the Bun tests.
+const hasBun = bunTypescriptVersion(fixture) !== undefined;
 
 function projectWith(alias: 'typescript6' | 'typescript7'): string {
   const root = join(tmp, `tc-${alias}-${process.pid}`);
@@ -56,7 +59,7 @@ describe('createTypeChecker', () => {
     }
   });
 
-  test('falls back to Bun\'s checker without typescript', async () => {
+  test.skipIf(!hasBun)('falls back to Bun\'s checker without typescript', async () => {
     // Outside the workspace, whose own typescript would resolve.
     const root = mkdtempSync(join(tmpdir(), 'tc-bun-'));
     roots.push(root);
@@ -71,7 +74,7 @@ describe('createTypeChecker', () => {
     }
   });
 
-  test.each([
+  test.skipIf(!hasBun).each([
     ['typescript7', /^7\.\d+\.\d+ via bun check$/],
     ['typescript6', /^6\./],
   ] as const)('with preferBun, Bun finds the type errors only for its own TypeScript major (%s)', async (alias, version) => {
@@ -97,10 +100,10 @@ describe('createTypeChecker', () => {
 });
 
 describe('checkInWorker', () => {
-  test.each([
+  test.each<[boolean, RegExp]>([
     [false, /^7\.\d+\.\d+$/],
-    [true, /^7\.\d+\.\d+ via bun check$/],
-  ] as const)('checks off the main thread, reporting equivalences too (preferBun: %s)', async (preferBun, version) => {
+    ...(hasBun ? [[true, /^7\.\d+\.\d+ via bun check$/] as [boolean, RegExp]] : []),
+  ])('checks off the main thread, reporting equivalences too (preferBun: %s)', async (preferBun, version) => {
     const root = projectWith('typescript7');
     const { bad, fine, eq } = mutantsIn(root);
     const checked = await checkInWorker({ root, preferBun }, [bad, fine, eq]);

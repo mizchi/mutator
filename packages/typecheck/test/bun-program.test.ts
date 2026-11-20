@@ -1,5 +1,9 @@
+import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { inImportCycle, parseExplainFiles } from '../src/bun-program.ts';
+
+/** A path of the project at /p, spelled as this platform resolves it. */
+const at = (file: string) => resolve('/p', file);
 
 // Shaped like `bun check --listFilesOnly --explainFiles`: files unindented, the reasons below each.
 const output = [
@@ -22,23 +26,27 @@ const output = [
 describe('parseExplainFiles', () => {
   test('lists the files without bundled libs or diagnostics, and who imports which, from the working directory', () => {
     const { files, imports } = parseExplainFiles(output, '/p');
-    expect(files).toEqual(['/p/src/a.ts', '/p/src/b.ts', '/p/src/types.d.ts', '/p/src/c.ts']);
-    expect(Object.fromEntries(imports)).toEqual({
-      '/p/src/b.ts': ['/p/src/a.ts'],
-      '/p/src/a.ts': ['/p/src/b.ts'],
-      '/p/src/c.ts': ['/p/src/types.d.ts'],
-    });
+    expect(files).toEqual(['src/a.ts', 'src/b.ts', 'src/types.d.ts', 'src/c.ts'].map(at));
+    expect([...imports]).toEqual([
+      [at('src/b.ts'), [at('src/a.ts')]],
+      [at('src/a.ts'), [at('src/b.ts')]],
+      [at('src/c.ts'), [at('src/types.d.ts')]],
+    ]);
+  });
+
+  test('reads Windows line endings too', () => {
+    expect(parseExplainFiles(output.replaceAll('\n', '\r\n'), '/p')).toEqual(parseExplainFiles(output, '/p'));
   });
 });
 
 describe('inImportCycle', () => {
   const { imports } = parseExplainFiles(output, '/p');
   test('a file its imports lead back to', () => {
-    expect(inImportCycle('/p/src/a.ts', imports)).toBe(true);
-    expect(inImportCycle('/p/src/b.ts', imports)).toBe(true);
+    expect(inImportCycle(at('src/a.ts'), imports)).toBe(true);
+    expect(inImportCycle(at('src/b.ts'), imports)).toBe(true);
   });
   test('a file they do not', () => {
-    expect(inImportCycle('/p/src/c.ts', imports)).toBe(false);
-    expect(inImportCycle('/p/src/types.d.ts', imports)).toBe(false);
+    expect(inImportCycle(at('src/c.ts'), imports)).toBe(false);
+    expect(inImportCycle(at('src/types.d.ts'), imports)).toBe(false);
   });
 });

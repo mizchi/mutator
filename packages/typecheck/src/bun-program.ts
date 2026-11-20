@@ -17,7 +17,7 @@ export const parseExplainFiles = (output: string, cwd: string): Program => {
   const files: string[] = [];
   const imports = new Map<string, string[]>();
   let current: string | undefined;
-  for (const line of output.split('\n')) {
+  for (const line of output.split(/\r?\n/)) {
     if (line.trim() === '') continue;
     if (!/^\s/.test(line)) {
       current = line.includes('://') || DIAGNOSTIC.test(line) ? undefined : resolve(cwd, line);

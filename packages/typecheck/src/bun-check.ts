@@ -11,6 +11,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { applyMutant } from '@mizchi/mutator-core';
 import { inImportCycle, readProgram } from './bun-program.ts';
 import { firstNewError } from './diff.ts';
+import { compilerPath } from './paths.ts';
 import type { TypecheckMutant } from './types.ts';
 
 // Only the part of Bun's API used here (the repository does not depend on bun-types).
@@ -25,6 +26,15 @@ type Located = Readonly<{ mutant: TypecheckMutant; file: string }>;
 const CHUNK_SIZE = 200;
 
 const { tsconfig, mutants } = JSON.parse(readFileSync(0, 'utf8')) as { tsconfig: string; mutants: TypecheckMutant[] };
+
+/**
+ * The same key for every spelling of a path Bun may report or take: relative to the working
+ * directory, either slash, any drive-letter case on Windows. Bun is given forward slashes.
+ */
+const pathKey = (path: string): string => {
+  const canonical = compilerPath(resolve(path));
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+};
 
 /** A path next to `file` that no source imports: `a.ts` -> `a.mutator-3.ts`. */
 const siblingPath = (file: string, n: number): string => join(dirname(file), `${basename(file, extname(file))}.mutator-${n}${extname(file)}`);
@@ -41,18 +51,19 @@ const verdict = (key: string, baseline: readonly string[], found: readonly strin
  */
 const typeErrors = async (entries: readonly Entry[]): Promise<Map<string, string[]>> => {
   const { logs } = await Bun.build({
-    entrypoints: entries.map((entry) => entry.path),
-    files: Object.fromEntries(entries.map((entry) => [entry.path, entry.text])),
-    tsconfig, check: true, throw: false, target: 'bun', packages: 'external',
+    entrypoints: entries.map((entry) => compilerPath(entry.path)),
+    files: Object.fromEntries(entries.map((entry) => [compilerPath(entry.path), entry.text])),
+    tsconfig: compilerPath(tsconfig), check: true, throw: false, target: 'bun', packages: 'external',
   });
   const errors = new Map(entries.map((entry) => [entry.path, [] as string[]]));
+  const byKey = new Map(entries.map((entry) => [pathKey(entry.path), entry.path]));
   const unchecked = new Set<string>();
   for (const log of logs) {
-    const errorsOfEntry = log.level === 'error' && log.position ? errors.get(log.position.file) : undefined;
-    if (!errorsOfEntry) continue;
+    const path = log.level === 'error' && log.position ? byKey.get(pathKey(log.position.file)) : undefined;
+    if (path === undefined) continue;
     const match = /^TS(\d+): ([\s\S]*)$/.exec(log.message);
-    errorsOfEntry.push(match ? `${match[1]} ${match[2]}` : log.message);
-    if (!match) unchecked.add(log.position!.file);
+    errors.get(path)!.push(match ? `${match[1]} ${match[2]}` : log.message);
+    if (!match) unchecked.add(path);
   }
   // An error before type checking (e.g. a mutant Bun cannot parse) stops it for the whole build:
   // check the other entries again without those.
@@ -89,7 +100,8 @@ const checkInPlace = async (file: string, fileMutants: readonly TypecheckMutant[
 };
 
 const { imports } = readProgram(tsconfig);
-const inCycle = new Set([...sources.keys()].filter((file) => inImportCycle(file, imports)));
+const importsByKey = new Map([...imports].map(([from, to]) => [pathKey(from), to.map(pathKey)]));
+const inCycle = new Set([...sources.keys()].filter((file) => inImportCycle(pathKey(file), importsByKey)));
 const result: [string, string][] = [];
 const outside = located.filter(({ file }) => !inCycle.has(file));
 for (let i = 0; i < outside.length; i += CHUNK_SIZE) result.push(...await checkAsSiblings(outside.slice(i, i + CHUNK_SIZE)));

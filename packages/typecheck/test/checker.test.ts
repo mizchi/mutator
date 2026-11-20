@@ -29,10 +29,11 @@ const backends: [string, (at?: string) => TypeChecker][] = [
   ['TypeScript 7 (native API)', (at = root) => createNativeChecker(ts7api, { root: at, tsconfig: join(at, 'tsconfig.json') }, ts7version)],
 ];
 // Bun's checker proves no equivalences, so it only joins the type-error tests.
-const bunVersion = bunTypescriptVersion(root)!;
+// Only a missing Bun (or one without its checker) skips the Bun tests.
+const bunVersion = bunTypescriptVersion(root) ?? '';
 const checkers: typeof backends = [
   ...backends,
-  ['Bun (bun check)', (at = root) => createBunChecker({ root: at, tsconfig: join(at, 'tsconfig.json') }, bunVersion)],
+  ...(bunVersion ? [['Bun (bun check)', (at = root) => createBunChecker({ root: at, tsconfig: join(at, 'tsconfig.json') }, bunVersion)] as (typeof backends)[number]] : []),
 ];
 
 describe.each(checkers)('%s', (_name, create) => {
@@ -160,7 +161,7 @@ const unchain = (needle: string, at = chainFile, text = chainSource): TypecheckM
   return { key: needle, file: at, range: { start, end: start + 2 }, replacement: computed ? '' : '.' };
 };
 
-describe('Bun (bun check) with a tsconfig other than the root one', () => {
+describe.skipIf(!bunVersion)('Bun (bun check) with a tsconfig other than the root one', () => {
   // tsconfig.loose.json extends tsconfig.json, turning strict off.
   const loose = join(root, 'tsconfig.loose.json');
 

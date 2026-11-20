@@ -70,10 +70,13 @@ const readChain = (config: string, chain: Chain = { configs: new Map(), manifest
   return chain;
 };
 
+/** A path naming a file TypeScript reads, rather than a directory to include. */
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|json)$/;
+
 /**
  * The directories below which the chain's `include` patterns can match: each pattern's part before
- * its first wildcard, from the configuration that declares it. Without `include` or `files`, the
- * default pattern matches below the tsconfig's directory.
+ * its first wildcard, from the configuration that declares it, or the directory of a file it names.
+ * Without `include` or `files`, the default pattern matches below the tsconfig's directory.
  */
 const includeRoots = (tsconfig: string, configs: ReadonlyMap<string, Config>): string[] => {
   if (![...configs.values()].some((config) => config.include !== undefined || config.files !== undefined)) return [dirname(tsconfig)];
@@ -81,8 +84,10 @@ const includeRoots = (tsconfig: string, configs: ReadonlyMap<string, Config>): s
     if (typeof pattern !== 'string') return [];
     const parts = pattern.split(/[\\/]/);
     const wildcard = parts.findIndex((part) => /[*?[{]/.test(part));
-    const base = resolve(dirname(file), ...(wildcard < 0 ? parts : parts.slice(0, wildcard)));
-    return [isFile(base) ? dirname(base) : base];
+    // Joined back as written, so that an absolute pattern keeps its root.
+    const base = resolve(dirname(file), wildcard < 0 ? pattern : parts.slice(0, wildcard).join('/'));
+    // A file, present or not yet, appears in its directory.
+    return [wildcard < 0 && (SOURCE_FILE.test(base) || isFile(base)) ? dirname(base) : base];
   }));
 };
 

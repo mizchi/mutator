@@ -154,12 +154,27 @@ function redeclaresFunction(body: Node): boolean {
   walk(body, ({ node }) => {
     if (found || (node !== body && (isFunction(node) || node.type === 'ClassBody'))) return false;
     if (node.type === 'VariableDeclaration' && node.kind === 'var') {
-      for (const declarator of node.declarations) {
-        walk(declarator.id, ({ node: id }) => {
-          if (id.type === 'Identifier' && names.has(id.name)) found = true;
-        });
-      }
+      found = node.declarations.some((declarator: Node) => bindingNames(declarator.id).some((name) => names.has(name)));
     }
   });
   return found;
+}
+
+/** The names a binding pattern declares; default values (`[x = g]`) and computed keys are not bindings. */
+function bindingNames(pattern: Node | null): string[] {
+  if (!pattern) return [];
+  switch (pattern.type) {
+    case 'Identifier':
+      return [pattern.name];
+    case 'ArrayPattern':
+      return pattern.elements.flatMap(bindingNames);
+    case 'ObjectPattern':
+      return pattern.properties.flatMap((p: Node) => bindingNames(p.type === 'RestElement' ? p : p.value));
+    case 'RestElement':
+      return bindingNames(pattern.argument);
+    case 'AssignmentPattern':
+      return bindingNames(pattern.left);
+    default:
+      return [];
+  }
 }

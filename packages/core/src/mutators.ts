@@ -107,7 +107,7 @@ const CONDITIONS = new Set(['IfStatement', 'ConditionalExpression']);
 function nextToken(source: string, from: number, token: string): number {
   let i = from;
   while (i < source.length) {
-    if (source.startsWith(token, i)) return i;
+    // Comments first: the `/` opening one is not a division token.
     if (/\s/.test(source[i]!)) i++;
     else if (source.startsWith('//', i)) {
       const nl = source.slice(i).search(/[\n\r\u2028\u2029]/);
@@ -117,7 +117,7 @@ function nextToken(source: string, from: number, token: string): number {
       const end = source.indexOf('*/', i + 2);
       if (end < 0) return -1;
       i = end + 2;
-    } else return -1;
+    } else return source.startsWith(token, i) ? i : -1;
   }
   return -1;
 }

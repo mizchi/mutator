@@ -220,6 +220,9 @@ describe('instrumented code stays valid', () => {
     expect(mutantValues('exports.f = (a, b) => a /* times */ * b', 6, 3)).toMatchObject({ original: 18, 'ArithmeticOperator: a /* times */ * b -> a /* times */ / b': 2 });
     expect(mutantValues('exports.f = (a, b) => a /* a-b */ - b', 6, 3)).toMatchObject({ original: 3, 'ArithmeticOperator: a /* a-b */ - b -> a /* a-b */ + b': 9 });
     expect(mutantValues('exports.f = (a, b) => a /* < */ < b', 1, 2)).toMatchObject({ original: true, 'EqualityOperator: a /* < */ < b -> a /* < */ >= b': false });
+    // A comment opening with `/` before a division is not the division.
+    expect(mutantValues('exports.f = (a, b) => a /* note */ / b', 6, 3)).toMatchObject({ original: 2, 'ArithmeticOperator: a /* note */ / b -> a /* note */ * b': 18 });
+    expect(mutantValues('exports.f = (a, b) => a // note\n / b', 6, 3)).toMatchObject({ original: 2, 'ArithmeticOperator: a // note\n / b -> a // note\n * b': 18 });
   });
 
   test('a function body declaring a name twice is not nested in a block (#55)', () => {
@@ -241,8 +244,25 @@ describe('instrumented code stays valid', () => {
   });
 
   test('a body without such names still gets its mutant switch inside the function', () => {
-    const { mutants } = instrument('a.js', 'exports.f = function () { var h; function g() {} return 1 + 1 }');
-    expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored).toBeUndefined();
+    for (const src of [
+      'function h() { var k; function g() {} return 1 + 1 } exports.f = h;',
+      // `g` is a default value here, not a `var` binding.
+      'function h() { var [x = g] = [], { y = g } = {}; function g() {} return 1 + 1 } exports.f = h;',
+    ]) {
+      const { mutants } = instrument('a.js', src);
+      expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored, src).toBeUndefined();
+    }
+    // Bindings anywhere in a pattern count.
+    for (const src of [
+      'function h() { var [, [g]] = [0, [1]]; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var { a: { g } = {} } = {}; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var [...g] = []; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var { ...g } = {}; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { for (var g of []); function g() {} return 1 + 1 } exports.f = h;',
+    ]) {
+      const { mutants } = instrument('a.js', src);
+      expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored, src).toBe('unplaceable');
+    }
   });
 
   test('removing `?.` after an integer literal keeps the dot off the number (#56)', () => {

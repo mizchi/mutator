@@ -147,7 +147,7 @@ const corpus: Record<string, string> = {
   parenChainTag: "const pt = { s: 'k', t(strs) { return this.s + strs.join('') + (1 + 1); } }; exports.r = (pt?.t)`x`;",
   parenDelete: "const pd = { a: { b: 1 }, c: 1 + 1 }; delete (pd?.a); exports.r = [JSON.stringify(pd), 'a' in pd];",
   parenAssign: "let pa = { x: 1 }; (pa.x) = 2 + 3; exports.r = pa.x;",
-  regexHtmlComment: "exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/g, '-'), /<!--/.test('<!--') || false, (/<!--/.test)('<!--') || 0, ((/<!--/).exec)('<!--') && 1];",
+  regexHtmlComment: "exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/g, '-'), /<!--/.test('<!--') || false, (/<!--/.test)('<!--') || 0, ((/<!--/).exec)('<!--') && 1, !(/<!--/.test)('<!--'), ~(/<!--/.exec)('<!--').index];",
   regexHtmlCommentNegated: "exports.r = [!(/<!--/.test)('<!--'), !(/<!--/).test('x') || 1 > 2, !(/x/.test)('x')];",
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
   regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",

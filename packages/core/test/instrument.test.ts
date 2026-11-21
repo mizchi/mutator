@@ -181,6 +181,102 @@ describe('mutation switching oracle', () => {
   }
 });
 
+/** Instruments `src`, checks the output parses, and returns each placed mutant's value of `exports.f(...args)` (`exports.r` without args). */
+function mutantValues(src: string, ...args: unknown[]): Record<string, unknown> {
+  const { code, mutants } = instrument('a.js', src);
+  expect(() => new vm.Script(`(function (exports) {${code}\n})`), code).not.toThrow();
+  const value = (active: string | null) => {
+    const { f, r } = evaluate(code, active) as { f?: (...a: unknown[]) => unknown; r?: unknown };
+    return f ? f(...args) : r;
+  };
+  const out: Record<string, unknown> = { original: value(null) };
+  for (const m of mutants.filter((m) => !m.ignored)) out[`${m.mutator}: ${m.original} -> ${m.replacement}`] = value(m.key);
+  return out;
+}
+
+describe('instrumented code stays valid', () => {
+  test('a directive without a semicolon is kept apart from the mutant switch (#53)', () => {
+    const values = mutantValues("exports.f = function () { 'use strict'\n  return this === undefined ? 1 + 1 : 0 }");
+    expect(values.original).toBe(2);
+    expect(values['ArithmeticOperator: 1 + 1 -> 1 - 1']).toBe(0);
+    expect(values['BlockStatement: { \'use strict\'\n  return this === undefined ? 1 + 1 : 0 } -> {}']).toBeUndefined();
+    // Two directives, the last without a semicolon.
+    expect(mutantValues("exports.f = function () { 'use strict'; 'x'\n  return 1 + 1 }").original).toBe(2);
+  });
+
+  test('a swapped operator does not join the operand next to it (#54)', () => {
+    expect(mutantValues('exports.f = (o) => o+-1', 3)).toMatchObject({ original: 2, 'ArithmeticOperator: o+-1 -> o- -1': 4 });
+    expect(mutantValues('exports.f = (e) => e-+e', 3)).toMatchObject({ original: 0, 'ArithmeticOperator: e-+e -> e+ +e': 6 });
+    expect(mutantValues('exports.f = (a, b) => a+--b', 5, 3)).toMatchObject({ original: 7, 'ArithmeticOperator: a+--b -> a- --b': 3 });
+    expect(mutantValues('exports.f = (a) => a*/x/.lastIndex', 1)).toMatchObject({ original: 0, 'ArithmeticOperator: a*/x/.lastIndex -> a/ /x/.lastIndex': Infinity });
+    expect(mutantValues('exports.f = (a) => /x/.lastIndex*a', 1)).toMatchObject({ original: 0 });
+    expect(mutantValues('exports.f = (a, b) => a>=!--b', 1, 1)).toMatchObject({ original: true, 'EqualityOperator: a>=!--b -> a< !--b': false });
+    // Nothing joins: the mutant text is the source with just the operator changed.
+    expect(Object.keys(mutantValues('exports.f = (a, b) => a>=!b', 1, 0))).toContain('EqualityOperator: a>=!b -> a<!b');
+    expect(Object.keys(mutantValues('exports.f = (a, b) => a+(b)', 1, 2))).toContain('ArithmeticOperator: a+(b) -> a-(b)');
+  });
+
+  test('a swapped operator is the operator token, not text in a comment (#54)', () => {
+    expect(mutantValues('exports.f = (a, b) => a /* times */ * b', 6, 3)).toMatchObject({ original: 18, 'ArithmeticOperator: a /* times */ * b -> a /* times */ / b': 2 });
+    expect(mutantValues('exports.f = (a, b) => a /* a-b */ - b', 6, 3)).toMatchObject({ original: 3, 'ArithmeticOperator: a /* a-b */ - b -> a /* a-b */ + b': 9 });
+    expect(mutantValues('exports.f = (a, b) => a /* < */ < b', 1, 2)).toMatchObject({ original: true, 'EqualityOperator: a /* < */ < b -> a /* < */ >= b': false });
+    // A comment opening with `/` before a division is not the division.
+    expect(mutantValues('exports.f = (a, b) => a /* note */ / b', 6, 3)).toMatchObject({ original: 2, 'ArithmeticOperator: a /* note */ / b -> a /* note */ * b': 18 });
+    expect(mutantValues('exports.f = (a, b) => a // note\n / b', 6, 3)).toMatchObject({ original: 2, 'ArithmeticOperator: a // note\n / b -> a // note\n * b': 18 });
+  });
+
+  test('a function body declaring a name twice is not nested in a block (#55)', () => {
+    const conflict = mutantValues('exports.f = function () { var g; function g() {} return 1 + 1 }');
+    expect(conflict).toMatchObject({ original: 2, 'ArithmeticOperator: 1 + 1 -> 1 - 1': 0 });
+    const nestedVar = mutantValues('exports.f = function () { if (true) { var g = 1 } function g() {} return g + 1 }');
+    expect(nestedVar).toMatchObject({ original: 2, 'ArithmeticOperator: g + 1 -> g - 1': 0 });
+    const strict = mutantValues("'use strict';\nexports.f = function () { function g() { return 1 } function g() { return 2 } return g() + 1 }");
+    expect(strict).toMatchObject({ original: 3, 'ArithmeticOperator: g() + 1 -> g() - 1': 1 });
+  });
+
+  test('those bodies keep their whole-body mutants where code around the function can be placed (#55)', () => {
+    expect(mutantValues('exports.f = function () { var g; function g() {} return 1 + 1 }')).toMatchObject({ original: 2, 'BlockStatement: { var g; function g() {} return 1 + 1 } -> {}': undefined });
+    expect(mutantValues('exports.r = [function () { var g; function g() {} return 1 + 1 }].map((h) => h())')).toMatchObject({ original: [2], 'BlockStatement: { var g; function g() {} return 1 + 1 } -> {}': [undefined] });
+    // A top-level declaration has nothing around it to place the switch on.
+    const { mutants } = instrument('a.js', 'function h() { var g; function g() {} return 1 + 1 } exports.f = h;');
+    expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored).toBe('unplaceable');
+    expect(mutants.find((m) => m.mutator === 'ArithmeticOperator')?.ignored).toBeUndefined();
+  });
+
+  test('a body without such names still gets its mutant switch inside the function', () => {
+    for (const src of [
+      'function h() { var k; function g() {} return 1 + 1 } exports.f = h;',
+      // `g` is a default value here, not a `var` binding.
+      'function h() { var [x = g] = [], { y = g } = {}; function g() {} return 1 + 1 } exports.f = h;',
+    ]) {
+      const { mutants } = instrument('a.js', src);
+      expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored, src).toBeUndefined();
+    }
+    // Bindings anywhere in a pattern count.
+    for (const src of [
+      'function h() { var [, [g]] = [0, [1]]; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var { a: { g } = {} } = {}; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var [...g] = []; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { var { ...g } = {}; function g() {} return 1 + 1 } exports.f = h;',
+      'function h() { for (var g of []); function g() {} return 1 + 1 } exports.f = h;',
+    ]) {
+      const { mutants } = instrument('a.js', src);
+      expect(mutants.find((m) => m.mutator === 'BlockStatement')?.ignored, src).toBe('unplaceable');
+    }
+  });
+
+  test('removing `?.` after an integer literal keeps the dot off the number (#56)', () => {
+    expect(mutantValues('exports.r = 1?.toString();')).toEqual({ original: '1', 'OptionalChaining: ?. ->  .': '1' });
+    expect(mutantValues('exports.r = 1.5?.toFixed(1);')).toEqual({ original: '1.5', 'OptionalChaining: ?. -> .': '1.5' });
+    expect(mutantValues('exports.r = 1 ?.toString();')).toEqual({ original: '1', 'OptionalChaining: ?. -> .': '1' });
+  });
+
+  test('the removed `?.` is the token, not text in a comment', () => {
+    const values = mutantValues("const o = undefined; exports.r = (() => { try { return o /* ?. */ ?.x } catch { return 'threw' } })();");
+    expect(values).toMatchObject({ original: undefined, 'OptionalChaining: ?. -> .': 'threw' });
+  });
+});
+
 describe('coverage counters', () => {
   test('records static hits when no test is running', () => {
     const { code, mutants } = instrument('a.js', 'exports.f = (a) => a + 1; exports.top = 2 * 3;');

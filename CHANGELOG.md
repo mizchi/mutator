@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.3 - 2026-11-22
+
+Fixes for instrumented code that did not parse. In each case one mutant made the whole instrumented file fail, so every test importing it failed at the baseline. All eight npm packages share version **0.5.3**.
+
+### Fixed
+
+- A function body whose directive has no semicolon (`function f() { 'use strict'` followed by a newline) no longer becomes `'use strict'if (…)` in the instrumented code. [#53](https://github.com/mizchi/mutator/issues/53)
+- Operator swaps replace the operator itself, not a match inside a comment, and add a space where the new operator would join the code next to it: `o+-1` -> `o- -1` instead of `o--1`, and `a*/x/.lastIndex` -> `a/ /x/.lastIndex` instead of a line comment. A comment like `a /* a-b */ - b` used to be rewritten instead of the operator, so the mutant could never be detected. The keys of those mutants change; the others keep theirs. [#54](https://github.com/mizchi/mutator/issues/54)
+- A function body that declares a function twice, or a function and a `var` with the same name (`var g; function g() {}`), no longer fails to parse. Such a body is not wrapped in a block anymore. Its whole-body mutants (`{}`, `{ return 0; }`) are placed around the function when it is an expression, and reported as `unplaceable` when it is a declaration. [#55](https://github.com/mizchi/mutator/issues/55)
+- Removing `?.` right after an integer literal (`1?.toString()`) gives `1 .toString()` instead of `1.toString()`, which read the dot as a decimal point. The `?.` is also found past a comment before it. [#56](https://github.com/mizchi/mutator/issues/56)
+
 ## 0.5.2 - 2026-11-21
 
 A fix for `mutator.accepted.json` in runs narrowed with `--include`. All eight npm packages share version **0.5.2**.

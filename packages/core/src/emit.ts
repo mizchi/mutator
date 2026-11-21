@@ -24,9 +24,10 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
       suffix = '}}';
       break;
     case 'body': {
+      // A directive may end without `;`; the next one, or the first `if`, must not continue it.
       const directives = node.body
         .filter(isDirective)
-        .map((st: Node) => source.slice(st.start, st.end))
+        .map((st: Node) => source.slice(st.start, st.end).replace(/;?$/, ';'))
         .join(' ');
       prefix = `{${directives}${mutants.map((m, i) => `${i ? 'else ' : ''}if (${act(m)}) ${mutated(m)} `).join('')}else {${cov}; `;
       suffix = '}}';

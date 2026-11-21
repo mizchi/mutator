@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator-playwright",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "type": "module",
   "description": "Playwright Test adapter for @mizchi/mutator-core: mutation testing of browser code served by Vite (experimental)",
   "keywords": [

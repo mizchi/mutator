@@ -15,7 +15,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   let suffix: string;
   switch (kind) {
     case 'expression':
-      prefix = `(${mutants.map((m) => `${act(m)} ? (${mutated(m)}) : `).join('')}(${cov}, (`;
+      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m))}) : `).join('')}(${cov}, (${LEADING_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
       suffix = ')))';
       if (needsAsiGuard(frame, placements)) prefix = `;${prefix}`;
       break;
@@ -36,6 +36,15 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   s.appendRight(node.start, prefix);
   s.prependLeft(node.end, suffix);
 }
+
+/**
+ * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads `(/<!--…/)` in an ES module as an
+ * HTML comment (oxc-project/oxc#28158). A `0, ` in front of a regex that would follow a `(` keeps it
+ * off the `(` without changing the value. Drop this once those versions are no longer supported.
+ */
+const LEADING_REGEX = /^[\s(]*(?=\/(?![/*]))/;
+// Mutated code can open with parentheses of its own (LogicalOperator wraps its replacement).
+const keepRegexOffParen = (code: string) => code.replace(LEADING_REGEX, '$&0, ');
 
 const WEAK_MUTATORS = new Set(['EqualityOperator', 'ArithmeticOperator', 'ConditionalExpression']);
 const WEAK_OPERATORS = new Set(['<', '<=', '>', '>=', '==', '!=', '===', '!==', '+', '-', '*', '/', '%']);

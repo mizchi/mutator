@@ -149,9 +149,39 @@ const corpus: Record<string, string> = {
   parenAssign: "let pa = { x: 1 }; (pa.x) = 2 + 3; exports.r = pa.x;",
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
   regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",
+  // Regex literals starting with `<!--`, alone and as the first operand of logical expressions.
+  htmlCommentRegex: "const h = '<!-- x -->'; exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/gi, '-'), /<!--/.test(h) && h.length === 10 || h.length > 99, /<!--/.test(h) || h.length > 99 && h.length < 5, /<!--/.source ?? 'n'];",
   callStatements: `const out = []; function add(v) { out.push(v); } add(1); add(2); out.sort(); [3].forEach((v) => { add(v); }); exports.r = out;`,
   infiniteFor: `let k = 0; for (;;) { k++; if (k > 2) break; } for (let j = 0; ; j++) { if (j === 1) { k += j; break; } } exports.r = k;`,
 };
+
+// oxc before 0.159 (Vite 8.3) rejects `(/<!--` in a module: oxc-project/oxc#28158.
+describe('a regex literal starting with `<!--` never follows an added parenthesis', () => {
+  const src = corpus.htmlCommentRegex!;
+  // A grouping parenthesis: one that follows neither a callee nor a keyword.
+  const rejected = /(?:^|[^\w$)\]\s])\s*\(\s*\/<!--/;
+
+  test('the source itself has no such parenthesis', () => {
+    expect(src).not.toMatch(rejected);
+  });
+
+  test('instrumented code', () => {
+    const { code, mutants } = instrument('a.js', src);
+    expect(mutants.some((m) => m.mutator === 'LogicalOperator' && m.replacement.includes('(0, /<!--'))).toBe(true);
+    expect(code).toContain('(0, /<!--');
+    expect(code).not.toMatch(rejected);
+  });
+
+  test('each mutant applied on its own', () => {
+    const { mutants } = instrument('a.js', src);
+    for (const m of mutants) expect(applyMutant(src, m)).not.toMatch(rejected);
+  });
+
+  test('other expressions keep the plain wrapper', () => {
+    const { code } = instrument('a.js', "exports.r = /a+/.test('aa') && 1 + 1;");
+    expect(code).not.toContain('(0, /');
+  });
+});
 
 describe('mutation switching oracle', () => {
   for (const [name, src] of Object.entries(corpus)) {

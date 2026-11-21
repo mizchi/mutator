@@ -3,6 +3,7 @@ import type MagicString from 'magic-string';
 import { type Frame, type Node, isDirective, outermost } from './ast.ts';
 import type { Placement } from './placement.ts';
 import { RUNTIME_ACTIVE, RUNTIME_COLLECT, RUNTIME_COV, RUNTIME_HIT, RUNTIME_WEAK } from './runtime.ts';
+import { paren, parenGuard } from './text.ts';
 import type { Mutant } from './types.ts';
 
 export function emitPlacement(s: MagicString, source: string, { frame, kind, mutants }: Placement, placements: ReadonlyMap<Node, Placement>, indexOf: ReadonlyMap<string, number>, weakProbes: boolean): void {
@@ -15,7 +16,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   let suffix: string;
   switch (kind) {
     case 'expression':
-      prefix = `(${mutants.map((m) => `${act(m)} ? (${mutated(m)}) : `).join('')}(${cov}, (`;
+      prefix = `(${mutants.map((m) => `${act(m)} ? ${paren(mutated(m))} : `).join('')}(${cov}, (${parenGuard(source.slice(node.start, node.start + 5))}`;
       suffix = ')))';
       if (needsAsiGuard(frame, placements)) prefix = `;${prefix}`;
       break;

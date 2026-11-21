@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Sources with a regex literal that starts with `<!--` (for example `/<!--\s*pagebreak\s*-->/gi`) no longer fail the baseline on Vite 8.3 and older with `[PARSE_ERROR] HTML comments are not allowed in modules`. The parser in those versions (oxc before 0.159) rejects such a literal right after a grouping parenthesis, so the instrumented code now writes `(0, /<!--…/)` there (#50).
+
 ## 0.5.0 - 2026-11-20
 
 ### Added

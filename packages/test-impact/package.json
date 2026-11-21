@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/test-impact",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "description": "Select tests affected by a Git diff using TypeScript dependencies and per-test V8 coverage",
   "keywords": [

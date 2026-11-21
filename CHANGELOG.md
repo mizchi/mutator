@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.5.1 - 2026-11-21
+
+Fixes for Cloudflare Workers projects and for Vite 8.3 and older, and type checking for Bun projects without the `typescript` package. All eight npm packages share version **0.5.1**.
+
+### Added
+
+- Bun projects are type-checked with Bun's own checker (`bun check`, Bun 1.4+). Without the `typescript` package, `typecheck: 'auto'` used to turn type checking off without a message, so mutants that do not compile ran as tests. With the Bun runner and TypeScript 7 or newer, Bun's checker also finds the type errors, and equivalent mutants still come from the project's TypeScript. When no checker is available, `auto` logs why type checking is skipped and `typecheck: true` fails with the same reason. [PR #47](https://github.com/mizchi/mutator/pull/47)
 
 ### Fixed
 
-- Sources with a regex literal that starts with `<!--` (for example `/<!--\s*pagebreak\s*-->/gi`) no longer fail the baseline on Vite 8.3 and older with `[PARSE_ERROR] HTML comments are not allowed in modules`. The parser in those versions (oxc before 0.159) rejects such a literal right after a grouping parenthesis, so the instrumented code now writes `(0, /<!--…/)` there (#50).
-- The Vitest adapter's dry run works in test workers that run on workerd (`@cloudflare/vitest-pool-workers`, `@cloudflare/vitest-plugin`). Every test file failed there with `The module.syncBuiltinESMExports method is not implemented`, so mutator stopped at `tests fail without mutants`.
+- The Vitest adapter's dry run works in test workers that run on workerd (`@cloudflare/vitest-pool-workers`, `@cloudflare/vitest-plugin`). Every test file failed there with `The module.syncBuiltinESMExports method is not implemented`, so mutator stopped at `tests fail without mutants`. [PR #49](https://github.com/mizchi/mutator/pull/49)
+- Sources with a regex literal that starts with `<!--` (for example `/<!--\s*pagebreak\s*-->/gi`) no longer fail the baseline on Vite 8.3 and older with `[PARSE_ERROR] HTML comments are not allowed in modules`. The parser in those versions (oxc before 0.159) rejects such a literal right after a grouping parenthesis, so the instrumented code now writes `(0, /<!--…/)` there. A mutant that cannot be written in a form those versions parse, such as removing the `!` of `!(/<!--/.test)(s)`, is reported as `unplaceable`. [#50](https://github.com/mizchi/mutator/issues/50) · [PR #51](https://github.com/mizchi/mutator/pull/51) · [PR #52](https://github.com/mizchi/mutator/pull/52)
 
 ## 0.5.0 - 2026-11-20
 

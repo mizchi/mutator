@@ -313,6 +313,17 @@ describe('regressions', () => {
     expect(code).toContain('(0, /<!--');
   });
 
+  test('regexes whose body opens with `=` or whitespace before `<!--` are kept off a `(` as well', () => {
+    for (const re of ['/  <!--/', '/=<!--/', '/= <!--/']) {
+      const { code } = instrument('a.ts', `export const f = (s: string) => ${re}.test(s);`);
+      expect(code, re).not.toMatch(/\(\s*\/=?\s*<!--/);
+    }
+    // Removing the `^` of `/^ <!--/` yields `/ <!--/`, which the source never had.
+    const { code, mutants } = instrument('a.ts', 'export const f = (s: string) => /^ <!--/.test(s);');
+    expect(mutants.some((m) => m.replacement === '/ <!--/')).toBe(true);
+    expect(code).not.toMatch(/\(\s*\/=?\s*<!--/);
+  });
+
   test('a regex is kept off the parentheses a mutated logical expression opens with', () => {
     const { code, mutants } = instrument('a.ts', 'export const f = (a: string, b: boolean) => /<!--/.test(a) || b;');
     expect(mutants.some((m) => m.replacement.startsWith('(/<!--'))).toBe(true);

@@ -38,11 +38,13 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
 }
 
 /**
- * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads a regex literal starting with `<!--`
- * right after a `(` in an ES module as an HTML comment (oxc-project/oxc#28158). A `0, ` in front of the
- * regex keeps it off the `(` without changing the value. Drop this once those versions are no longer supported.
+ * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads a regex literal right after a `(` in an
+ * ES module as an HTML comment when its body opens with `<!--`, optionally after `=` and whitespace: the
+ * arrow lookahead lexes the regex as `/` or `/=` and skips the rest as trivia (oxc-project/oxc#28158).
+ * A `0, ` in front of the regex keeps it off the `(` without changing the value. Drop this once those
+ * versions are no longer supported.
  */
-const HTML_COMMENT_REGEX = /^\/<!--/;
+const HTML_COMMENT_REGEX = /^\/=?\s*<!--/;
 const leadingParens = (code: string) => code.length - code.replace(/^\(+/, '').length;
 
 /**

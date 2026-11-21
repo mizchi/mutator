@@ -1,6 +1,5 @@
 import { type Frame, type Node, isDirective, isFunction, isSuperCall, isSuperConstructor, outermost, unwrap } from './ast.ts';
 import { regexMutations } from './regex.ts';
-import { paren } from './text.ts';
 import type { MutatorName, Range } from './types.ts';
 
 export interface Candidate {
@@ -32,10 +31,10 @@ const whole = (frame: Frame, mutator: MutatorName, replacement: string): Candida
 function swapOperator(frame: Frame, ctx: MutatorContext, mutator: MutatorName, from: string, to: string, logical = false): Candidate {
   const { node } = frame;
   // `??` cannot be mixed with `&&` / `||` without parentheses, so logical operands are wrapped.
-  const operand = (n: Node) => (logical && n.type === 'LogicalExpression' ? paren(ctx.slice(n)) : ctx.slice(n));
+  const operand = (n: Node) => (logical && n.type === 'LogicalExpression' ? `(${ctx.slice(n)})` : ctx.slice(n));
   const gap = ctx.slice({ start: node.left.end, end: node.right.start });
   const text = ctx.slice({ start: node.start, end: node.left.start }) + operand(node.left) + gap.replace(from, to) + operand(node.right) + ctx.slice({ start: node.right.end, end: node.end });
-  return whole(frame, mutator, logical ? paren(text) : text);
+  return whole(frame, mutator, logical ? `(${text})` : text);
 }
 
 const isStringy = (node: Node): boolean => {

@@ -147,41 +147,12 @@ const corpus: Record<string, string> = {
   parenChainTag: "const pt = { s: 'k', t(strs) { return this.s + strs.join('') + (1 + 1); } }; exports.r = (pt?.t)`x`;",
   parenDelete: "const pd = { a: { b: 1 }, c: 1 + 1 }; delete (pd?.a); exports.r = [JSON.stringify(pd), 'a' in pd];",
   parenAssign: "let pa = { x: 1 }; (pa.x) = 2 + 3; exports.r = pa.x;",
+  regexHtmlComment: "exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/g, '-'), /<!--/.test('<!--') || false, (/<!--/.test)('<!--') || 0, ((/<!--/).exec)('<!--') && 1];",
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
   regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",
-  // Regex literals starting with `<!--`, alone and as the first operand of logical expressions.
-  htmlCommentRegex: "const h = '<!-- x -->'; exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/gi, '-'), /<!--/.test(h) && h.length === 10 || h.length > 99, /<!--/.test(h) || h.length > 99 && h.length < 5, /<!--/.source ?? 'n'];",
   callStatements: `const out = []; function add(v) { out.push(v); } add(1); add(2); out.sort(); [3].forEach((v) => { add(v); }); exports.r = out;`,
   infiniteFor: `let k = 0; for (;;) { k++; if (k > 2) break; } for (let j = 0; ; j++) { if (j === 1) { k += j; break; } } exports.r = k;`,
 };
-
-// oxc before 0.159 (Vite 8.3) rejects `(/<!--` in a module: oxc-project/oxc#28158.
-describe('a regex literal starting with `<!--` never follows an added parenthesis', () => {
-  const src = corpus.htmlCommentRegex!;
-  // A grouping parenthesis: one that follows neither a callee nor a keyword.
-  const rejected = /(?:^|[^\w$)\]\s])\s*\(\s*\/<!--/;
-
-  test('the source itself has no such parenthesis', () => {
-    expect(src).not.toMatch(rejected);
-  });
-
-  test('instrumented code', () => {
-    const { code, mutants } = instrument('a.js', src);
-    expect(mutants.some((m) => m.mutator === 'LogicalOperator' && m.replacement.includes('(0, /<!--'))).toBe(true);
-    expect(code).toContain('(0, /<!--');
-    expect(code).not.toMatch(rejected);
-  });
-
-  test('each mutant applied on its own', () => {
-    const { mutants } = instrument('a.js', src);
-    for (const m of mutants) expect(applyMutant(src, m)).not.toMatch(rejected);
-  });
-
-  test('other expressions keep the plain wrapper', () => {
-    const { code } = instrument('a.js', "exports.r = /a+/.test('aa') && 1 + 1;");
-    expect(code).not.toContain('(0, /');
-  });
-});
 
 describe('mutation switching oracle', () => {
   for (const [name, src] of Object.entries(corpus)) {
@@ -334,6 +305,29 @@ describe('regressions', () => {
   test('ASI guard is only inserted at the outermost placement', () => {
     const { code } = instrument('a.js', 'let q = "x"\nq?.trim()');
     expect(code).not.toMatch(/\(;/);
+  });
+
+  test('regex literals are kept off a `(` (oxc < 0.159 reads `(/<!--` as an HTML comment, oxc-project/oxc#28158)', () => {
+    const { code } = instrument('a.ts', "export const f = (s: string) => s.replace(/<!--\\s*x\\s*-->/g, '');");
+    expect(code).not.toMatch(/\(\s*\/<!--/);
+    expect(code).toContain('(0, /<!--');
+  });
+
+  test('regexes whose body opens with `=` or whitespace before `<!--` are kept off a `(` as well', () => {
+    for (const re of ['/  <!--/', '/=<!--/', '/= <!--/']) {
+      const { code } = instrument('a.ts', `export const f = (s: string) => ${re}.test(s);`);
+      expect(code, re).not.toMatch(/\(\s*\/=?\s*<!--/);
+    }
+    // Removing the `^` of `/^ <!--/` yields `/ <!--/`, which the source never had.
+    const { code, mutants } = instrument('a.ts', 'export const f = (s: string) => /^ <!--/.test(s);');
+    expect(mutants.some((m) => m.replacement === '/ <!--/')).toBe(true);
+    expect(code).not.toMatch(/\(\s*\/=?\s*<!--/);
+  });
+
+  test('a regex is kept off the parentheses a mutated logical expression opens with', () => {
+    const { code, mutants } = instrument('a.ts', 'export const f = (a: string, b: boolean) => /<!--/.test(a) || b;');
+    expect(mutants.some((m) => m.replacement.startsWith('(/<!--'))).toBe(true);
+    expect(code).not.toMatch(/\(\s*\/<!--/);
   });
 });
 

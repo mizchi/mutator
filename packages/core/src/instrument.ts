@@ -5,7 +5,7 @@ import { type Node, isFunction, walk } from './ast.ts';
 import { createAridCheck } from './arid.ts';
 import { adaptMutator, createIgnoreCheck } from './plugin.ts';
 import { criticalLines, disabledBy } from './disable.ts';
-import { emitPlacement, headerInsertion } from './emit.ts';
+import { emitPlacement, headerInsertion, startsWithSourceParenRegex } from './emit.ts';
 import { calleeName, importBindings, isReference, moduleLoads, reexportBindings, topLevelInfo } from './facts.ts';
 import { hash } from './hash.ts';
 import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
@@ -125,7 +125,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     const placement = reason ? undefined : findPlacement(candidate.anchor);
     if (reason) {
       mutant.ignored = reason;
-    } else if (!placement) {
+    } else if (!placement || (placement.kind === 'expression' && startsWithSourceParenRegex(source, placement.frame.node, candidate))) {
       mutant.ignored = 'unplaceable';
     } else {
       const entry = placements.get(placement.frame.node) ?? { ...placement, mutants: [] };

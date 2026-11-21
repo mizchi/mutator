@@ -15,7 +15,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   let suffix: string;
   switch (kind) {
     case 'expression':
-      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m), addedParens(m, node))}) : `).join('')}(${cov}, (${HTML_COMMENT_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
+      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m), addedParens(m, source, node))}) : `).join('')}(${cov}, (${HTML_COMMENT_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
       suffix = ')))';
       if (needsAsiGuard(frame, placements)) prefix = `;${prefix}`;
       break;
@@ -48,12 +48,26 @@ const HTML_COMMENT_REGEX = /^\/=?\s*<!--/;
 const leadingParens = (code: string) => code.length - code.replace(/^\(+/, '').length;
 
 /**
- * Parentheses a mutator put in front of the source (LogicalOperator wraps its replacement and logical
- * operands). They enclose whole logical expressions, so a `0, ` inside them cannot change a `this` binding,
- * unlike inside parentheses from the source: `(/re/.test)(s)`.
+ * Parentheses a mutator put in front of the source. Only LogicalOperator does: it wraps its replacement
+ * and logical operands. They enclose whole logical expressions, so a `0, ` inside them cannot change a
+ * `this` binding, unlike inside parentheses from the source: `(/re/.test)(s)`. A mutant that only drops
+ * a prefix (`!(/re/.test)(s)` -> `(/re/.test)(s)`) starts with source parentheses, which do not count.
  */
-function addedParens(m: Mutant, node: Node): number {
-  return m.range.start === node.start ? Math.max(0, leadingParens(m.replacement) - leadingParens(m.original)) : 0;
+function addedParens(m: Pick<Mutant, 'mutator' | 'range' | 'replacement'>, source: string, node: Node): number {
+  if (m.mutator !== 'LogicalOperator' || m.range.start !== node.start) return 0;
+  return Math.max(0, leadingParens(m.replacement) - leadingParens(source.slice(m.range.start, m.range.end)));
+}
+
+/**
+ * A mutant of an expression placement whose mutated code starts with source parentheses followed by a
+ * `<!--` regex, where the source does not: `!(/<!--/.test)(s)` -> `(/<!--/.test)(s)`. The old parser
+ * rejects the wrapper around it, and a `0, ` inside source parentheses can drop a receiver, so there is
+ * no way to emit it. A source that starts this way itself is left alone: plain Vitest fails on it too.
+ */
+export function startsWithSourceParenRegex(source: string, node: Node, m: Pick<Mutant, 'mutator' | 'range' | 'replacement'>): boolean {
+  const afterParens = (code: string) => (/^\(/.test(code) ? HTML_COMMENT_REGEX.test(code.replace(/^[(\s]+/, '')) : false);
+  const mutated = source.slice(node.start, m.range.start) + m.replacement + source.slice(m.range.end, node.end);
+  return afterParens(mutated.slice(addedParens(m, source, node))) && !afterParens(source.slice(node.start, node.end));
 }
 
 /** Inserts `0, ` after the first `skip` characters of `code` when a `<!--` regex follows them. */

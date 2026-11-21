@@ -148,6 +148,7 @@ const corpus: Record<string, string> = {
   parenDelete: "const pd = { a: { b: 1 }, c: 1 + 1 }; delete (pd?.a); exports.r = [JSON.stringify(pd), 'a' in pd];",
   parenAssign: "let pa = { x: 1 }; (pa.x) = 2 + 3; exports.r = pa.x;",
   regexHtmlComment: "exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/g, '-'), /<!--/.test('<!--') || false, (/<!--/.test)('<!--') || 0, ((/<!--/).exec)('<!--') && 1];",
+  regexHtmlCommentNegated: "exports.r = [!(/<!--/.test)('<!--'), !(/<!--/).test('x') || 1 > 2, !(/x/.test)('x')];",
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
   regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",
   callStatements: `const out = []; function add(v) { out.push(v); } add(1); add(2); out.sort(); [3].forEach((v) => { add(v); }); exports.r = out;`,
@@ -322,6 +323,18 @@ describe('regressions', () => {
     const { code, mutants } = instrument('a.ts', 'export const f = (s: string) => /^ <!--/.test(s);');
     expect(mutants.some((m) => m.replacement === '/ <!--/')).toBe(true);
     expect(code).not.toMatch(/\(\s*\/=?\s*<!--/);
+  });
+
+  test('a mutant that would start with source parentheses and a `<!--` regex is not placed', () => {
+    // `(0, /<!--/.test)(s)` would drop the receiver, and `((/<!--/.test)(s))` is rejected by oxc < 0.159.
+    const { code, mutants } = instrument('a.ts', "export const f = (s: string) => !(/<!--/.test)(s);");
+    const dropped = mutants.filter((m) => m.replacement === '(/<!--/.test)(s)');
+    expect(dropped.map((m) => [m.mutator, m.ignored])).toEqual([['BooleanLiteral', 'unplaceable']]);
+    expect(code).not.toContain('(0, /<!--/.test)');
+    expect(code).not.toContain('((/<!--');
+    // The same mutant of another regex is placed as before.
+    const other = instrument('a.ts', 'export const f = (s: string) => !(/x/.test)(s);').mutants;
+    expect(other.find((m) => m.replacement === '(/x/.test)(s)')?.ignored).toBeUndefined();
   });
 
   test('a regex is kept off the parentheses a mutated logical expression opens with', () => {

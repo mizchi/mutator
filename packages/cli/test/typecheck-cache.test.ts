@@ -1,9 +1,14 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createTypeChecker } from '@mizchi/mutator-typecheck';
 import { afterEach, expect, test } from 'vitest';
-import { typeInputHash } from '../src/typecheck-cache.ts';
+import { portableTypeInputs, typeInputHash } from '../src/typecheck-cache.ts';
+
+// Only a missing Bun skips; one that fails to start fails the tests.
+const hasBun = (spawnSync('bun', ['--version']).error as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT';
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -63,5 +68,27 @@ test('enumerated directories still invalidate when entries change', () => {
   const inputs = { files: [], directories: ['.'], directoryChecks: [], searches: [] };
   const before = typeInputHash(root, inputs);
   writeFileSync(join(root, 'new.d.ts'), 'declare const version: number;');
+  expect(typeInputHash(root, inputs)).not.toBe(before);
+});
+
+// Bun's checker (no `typescript` resolves from tmpdir) records where its tsconfig's `include` can
+// match: a file added there, in a directory that held no program file, invalidates the verdicts.
+test.skipIf(!hasBun).each([
+  ['an absolute pattern', (root: string) => [`${root}/src/**/*.ts`], 'src/extra/decl.d.ts'],
+  ['a file not created yet', () => ['../types/globals.d.ts', '../src/**/*.ts'], 'types/globals.d.ts'],
+] as const)('Bun-checked verdicts are invalidated by a file added through %s', async (_name, include, added) => {
+  const root = mkdtempSync(join(tmpdir(), 'mutator-bun-include-'));
+  roots.push(root);
+  for (const dir of ['config', 'src/extra', 'types']) mkdirSync(join(root, dir), { recursive: true });
+  writeFileSync(join(root, 'src/a.ts'), 'export const a: number = 1;\n');
+  const tsconfig = join(root, 'config/tsconfig.json');
+  writeFileSync(tsconfig, JSON.stringify({ compilerOptions: { strict: true, noEmit: true }, include: include(root) }));
+  const checker = await createTypeChecker({ root, tsconfig });
+  expect(checker?.version).toMatch(/via bun check$/);
+  const inputs = portableTypeInputs(root, [checker!.inputs]);
+  checker!.close();
+  const before = typeInputHash(root, inputs);
+  expect(before).toBeTypeOf('string');
+  writeFileSync(join(root, added), 'declare const version: number;\n');
   expect(typeInputHash(root, inputs)).not.toBe(before);
 });

@@ -85,4 +85,13 @@ describe.skipIf(!hasBun)('runMutation with Bun', { timeout: 120_000 }, () => {
     expect(logs).toContain('runner: bun');
     expect(byStatus(report).Killed).toContain('a + b -> a - b');
   });
+
+  test('type errors come from Bun\'s checker when it bundles the TypeScript major of the project', async () => {
+    // The workspace's own typescript (7) resolves from the fixture.
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { strict: true, noEmit: true, module: 'esnext', moduleResolution: 'bundler', allowImportingTsExtensions: true, skipLibCheck: true }, include: ['src'] }));
+    const logs: string[] = [];
+    const report = await runMutation({ root, runner: 'bun', log: (m) => logs.push(m) });
+    expect(logs).toContainEqual(expect.stringMatching(/^typecheck \(TypeScript 7\.\d+\.\d+ via bun check\): \d+ mutants/));
+    expect(byStatus(report).CompileError?.length).toBeGreaterThan(0);
+  });
 });

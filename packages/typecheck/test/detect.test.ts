@@ -1,14 +1,19 @@
-import { cpSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
+import { bunTypescriptVersion } from '../src/bun.ts';
 import { checkInWorker, createTypeChecker } from '../src/index.ts';
+import type { TypecheckMutant } from '../src/types.ts';
 
 const fixture = fileURLToPath(new URL('./fixtures/basic', import.meta.url));
 const tmp = fileURLToPath(new URL('../../../.tmp', import.meta.url));
 const require = createRequire(import.meta.url);
 const roots: string[] = [];
+// Only a missing Bun (or one without its checker) skips the Bun tests.
+const hasBun = bunTypescriptVersion(fixture) !== undefined;
 
 function projectWith(alias: 'typescript6' | 'typescript7'): string {
   const root = join(tmp, `tc-${alias}-${process.pid}`);
@@ -18,6 +23,19 @@ function projectWith(alias: 'typescript6' | 'typescript7'): string {
   mkdirSync(join(root, 'node_modules'), { recursive: true });
   symlinkSync(dirname(require.resolve(`${alias}/package.json`)), join(root, 'node_modules/typescript'));
   return root;
+}
+
+/** In `root`'s copy of the fixture: `bad` breaks the return type of `len`, `fine` does not, `eq` is proven equivalent. */
+function mutantsIn(root: string): Record<'bad' | 'fine' | 'eq', TypecheckMutant> {
+  const file = join(root, 'src/a.ts');
+  const start = readFileSync(file, 'utf8').indexOf('s.length');
+  const chain = join(root, 'src/chain.ts');
+  const at = readFileSync(chain, 'utf8').indexOf('box?.value') + 3;
+  return {
+    bad: { key: 'bad', file, range: { start, end: start + 8 }, replacement: '"x"' },
+    fine: { key: 'fine', file, range: { start, end: start + 8 }, replacement: '0' },
+    eq: { key: 'eq', file: chain, range: { start: at, end: at + 2 }, replacement: '.' },
+  };
 }
 
 afterAll(() => {
@@ -34,11 +52,40 @@ describe('createTypeChecker', () => {
     expect(checker).toBeDefined();
     try {
       expect(checker!.version).toMatch(version);
-      const file = join(root, 'src/a.ts');
-      const source = readFileSync(file, 'utf8');
-      const start = source.indexOf('s.length');
-      const result = checker!.check([{ key: 'k', file, range: { start, end: start + 8 }, replacement: '"x"' }]);
-      expect([...result.keys()]).toEqual(['k']);
+      const { bad, fine } = mutantsIn(root);
+      expect([...checker!.check([bad, fine]).keys()]).toEqual(['bad']);
+    } finally {
+      checker!.close();
+    }
+  });
+
+  test.skipIf(!hasBun)('falls back to Bun\'s checker without typescript', async () => {
+    // Outside the workspace, whose own typescript would resolve.
+    const root = mkdtempSync(join(tmpdir(), 'tc-bun-'));
+    roots.push(root);
+    cpSync(fixture, root, { recursive: true });
+    const checker = await createTypeChecker({ root });
+    expect(checker?.version).toMatch(/^7\.\d+\.\d+ via bun check$/);
+    try {
+      const { bad, fine } = mutantsIn(root);
+      expect([...checker!.check([bad, fine]).keys()]).toEqual(['bad']);
+    } finally {
+      checker!.close();
+    }
+  });
+
+  test.skipIf(!hasBun).each([
+    ['typescript7', /^7\.\d+\.\d+ via bun check$/],
+    ['typescript6', /^6\./],
+  ] as const)('with preferBun, Bun finds the type errors only for its own TypeScript major (%s)', async (alias, version) => {
+    const root = projectWith(alias);
+    const checker = await createTypeChecker({ root, preferBun: true });
+    try {
+      expect(checker!.version).toMatch(version);
+      const { bad, fine, eq } = mutantsIn(root);
+      expect([...checker!.check([bad, fine]).keys()]).toEqual(['bad']);
+      // Bun proves no equivalences: they still come from the project's TypeScript.
+      expect(checker!.equivalent([eq])).toEqual(new Map([['eq', 'equivalent: box is never nullish']]));
     } finally {
       checker!.close();
     }
@@ -53,26 +100,17 @@ describe('createTypeChecker', () => {
 });
 
 describe('checkInWorker', () => {
-  test('checks off the main thread with the project typescript', async () => {
+  test.each<[boolean, RegExp]>([
+    [false, /^7\.\d+\.\d+$/],
+    ...(hasBun ? [[true, /^7\.\d+\.\d+ via bun check$/] as [boolean, RegExp]] : []),
+  ])('checks off the main thread, reporting equivalences too (preferBun: %s)', async (preferBun, version) => {
     const root = projectWith('typescript7');
-    const file = join(root, 'src/a.ts');
-    const source = readFileSync(file, 'utf8');
-    const start = source.indexOf('s.length');
-    const checked = await checkInWorker({ root }, [
-      { key: 'bad', file, range: { start, end: start + 8 }, replacement: '"x"' },
-      { key: 'fine', file, range: { start, end: start + 8 }, replacement: '0' },
-    ]);
-    expect(checked?.version).toMatch(/^7\./);
+    const { bad, fine, eq } = mutantsIn(root);
+    const checked = await checkInWorker({ root, preferBun }, [bad, fine, eq]);
+    expect(checked?.version).toMatch(version);
     expect([...checked!.errors.keys()]).toEqual(['bad']);
-  });
-
-  test('also reports mutants proven equivalent by types', async () => {
-    const root = projectWith('typescript7');
-    const file = join(root, 'src/chain.ts');
-    const at = readFileSync(file, 'utf8').indexOf('box?.value') + 3;
-    const checked = await checkInWorker({ root }, [{ key: 'eq', file, range: { start: at, end: at + 2 }, replacement: '.' }]);
-    expect(checked?.errors.size).toBe(0);
     expect(checked?.equivalent).toEqual(new Map([['eq', 'equivalent: box is never nullish']]));
+    expect(checked?.inputs.files).toContain(join(root, 'src/chain.ts'));
   });
 
   test('is undefined without typescript or tsconfig', async () => {

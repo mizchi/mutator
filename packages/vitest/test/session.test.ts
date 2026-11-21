@@ -303,3 +303,23 @@ describe('excludesTestFile', () => {
     expect(session.excludesTestFile!(join(projects, 'b/skipped/x.test.ts'))).toBe(false);
   });
 });
+
+describe('a runtime without module.syncBuiltinESMExports', () => {
+  // workerd (@cloudflare/vitest-pool-workers) exports the function but throws from it.
+  test('the dry run and mutant runs still work', async () => {
+    const session = await createSession({
+      root: fileURLToPath(new URL('./fixtures/no-sync-builtins', import.meta.url)),
+      include: (file) => file.includes('/src/'),
+    });
+    try {
+      const dry = await session.dryRun();
+      expect(dry.failed).toEqual([]);
+      expect(dry.tests.map((t) => t.id)).toEqual(['test/math.test.ts#add']);
+      const key = session.mutants().find((m) => m.original === 'a + b' && m.replacement === 'a - b')!.key;
+      const result = await session.runMutant(key, ['test/math.test.ts#add'], { timeoutMs: 10_000 });
+      expect(result.status).toBe('Killed');
+    } finally {
+      await session.close();
+    }
+  });
+});

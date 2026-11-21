@@ -240,6 +240,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const log = options.log ?? (() => {});
   const { files, plugins, arid, instrumentOptions, runner, sessionOptions } = await resolveSetup(root, options, log);
   const session = await createRunnerSession(runner, sessionOptions);
+  // In a Bun project, Bun's checker may find the type errors (see createTypeChecker).
+  const preferBun = runner === 'bun';
   const sessions = [session];
   const unguard = guardWorkerExits(log);
   const restorePath = exposeProjectBin(root);
@@ -282,7 +284,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const skipped = lines && skippedInDiff(root, lines);
     // Sampled over every mutant, not only those needing a run: the choice must not depend on the cache.
     const sampled = options.mutantsPerLine !== undefined ? selectPerLine(mutants, options.mutantsPerLine) : undefined;
-    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => owns(m.key) && m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), reusable?.typecheck) : undefined;
+    early = touched && options.typecheck !== false ? startTypecheck(root, mutants.filter((m) => owns(m.key) && m.ignored === undefined && TS_FILE.test(m.file) && touched.has(m.key) && (!sampled || sampled.has(m.key))), { cache: reusable?.typecheck, preferBun }) : undefined;
     const dryStarted = performance.now();
     const dry = await session.dryRun(collectFiles?.map((f) => join(root, f)));
     const dryRunMs = performance.now() - dryStarted;
@@ -346,7 +348,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // Only mutants still to decide reach the type checker (sampled-out ones are already Pending),
     // within the time budget: those it does not reach stay Pending.
     const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : undefined;
-    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline });
+    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline, preferBun });
     applyTypecheck(tally, jobs, notInfected, typecheck);
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));

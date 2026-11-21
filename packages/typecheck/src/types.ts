@@ -9,7 +9,7 @@ export interface TypecheckMutant {
 }
 
 export interface TypeChecker {
-  /** `typescript` version of the project, e.g. `6.0.3` or `7.0.2`. */
+  /** TypeScript version checking the project, e.g. `6.0.3`, `7.0.2` or `7.0.2 via bun check`. */
   readonly version: string;
   /** Files and resolution directories consulted by the compiler (absolute paths). */
   readonly inputs: TypecheckInputs;

@@ -1,5 +1,5 @@
 // Placement rules: where a mutant switch can wrap code without changing its meaning.
-import { type Frame, type Node, isFunction, isSuperCall, isSuperConstructor, outermost } from './ast.ts';
+import { type Frame, type Node, isFunction, isSuperCall, isSuperConstructor, outermost, walk } from './ast.ts';
 import type { Mutant } from './types.ts';
 
 type PlacementKind = 'expression' | 'statement' | 'body';
@@ -26,7 +26,7 @@ function placementKind(frame: Frame): PlacementKind | undefined {
   const { node, parent } = frame;
   if (!parent) return undefined;
   if (node.type === 'BlockStatement') {
-    if (isFunction(parent.node)) return isSuperConstructor(parent, node) ? undefined : 'body';
+    if (isFunction(parent.node)) return isSuperConstructor(parent, node) || redeclaresFunction(node) ? undefined : 'body';
     if (parent.node.type === 'TryStatement' || parent.node.type === 'CatchClause') return 'body';
     return statementAllowed(frame) ? 'statement' : undefined;
   }
@@ -138,4 +138,28 @@ function inChainSpine(frame: Frame): boolean {
     f = f.parent;
   }
   return false;
+}
+
+/**
+ * A function body whose top-level function declaration shares its name with another one or with a
+ * `var`: valid there, but the body placement nests the body in a block, where function declarations
+ * are lexical and that is a redeclaration (`var g; function g() {}`).
+ */
+function redeclaresFunction(body: Node): boolean {
+  const functions = (body.body as Node[]).filter((st) => st.type === 'FunctionDeclaration' && st.id && st.body).map((st) => st.id.name as string);
+  if (functions.length === 0) return false;
+  if (new Set(functions).size < functions.length) return true;
+  const names = new Set(functions);
+  let found = false;
+  walk(body, ({ node }) => {
+    if (found || (node !== body && (isFunction(node) || node.type === 'ClassBody'))) return false;
+    if (node.type === 'VariableDeclaration' && node.kind === 'var') {
+      for (const declarator of node.declarations) {
+        walk(declarator.id, ({ node: id }) => {
+          if (id.type === 'Identifier' && names.has(id.name)) found = true;
+        });
+      }
+    }
+  });
+  return found;
 }

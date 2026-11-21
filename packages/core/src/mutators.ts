@@ -27,13 +27,31 @@ const whole = (frame: Frame, mutator: MutatorName, replacement: string): Candida
   anchor: frame,
 });
 
-/** Replace the operator token between `left` and `right`. */
+/**
+ * Whether `after` (the code right after `before`) would read as one token with it, or start a
+ * comment, when nothing separates them: `o+-1` -> `o--1`, `a` times a regex literal -> `a//x/`,
+ * `a>!--b` -> `a<!--b` (an HTML-like comment in scripts).
+ */
+const joins = (before: string | undefined, after: string) =>
+  (before === '+' && after.startsWith('+')) || (before === '-' && after.startsWith('-')) ||
+  (before === '/' && (after.startsWith('/') || after.startsWith('*'))) || (before === '<' && after.startsWith('!--'));
+
+/**
+ * Replace the operator token between `left` and `right`: the token itself, not a match inside a
+ * comment, with a space on a side where the new operator would join the code next to it.
+ */
 function swapOperator(frame: Frame, ctx: MutatorContext, mutator: MutatorName, from: string, to: string, logical = false): Candidate {
   const { node } = frame;
   // `??` cannot be mixed with `&&` / `||` without parentheses, so logical operands are wrapped.
   const operand = (n: Node) => (logical && n.type === 'LogicalExpression' ? `(${ctx.slice(n)})` : ctx.slice(n));
-  const gap = ctx.slice({ start: node.left.end, end: node.right.start });
-  const text = ctx.slice({ start: node.start, end: node.left.start }) + operand(node.left) + gap.replace(from, to) + operand(node.right) + ctx.slice({ start: node.right.end, end: node.end });
+  const at = nextToken(ctx.source, node.left.end, from);
+  const end = at + from.length;
+  const gap = at < 0 || end > node.right.start
+    ? ctx.slice({ start: node.left.end, end: node.right.start }).replace(from, to)
+    : ctx.slice({ start: node.left.end, end: at }) +
+      (joins(ctx.source[at - 1], to) ? ' ' : '') + to + (joins(to.at(-1), ctx.source.slice(end, end + 3)) ? ' ' : '') +
+      ctx.slice({ start: end, end: node.right.start });
+  const text = ctx.slice({ start: node.start, end: node.left.start }) + operand(node.left) + gap + operand(node.right) + ctx.slice({ start: node.right.end, end: node.end });
   return whole(frame, mutator, logical ? `(${text})` : text);
 }
 
@@ -85,11 +103,11 @@ const logicalOperator: Mutator = (frame, ctx) => {
 const LOOPS = new Set(['WhileStatement', 'DoWhileStatement', 'ForStatement']);
 const CONDITIONS = new Set(['IfStatement', 'ConditionalExpression']);
 
-/** Index of `char` at or after `from`, skipping only whitespace and comments; -1 if something else comes first. */
-function nextToken(source: string, from: number, char: string): number {
+/** Index of `token` at or after `from`, skipping only whitespace and comments; -1 if something else comes first. */
+function nextToken(source: string, from: number, token: string): number {
   let i = from;
   while (i < source.length) {
-    if (source[i] === char) return i;
+    if (source.startsWith(token, i)) return i;
     if (/\s/.test(source[i]!)) i++;
     else if (source.startsWith('//', i)) {
       const nl = source.slice(i).search(/[\n\r\u2028\u2029]/);
@@ -313,10 +331,12 @@ const optionalChaining: Mutator = (frame, ctx) => {
   if (node.type === 'MemberExpression') from = node.object.end;
   else if (node.type === 'CallExpression') from = node.callee.end;
   else return [];
-  const token = ctx.source.indexOf('?.', from);
+  const token = nextToken(ctx.source, from, '?.');
   if (token < 0) return [];
   const keepDot = node.type === 'MemberExpression' && !node.computed;
-  return [{ mutator: 'OptionalChaining', range: { start: token, end: token + 2 }, replacement: keepDot ? '.' : '', anchor: frame }];
+  // `1?.x` -> `1 .x`: a dot right after an integer literal would read as its decimal point.
+  const afterInteger = keepDot && token === from && node.object.type === 'Literal' && /^\d[\d_]*$/.test(ctx.slice(node.object));
+  return [{ mutator: 'OptionalChaining', range: { start: token, end: token + 2 }, replacement: keepDot ? (afterInteger ? ' .' : '.') : '', anchor: frame }];
 };
 
 /**

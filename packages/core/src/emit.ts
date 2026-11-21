@@ -48,12 +48,14 @@ const HTML_COMMENT_REGEX = /^\/=?\s*<!--/;
 const leadingParens = (code: string) => code.length - code.replace(/^\(+/, '').length;
 
 /**
- * Parentheses a mutator put in front of the source (LogicalOperator wraps its replacement and logical
- * operands). They enclose whole logical expressions, so a `0, ` inside them cannot change a `this` binding,
- * unlike inside parentheses from the source: `(/re/.test)(s)`.
+ * Parentheses LogicalOperator put in front of the source (it wraps its replacement and logical operands).
+ * They enclose whole logical expressions, so a `0, ` inside them cannot change a `this` binding, unlike
+ * inside parentheses from the source: `(/re/.test)(s)`. Other mutators can expose source parentheses at
+ * the start of their replacement (removing the `!` of `!(/re/.test)(s)`), so they are not counted.
  */
 function addedParens(m: Mutant, node: Node): number {
-  return m.range.start === node.start ? Math.max(0, leadingParens(m.replacement) - leadingParens(m.original)) : 0;
+  if (m.mutator !== 'LogicalOperator' || m.range.start !== node.start) return 0;
+  return Math.max(0, leadingParens(m.replacement) - leadingParens(m.original));
 }
 
 /** Inserts `0, ` after the first `skip` characters of `code` when a `<!--` regex follows them. */

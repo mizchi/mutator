@@ -71,8 +71,14 @@ if (ns.collect) {
     }
     childProcess[name] = wrapped;
   }
-  // ESM named imports of node:child_process see the wrappers too.
-  syncBuiltinESMExports();
+  // ESM named imports of node:child_process see the wrappers too. Runtimes that only
+  // emulate Node (workerd under @cloudflare/vitest-pool-workers) export the function
+  // but throw from it: they start no processes, so there is nothing to record.
+  try {
+    syncBuiltinESMExports();
+  } catch {
+    // Not Node: spawns go unrecorded.
+  }
 }
 
 // Once a test fails under an active mutant it is killed: skip the rest of this

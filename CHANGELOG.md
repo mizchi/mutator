@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The Vitest adapter's dry run works in test workers that run on workerd (`@cloudflare/vitest-pool-workers`, `@cloudflare/vitest-plugin`). Every test file failed there with `The module.syncBuiltinESMExports method is not implemented`, so mutator stopped at `tests fail without mutants`.
+
 ## 0.5.0 - 2026-11-20
 
 ### Added

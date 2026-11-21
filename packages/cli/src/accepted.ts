@@ -14,9 +14,9 @@ interface AcceptedEntry {
   where?: string;
 }
 
-/** Mutant key -> reason; empty when the file does not exist. */
-export function readAccepted(file: string): Map<string, string> {
-  if (!existsSync(file)) return new Map();
+/** The entries of the file, checked; empty when the file does not exist. */
+function readEntries(file: string): [key: string, entry: AcceptedEntry][] {
+  if (!existsSync(file)) return [];
   let data: unknown;
   try {
     data = JSON.parse(readFileSync(file, 'utf8'));
@@ -24,13 +24,51 @@ export function readAccepted(file: string): Map<string, string> {
     throw new ConfigError(`${file}: ${(error as Error).message}`);
   }
   if (typeof data !== 'object' || data === null || Array.isArray(data)) throw new ConfigError(`${file}: expected an object keyed by mutant key`);
+  return Object.entries(data).map(([key, value]) => {
+    if (typeof (value as Partial<AcceptedEntry> | null)?.reason !== 'string') throw new ConfigError(`${file}: ${key}: expected { "reason": string }`);
+    return [key, value as AcceptedEntry];
+  });
+}
+
+/** Mutant key -> reason; empty when the file does not exist. */
+export function readAccepted(file: string): Map<string, string> {
+  return new Map(readEntries(file).map(([key, entry]) => [key, entry.reason]));
+}
+
+const posix = (file: string) => file.replaceAll('\\', '/');
+
+/**
+ * Mutant key -> source file (relative to the root, `/`-separated) from the `where` that
+ * `mutator accept` records. Entries without one, or with one that has no `file:line:col`, are left out.
+ */
+export function readAcceptedFiles(file: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [key, value] of Object.entries(data)) {
-    const reason = (value as Partial<AcceptedEntry> | null)?.reason;
-    if (typeof reason !== 'string') throw new ConfigError(`${file}: ${key}: expected { "reason": string }`);
-    out.set(key, reason);
+  for (const [key, { where }] of readEntries(file)) {
+    const source = typeof where === 'string' ? /^(.+?):\d+:\d+(?: |$)/.exec(where)?.[1] : undefined;
+    if (source) out.set(key, posix(source));
   }
   return out;
+}
+
+/**
+ * Whether a run can tell that the mutant of an accepted entry is gone. A run of some files
+ * (`--include`) holds no mutant of the other files, so their entries are not judged; an entry is
+ * judged when its file is in the run, no longer exists, or is not recorded.
+ */
+export function staleJudge({ fileOf, mutated, exists }: {
+  /** Mutant key -> source file, as `readAcceptedFiles` gives it. */
+  fileOf: ReadonlyMap<string, string>;
+  /** Files (relative to the root) the run mutates. */
+  mutated: Iterable<string>;
+  exists: (file: string) => boolean;
+}): (key: string) => boolean {
+  const inRun = new Set([...mutated].map(posix));
+  return (key) => {
+    const file = fileOf.get(key);
+    if (file === undefined) return true;
+    const source = posix(file);
+    return inRun.has(source) || !exists(source);
+  };
 }
 
 /** Adds (or replaces) entries for `keys`, keeping the others; `where` describes each mutant when known. */
@@ -47,9 +85,9 @@ export function acceptMutants(file: string, keys: readonly string[], reason: str
 /**
  * Accepted mutants that went undetected become `Ignored` (out of the score and the gate).
  * `killed`: accepted mutants some test detects now, whose entry can go. `stale`: entries whose
- * mutant no longer exists.
+ * mutant no longer exists, among those the run can judge (`judged`, see `staleJudge`).
  */
-export function applyAcceptance(entries: readonly ReportEntry[], accepted: ReadonlyMap<string, string>): { entries: ReportEntry[]; killed: string[]; stale: string[] } {
+export function applyAcceptance(entries: readonly ReportEntry[], accepted: ReadonlyMap<string, string>, judged: (key: string) => boolean = () => true): { entries: ReportEntry[]; killed: string[]; stale: string[] } {
   const killed: string[] = [];
   const out = entries.map((e) => {
     const reason = accepted.get(e.mutant.key);
@@ -59,5 +97,5 @@ export function applyAcceptance(entries: readonly ReportEntry[], accepted: Reado
     return e;
   });
   const present = new Set(entries.map((e) => e.mutant.key));
-  return { entries: out, killed, stale: [...accepted.keys()].filter((k) => !present.has(k)) };
+  return { entries: out, killed, stale: [...accepted.keys()].filter((k) => !present.has(k) && judged(k)) };
 }

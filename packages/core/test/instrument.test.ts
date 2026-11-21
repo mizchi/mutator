@@ -147,6 +147,7 @@ const corpus: Record<string, string> = {
   parenChainTag: "const pt = { s: 'k', t(strs) { return this.s + strs.join('') + (1 + 1); } }; exports.r = (pt?.t)`x`;",
   parenDelete: "const pd = { a: { b: 1 }, c: 1 + 1 }; delete (pd?.a); exports.r = [JSON.stringify(pd), 'a' in pd];",
   parenAssign: "let pa = { x: 1 }; (pa.x) = 2 + 3; exports.r = pa.x;",
+  regexHtmlComment: "exports.r = ['a<!-- x -->b'.replace(/<!--\\s*x\\s*-->/g, '-'), /<!--/.test('<!--') || false, (/<!--/.test)('<!--') || 0, ((/<!--/).exec)('<!--') && 1, !(/<!--/.test)('<!--'), ~(/<!--/.exec)('<!--').index];",
   regexLike: `exports.r = /a+/.test('aa') && 'x'.length === 1;`,
   regex: "const re = /^[a-c]+\\d{1,2}$/m; exports.r = [re.test('ab1'), re.test('x'), /\\s?\\w*/.exec(' a')[0], new RegExp('^b*', 'g').test('a'), RegExp('[^x]').test('x')];",
   callStatements: `const out = []; function add(v) { out.push(v); } add(1); add(2); out.sort(); [3].forEach((v) => { add(v); }); exports.r = out;`,
@@ -304,6 +305,29 @@ describe('regressions', () => {
   test('ASI guard is only inserted at the outermost placement', () => {
     const { code } = instrument('a.js', 'let q = "x"\nq?.trim()');
     expect(code).not.toMatch(/\(;/);
+  });
+
+  test('regex literals are kept off a `(` (oxc < 0.159 reads `(/<!--` as an HTML comment, oxc-project/oxc#28158)', () => {
+    const { code } = instrument('a.ts', "export const f = (s: string) => s.replace(/<!--\\s*x\\s*-->/g, '');");
+    expect(code).not.toMatch(/\(\s*\/<!--/);
+    expect(code).toContain('(0, /<!--');
+  });
+
+  test('regexes whose body opens with `=` or whitespace before `<!--` are kept off a `(` as well', () => {
+    for (const re of ['/  <!--/', '/=<!--/', '/= <!--/']) {
+      const { code } = instrument('a.ts', `export const f = (s: string) => ${re}.test(s);`);
+      expect(code, re).not.toMatch(/\(\s*\/=?\s*<!--/);
+    }
+    // Removing the `^` of `/^ <!--/` yields `/ <!--/`, which the source never had.
+    const { code, mutants } = instrument('a.ts', 'export const f = (s: string) => /^ <!--/.test(s);');
+    expect(mutants.some((m) => m.replacement === '/ <!--/')).toBe(true);
+    expect(code).not.toMatch(/\(\s*\/=?\s*<!--/);
+  });
+
+  test('a regex is kept off the parentheses a mutated logical expression opens with', () => {
+    const { code, mutants } = instrument('a.ts', 'export const f = (a: string, b: boolean) => /<!--/.test(a) || b;');
+    expect(mutants.some((m) => m.replacement.startsWith('(/<!--'))).toBe(true);
+    expect(code).not.toMatch(/\(\s*\/<!--/);
   });
 });
 

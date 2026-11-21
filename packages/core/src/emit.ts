@@ -15,7 +15,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   let suffix: string;
   switch (kind) {
     case 'expression':
-      prefix = `(${mutants.map((m) => `${act(m)} ? (${mutated(m)}) : `).join('')}(${cov}, (`;
+      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m), addedParens(m, node))}) : `).join('')}(${cov}, (${HTML_COMMENT_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
       suffix = ')))';
       if (needsAsiGuard(frame, placements)) prefix = `;${prefix}`;
       break;
@@ -35,6 +35,32 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   }
   s.appendRight(node.start, prefix);
   s.prependLeft(node.end, suffix);
+}
+
+/**
+ * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads a regex literal right after a `(` in an
+ * ES module as an HTML comment when its body opens with `<!--`, optionally after `=` and whitespace: the
+ * arrow lookahead lexes the regex as `/` or `/=` and skips the rest as trivia (oxc-project/oxc#28158).
+ * A `0, ` in front of the regex keeps it off the `(` without changing the value. Drop this once those
+ * versions are no longer supported.
+ */
+const HTML_COMMENT_REGEX = /^\/=?\s*<!--/;
+const leadingParens = (code: string) => code.length - code.replace(/^\(+/, '').length;
+
+/**
+ * Parentheses LogicalOperator put in front of the source (it wraps its replacement and logical operands).
+ * They enclose whole logical expressions, so a `0, ` inside them cannot change a `this` binding, unlike
+ * inside parentheses from the source: `(/re/.test)(s)`. Other mutators can expose source parentheses at
+ * the start of their replacement (removing the `!` of `!(/re/.test)(s)`), so they are not counted.
+ */
+function addedParens(m: Mutant, node: Node): number {
+  if (m.mutator !== 'LogicalOperator' || m.range.start !== node.start) return 0;
+  return Math.max(0, leadingParens(m.replacement) - leadingParens(m.original));
+}
+
+/** Inserts `0, ` after the first `skip` characters of `code` when a `<!--` regex follows them. */
+function keepRegexOffParen(code: string, skip: number): string {
+  return HTML_COMMENT_REGEX.test(code.slice(skip)) ? `${code.slice(0, skip)}0, ${code.slice(skip)}` : code;
 }
 
 const WEAK_MUTATORS = new Set(['EqualityOperator', 'ArithmeticOperator', 'ConditionalExpression']);

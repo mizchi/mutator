@@ -15,7 +15,7 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
   let suffix: string;
   switch (kind) {
     case 'expression':
-      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m))}) : `).join('')}(${cov}, (${LEADING_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
+      prefix = `(${mutants.map((m) => `${act(m)} ? (${keepRegexOffParen(mutated(m), addedParens(m, node))}) : `).join('')}(${cov}, (${HTML_COMMENT_REGEX.test(source.slice(node.start, node.end)) ? '0, ' : ''}`;
       suffix = ')))';
       if (needsAsiGuard(frame, placements)) prefix = `;${prefix}`;
       break;
@@ -38,13 +38,26 @@ export function emitPlacement(s: MagicString, source: string, { frame, kind, mut
 }
 
 /**
- * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads `(/<!--…/)` in an ES module as an
- * HTML comment (oxc-project/oxc#28158). A `0, ` in front of a regex that would follow a `(` keeps it
- * off the `(` without changing the value. Drop this once those versions are no longer supported.
+ * oxc < 0.159 (used by Vite <= 8.3 through Rolldown 1.2) misreads a regex literal starting with `<!--`
+ * right after a `(` in an ES module as an HTML comment (oxc-project/oxc#28158). A `0, ` in front of the
+ * regex keeps it off the `(` without changing the value. Drop this once those versions are no longer supported.
  */
-const LEADING_REGEX = /^[\s(]*(?=\/(?![/*]))/;
-// Mutated code can open with parentheses of its own (LogicalOperator wraps its replacement).
-const keepRegexOffParen = (code: string) => code.replace(LEADING_REGEX, '$&0, ');
+const HTML_COMMENT_REGEX = /^\/<!--/;
+const leadingParens = (code: string) => code.length - code.replace(/^\(+/, '').length;
+
+/**
+ * Parentheses a mutator put in front of the source (LogicalOperator wraps its replacement and logical
+ * operands). They enclose whole logical expressions, so a `0, ` inside them cannot change a `this` binding,
+ * unlike inside parentheses from the source: `(/re/.test)(s)`.
+ */
+function addedParens(m: Mutant, node: Node): number {
+  return m.range.start === node.start ? Math.max(0, leadingParens(m.replacement) - leadingParens(m.original)) : 0;
+}
+
+/** Inserts `0, ` after the first `skip` characters of `code` when a `<!--` regex follows them. */
+function keepRegexOffParen(code: string, skip: number): string {
+  return HTML_COMMENT_REGEX.test(code.slice(skip)) ? `${code.slice(0, skip)}0, ${code.slice(skip)}` : code;
+}
 
 const WEAK_MUTATORS = new Set(['EqualityOperator', 'ArithmeticOperator', 'ConditionalExpression']);
 const WEAK_OPERATORS = new Set(['<', '<=', '>', '>=', '==', '!=', '===', '!==', '+', '-', '*', '/', '%']);

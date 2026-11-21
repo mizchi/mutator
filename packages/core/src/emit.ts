@@ -66,7 +66,7 @@ function addedParens(m: Pick<Mutant, 'mutator' | 'range' | 'replacement'>, sourc
  * Comments between the parentheses and the regex do not change that.
  */
 export function startsWithSourceParenRegex(source: string, node: Node, m: Pick<Mutant, 'mutator' | 'range' | 'replacement'>): boolean {
-  const afterParens = (code: string) => (/^\(/.test(code) ? HTML_COMMENT_REGEX.test(code.replace(/^(?:[(\s]|\/\*[^]*?\*\/|\/\/[^\n]*)+/, '')) : false);
+  const afterParens = (code: string) => (/^\(/.test(code) ? HTML_COMMENT_REGEX.test(code.replace(/^(?:[(\s]|\/\*[^]*?\*\/|\/\/[^\n\r\u2028\u2029]*)+/, '')) : false);
   const mutated = source.slice(node.start, m.range.start) + m.replacement + source.slice(m.range.end, node.end);
   return afterParens(mutated.slice(addedParens(m, source, node))) && !afterParens(source.slice(node.start, node.end));
 }

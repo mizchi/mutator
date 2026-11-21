@@ -16,7 +16,7 @@ import {
   testFingerprint,
   relativePath as relative,
 } from '@mizchi/mutator-core';
-import { applyAcceptance } from './accepted.ts';
+import { applyAcceptance, staleJudge } from './accepted.ts';
 import { formatBaselineFailure } from './baseline.ts';
 import { type Shard, ownsMutant, validateShard } from './ci-shard.ts';
 import { Checkpoint } from './checkpoint.ts';
@@ -90,6 +90,11 @@ export interface RunOptions {
   weakMutation?: boolean;
   /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
   accepted?: ReadonlyMap<string, string>;
+  /**
+   * Mutant key -> source file (relative to root) of the accepted mutants. An entry of a file this
+   * run does not mutate (`include`) is not reported stale while the file exists.
+   */
+  acceptedFiles?: ReadonlyMap<string, string>;
   /** Run and report only these mutant keys (within --since, if given), e.g. to re-check survivors after adding a test. */
   only?: ReadonlySet<string>;
   /** Arid node suppression (logging-only code); `false` disables it. */
@@ -171,7 +176,10 @@ export interface Report {
   noCoverage?: true;
   /** With --since: skipped or todo tests on the changed lines of test files (they check nothing). */
   skippedTests?: { file: string; line: number; text: string }[];
-  /** With accepted mutants: those detected now (their entry can go), and entries whose mutant no longer exists. */
+  /**
+   * With accepted mutants: those detected now (their entry can go), and entries whose mutant no
+   * longer exists. Entries of files outside the run are in neither list.
+   */
   acceptance?: { killed: string[]; stale: string[] };
   /** `only`: the reported mutants were selected with `only` (`scope` is then `diff`). */
   selection?: 'only';
@@ -398,7 +406,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       }
     }
     const accepted = options.accepted && new Map([...options.accepted].filter(([key]) => owns(key)));
-    const acceptance = accepted?.size ? applyAcceptance(report, accepted) : undefined;
+    const judged = staleJudge({ fileOf: options.acceptedFiles ?? new Map(), mutated, exists: (file) => existsSync(join(root, file)) });
+    const acceptance = accepted?.size ? applyAcceptance(report, accepted, judged) : undefined;
     const final = acceptance?.entries ?? report;
     const inScoreScope = (entries: ReportEntry[]) => inScope ? entries.filter((e) => e.focus === 'diff') : entries;
     const spawned = childProcessReach({ root, spawns: merged.spawns, resolve: importResolver(files, true) });

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { isAbsolute, join, resolve } from 'node:path';
 import { RunnerSetupError, relativePath as relative } from '@mizchi/mutator-core';
 import { formatAgentReport } from './agent-report.ts';
-import { ACCEPTED_FILE, acceptMutants, readAccepted } from './accepted.ts';
+import { ACCEPTED_FILE, acceptMutants, readAccepted, readAcceptedFiles } from './accepted.ts';
 import { ConfigError } from './config.ts';
 import { criticalMutants } from './critical.ts';
 import { qualityGate } from './gate.ts';
@@ -138,7 +138,7 @@ try {
   const report = await runMutation({
     root,
     ...options.run,
-    ...(accepted.size > 0 ? { accepted } : {}),
+    ...(accepted.size > 0 ? { accepted, acceptedFiles: readAcceptedFiles(join(root, ACCEPTED_FILE)) } : {}),
     log: (message) => console.error(message),
     ...terminal,
   });

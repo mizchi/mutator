@@ -73,7 +73,7 @@ Some mutants are equivalent: no input can tell the mutated code from the origina
 npx mutator accept <key> --reason "equivalent: <why no input can observe it>"
 ```
 
-This writes to `mutator.accepted.json`, together with where the mutant is (`file:line:col original -> replacement`). The file is committed and reviewed like code. `accept` does not check that the mutant is undetected: accept only keys from `gaps`. Once the file exists, later runs list in `acceptance.killed` the accepted mutants that a test detects now, and in `acceptance.stale` the entries whose mutant no longer exists. Remove both kinds from the file. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
+This writes to `mutator.accepted.json`, together with where the mutant is (`file:line:col original -> replacement`). The file is committed and reviewed like code. `accept` does not check that the mutant is undetected: accept only keys from `gaps`. Once the file exists, later runs list in `acceptance.killed` the accepted mutants that a test detects now, and in `acceptance.stale` the entries whose mutant no longer exists. Remove both kinds from the file. A run of some files (`--include`) judges only the entries of those files: an entry of another file is in neither list, which says nothing about it. Give a specific reason. If you are not sure the mutant is equivalent, leave it and say so in the summary rather than accepting it.
 
 ## 5. Finish
 

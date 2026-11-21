@@ -168,6 +168,20 @@ describe('runMutation', { timeout: 60_000 }, () => {
     expect(again.acceptance).toBeUndefined();
   });
 
+  test('a run of some files leaves the accepted mutants of the other files unjudged', async () => {
+    writeFileSync(join(root, 'src/other.ts'), 'export function inc(x: number): number {\n  return x + 1;\n}\n');
+    const full = await runMutation({ root, typecheck: false });
+    const inMath = full.entries.find((e) => e.mutant.file.endsWith('math.ts'))!.mutant.key;
+    const accepted = new Map([[inMath, 'equivalent'], ['gone', 'old'], ['removed', 'old']]);
+    const acceptedFiles = new Map([[inMath, 'src/math.ts'], ['gone', 'src/other.ts'], ['removed', 'src/removed.ts']]);
+    // The mutant in math.ts still exists; only an entry of a file in the run, or of a deleted file, is stale.
+    const narrowed = await runMutation({ root, typecheck: false, include: ['src/other.ts'], accepted, acceptedFiles });
+    expect(narrowed.entries.every((e) => e.mutant.file.endsWith('other.ts'))).toBe(true);
+    expect(narrowed.acceptance).toEqual({ killed: [], stale: ['gone', 'removed'] });
+    const all = await runMutation({ root, typecheck: false, accepted, acceptedFiles });
+    expect(all.acceptance?.stale).toEqual(['gone', 'removed']);
+  });
+
   test('--only runs and reports just the given mutants', async () => {
     const first = await runMutation({ root });
     const boundary = first.entries.find((e) => `${e.mutant.original} -> ${e.mutant.replacement}` === 'age >= 18 -> age > 18')!;

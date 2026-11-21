@@ -332,6 +332,11 @@ describe('regressions', () => {
     expect(dropped.map((m) => [m.mutator, m.ignored])).toEqual([['BooleanLiteral', 'unplaceable']]);
     expect(code).not.toContain('(0, /<!--/.test)');
     expect(code).not.toContain('((/<!--');
+    // A comment between the parenthesis and the regex does not hide it.
+    for (const comment of ['/* keep */ ', '// keep\n']) {
+      const commented = instrument('a.ts', `export const f = (s: string) => !(${comment}/<!--/.test)(s);`).mutants;
+      expect(commented.find((m) => m.mutator === 'BooleanLiteral')?.ignored, comment).toBe('unplaceable');
+    }
     // The same mutant of another regex is placed as before.
     const other = instrument('a.ts', 'export const f = (s: string) => !(/x/.test)(s);').mutants;
     expect(other.find((m) => m.replacement === '(/x/.test)(s)')?.ignored).toBeUndefined();

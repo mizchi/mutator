@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 - 2026-11-21
+
+A fix for `mutator.accepted.json` in runs narrowed with `--include`. All eight npm packages share version **0.5.2**.
+
+### Fixed
+
+- A run of some files (`--include`) no longer lists the accepted mutants of the other files in `acceptance.stale` with `accepted, but the mutant no longer exists - remove from mutator.accepted.json`. Those mutants still exist, the run just does not hold them, and removing the entries made the next full run report them as undetected again. An entry is now judged only when the file in its `where` is among the files of the run or no longer exists; an entry without a `where` is judged as before. [#48](https://github.com/mizchi/mutator/issues/48)
+
 ## 0.5.1 - 2026-11-21
 
 Fixes for Cloudflare Workers projects and for Vite 8.3 and older, and type checking for Bun projects without the `typescript` package. All eight npm packages share version **0.5.1**.

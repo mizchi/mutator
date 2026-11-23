@@ -90,6 +90,8 @@ export interface RunOptions {
   weakMutation?: boolean;
   /** Skip coarse mutants with a finer mutant inside (`solitary` skips). */
   skipSubsumed?: boolean;
+  /** Subsumption-minimal relational operator set. */
+  minimalRelational?: boolean;
   /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
   accepted?: ReadonlyMap<string, string>;
   /**

@@ -175,6 +175,10 @@
       "description": "Decide covered mutants that no test reaches with a different value as Survived without running them (default true).",
       "type": "boolean"
     },
+    "minimalRelational": {
+      "description": "Mutate relational operators with the subsumption-minimal set (< -> <=, !=, false) and skip replacements a .length / indexOf lower bound proves equivalent (default false).",
+      "type": "boolean"
+    },
     "skipSubsumed": {
       "description": "Skip coarse mutants (statement, block, literal and body removals) that have a finer mutant inside them (default false).",
       "type": "boolean"

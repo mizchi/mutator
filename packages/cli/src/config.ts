@@ -54,6 +54,8 @@ export interface MutatorConfig {
   weakMutation?: boolean;
   /** Skip coarse mutants that have a finer mutant inside them (`solitary`; default false). */
   skipSubsumed?: boolean;
+  /** Relational operators get the subsumption-minimal set (`<` -> `<=`, `!=`, `false`; default false). */
+  minimalRelational?: boolean;
   /** Plugin modules: paths relative to the root, or package names. */
   plugins?: string[];
   /** Mutators to skip (built-in or custom names). */
@@ -135,6 +137,7 @@ const properties = {
   failOnSurvived: { description: 'Exit 2 when a mutant survives.', type: 'boolean' },
   typecheck: { description: 'Type-check mutants before running them.', enum: [true, false, 'auto'] },
   weakMutation: { description: 'Decide covered mutants that no test reaches with a different value as Survived without running them (default true).', type: 'boolean' },
+  minimalRelational: { description: 'Mutate relational operators with the subsumption-minimal set (< -> <=, !=, false) and skip replacements a .length / indexOf lower bound proves equivalent (default false).', type: 'boolean' },
   skipSubsumed: { description: 'Skip coarse mutants (statement, block, literal and body removals) that have a finer mutant inside them (default false).', type: 'boolean' },
   plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),

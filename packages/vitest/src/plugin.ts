@@ -11,6 +11,7 @@ export interface PluginOptions {
   ignorers?: InstrumentOptions['ignorers'];
   weak?: InstrumentOptions['weak'];
   subsumeCoarse?: InstrumentOptions['subsumeCoarse'];
+  minimalRelational?: InstrumentOptions['minimalRelational'];
   /** Mutant identity uses paths relative to this directory. */
   root?: string;
 }

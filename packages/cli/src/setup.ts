@@ -26,6 +26,7 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
   const instrumentOptions: InstrumentFlags = {
     ...(options.weakMutation === false ? { weak: false } : {}),
     ...(options.skipSubsumed ? { subsumeCoarse: true } : {}),
+    ...(options.minimalRelational ? { minimalRelational: true } : {}),
     ...(arid !== undefined ? { arid } : {}),
     ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),

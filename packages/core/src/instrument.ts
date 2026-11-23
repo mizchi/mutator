@@ -37,7 +37,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const critical: Range[] = [];
   const ignoredBy = createIgnoreCheck(options.ignorers ?? [], file, source);
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
-  const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end) };
+  const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end), ...(options.minimalRelational ? { minimalRelational: true } : {}) };
 
   const tracker = createScopeTracker(source, program, parsed.comments);
   const path: string[] = [];
@@ -117,7 +117,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
   for (const [node, names] of refs) scopes.get(node)!.refs = [...names].sort();
   const mutants: Mutant[] = [];
-  const pending: { skip: SkippedCandidate; by: Candidate }[] = [];
+  const pending: { skip: SkippedCandidate; by?: Candidate }[] = [];
   const mutantOf = new Map<Candidate, Mutant>();
   const placements = new Map<Node, Placement>();
   const usedKeys = new Map<string, number>();
@@ -128,6 +128,13 @@ export function instrument(file: string, source: string, options: InstrumentOpti
         skip: { file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic: true as const } : {}) },
         by,
       });
+    if (candidate.skip) {
+      const { rule, category, heuristic } = candidate.skip;
+      pending.push({
+        skip: { file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic } : {}) },
+      });
+      continue;
+    }
     const first = sameEdit.get(candidate);
     if (first) {
       skippedAs('same-edit', 'duplicate', first);
@@ -168,7 +175,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     mutantOf.set(candidate, mutant);
   }
   const skipped = pending.map(({ skip, by }) => {
-    const key = mutantOf.get(by)?.key;
+    const key = by && mutantOf.get(by)?.key;
     return key ? { ...skip, by: key } : skip;
   });
 

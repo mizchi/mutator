@@ -82,10 +82,41 @@ export interface SourceMapLike {
   sourcesContent?: (string | null)[];
 }
 
+/**
+ * Why a candidate was not made a mutant:
+ * - equivalent: the change cannot alter behaviour
+ * - noise: the change is observable, but not worth a test (messages, delays)
+ * - timeout: the change likely hangs
+ * - owned: another mutator emits the same program
+ * - subsumed: a placed mutant is killed by every test that would kill this one (heuristic or proven)
+ * - duplicate: another candidate makes the same edit
+ * - invalid: the change cannot be expressed at this site
+ */
+export type SkipCategory = 'equivalent' | 'noise' | 'timeout' | 'owned' | 'subsumed' | 'duplicate' | 'invalid';
+
+/** A candidate a skip rule removed before it became a mutant. Never run, never counted. */
+export interface SkippedCandidate {
+  file: string;
+  mutator: MutatorName;
+  range: Range;
+  location: Location;
+  original: string;
+  replacement: string;
+  /** Kebab-case rule name, e.g. `redundant-call`. */
+  rule: string;
+  category: SkipCategory;
+  /** The rule is a judgment, not a proof: a test could kill this candidate and miss `by`. */
+  heuristic?: true;
+  /** Key of the placed mutant that justifies the skip. The skip only applies while that mutant runs. */
+  by?: string;
+}
+
 export interface InstrumentResult {
   code: string;
   map: SourceMapLike;
   mutants: Mutant[];
+  /** Candidates removed by skip rules (within `ranges` when given). */
+  skipped: SkippedCandidate[];
   /** Every scope of the file (functions and top-level statements), with or without mutants. */
   scopes: Scope[];
   /** Call sites by scope, with the callee as written (`f`, `obj.m`, `this.m`), for call graphs. */

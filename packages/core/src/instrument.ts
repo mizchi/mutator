@@ -13,7 +13,7 @@ import { type Placement, findPlacement } from './placement.ts';
 import { runtimeHeader } from './runtime.ts';
 import { createScopeTracker, isTopLevelScope } from '@mizchi/test-impact/source';
 import { intersects, lineStarts, position } from './text.ts';
-import type { CallSite, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope } from './types.ts';
+import type { CallSite, InstrumentOptions, InstrumentResult, Location, Mutant, MutatorName, Range, Scope, SkipCategory, SkippedCandidate } from './types.ts';
 
 export { scanImports } from './facts.ts';
 
@@ -88,24 +88,56 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     },
   );
 
-  // Decided on the full candidate set so that a `ranges` restriction never changes the outcome.
-  const redundant = redundantCallStatements(found.map((f) => f.candidate));
   const editOf = (c: Candidate) => `${c.range.start}:${c.range.end}:${c.replacement}`;
   // On an identical edit, a low-priority mutator yields to the established one regardless of visit order.
-  const primaryEdits = new Set(found.filter((f) => !LOW_PRIORITY.has(f.candidate.mutator)).map((f) => editOf(f.candidate)));
+  const primaryEdit = new Map<string, Candidate>();
+  for (const { candidate } of found) {
+    if (!LOW_PRIORITY.has(candidate.mutator) && !primaryEdit.has(editOf(candidate))) primaryEdit.set(editOf(candidate), candidate);
+  }
+  const inRange = (c: Candidate) => !options.ranges || options.ranges.some((r) => intersects(r, c.range));
+  const reasonOf = (c: Candidate) => disabled(c.mutator, c.range.start) ?? ignoredBy(c.anchor) ?? (isArid(c.anchor) ? 'arid: logging' : undefined);
+  const placementOf = (c: Candidate): Omit<Placement, 'mutants'> | undefined => {
+    const p = findPlacement(c.anchor);
+    return p && !(p.kind === 'expression' && startsWithSourceParenRegex(source, p.frame.node, c)) ? p : undefined;
+  };
+
+  // Duplicates first: the first candidate (or the primary one) of an edit stands for the others.
+  const sameEdit = new Map<Candidate, Candidate>();
+  const firstOfEdit = new Map<string, Candidate>();
+  for (const { candidate } of found) {
+    const edit = editOf(candidate);
+    const primary = LOW_PRIORITY.has(candidate.mutator) ? primaryEdit.get(edit) : undefined;
+    const first = primary ?? firstOfEdit.get(edit);
+    if (first) sameEdit.set(candidate, first);
+    else firstOfEdit.set(edit, candidate);
+  }
+  // Decided on the full candidate set so that a `ranges` restriction never changes the outcome.
+  // An ignored inner mutant still justifies the skip: ignoring code must not add mutants to it.
+  const redundant = redundantCallStatements(found.map((f) => f.candidate));
 
   for (const [node, names] of refs) scopes.get(node)!.refs = [...names].sort();
   const mutants: Mutant[] = [];
+  const pending: { skip: SkippedCandidate; by: Candidate }[] = [];
+  const mutantOf = new Map<Candidate, Mutant>();
   const placements = new Map<Node, Placement>();
-  const seenEdits = new Set<string>();
   const usedKeys = new Map<string, number>();
   for (const { candidate, scope, astPath } of found) {
-    if (redundant.has(candidate)) continue;
-    if (options.ranges && !options.ranges.some((r) => intersects(r, candidate.range))) continue;
-    const edit = editOf(candidate);
-    if (seenEdits.has(edit)) continue;
-    if (LOW_PRIORITY.has(candidate.mutator) && primaryEdits.has(edit)) continue;
-    seenEdits.add(edit);
+    if (!inRange(candidate)) continue;
+    const skippedAs = (rule: string, category: SkipCategory, by: Candidate, heuristic = false) =>
+      pending.push({
+        skip: { file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic: true as const } : {}) },
+        by,
+      });
+    const first = sameEdit.get(candidate);
+    if (first) {
+      skippedAs('same-edit', 'duplicate', first);
+      continue;
+    }
+    const justifier = redundant.get(candidate);
+    if (justifier) {
+      skippedAs('redundant-call', 'subsumed', sameEdit.get(justifier) ?? justifier, true);
+      continue;
+    }
     let key = hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
     const dup = (usedKeys.get(key) ?? 0) + 1;
     usedKeys.set(key, dup);
@@ -121,11 +153,11 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       scope,
       ...(critical.some((r) => r.start <= candidate.range.start && candidate.range.end <= r.end) ? { critical: true as const } : {}),
     };
-    const reason = disabled(candidate.mutator, candidate.range.start) ?? ignoredBy(candidate.anchor) ?? (isArid(candidate.anchor) ? 'arid: logging' : undefined);
-    const placement = reason ? undefined : findPlacement(candidate.anchor);
+    const reason = reasonOf(candidate);
+    const placement = reason ? undefined : placementOf(candidate);
     if (reason) {
       mutant.ignored = reason;
-    } else if (!placement || (placement.kind === 'expression' && startsWithSourceParenRegex(source, placement.frame.node, candidate))) {
+    } else if (!placement) {
       mutant.ignored = 'unplaceable';
     } else {
       const entry = placements.get(placement.frame.node) ?? { ...placement, mutants: [] };
@@ -133,12 +165,17 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       placements.set(placement.frame.node, entry);
     }
     mutants.push(mutant);
+    mutantOf.set(candidate, mutant);
   }
+  const skipped = pending.map(({ skip, by }) => {
+    const key = mutantOf.get(by)?.key;
+    return key ? { ...skip, by: key } : skip;
+  });
 
   const modules = { imports: importBindings(program), reexports: reexportBindings(program), loads: moduleLoads(program) };
   if (placements.size === 0) {
     const s = new MagicString(source);
-    return { code: source, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, ...modules };
+    return { code: source, map: toMap(s, file), mutants, skipped, scopes: [...scopes.values()], calls, ...modules };
   }
 
   const s = new MagicString(source);
@@ -150,17 +187,17 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   s.prependRight(at, text);
   const code = s.toString();
   if (options.mutators?.length) assertCustomMutantsParse(file, source, code, mutants, new Set(options.mutators.map((m) => m.name)));
-  return { code, map: toMap(s, file), mutants, scopes: [...scopes.values()], calls, ...modules };
+  return { code, map: toMap(s, file), mutants, skipped, scopes: [...scopes.values()], calls, ...modules };
 }
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
 
 /**
- * Stryker's filter for `call();` -> `;`: only kept when no other mutant lies inside the
- * statement, since those already exercise it.
+ * Stryker's filter for `call();` -> `;`: dropped when another mutant lies inside the statement,
+ * since that one already exercises it. Maps the call removal to that mutant.
  */
-function redundantCallStatements(candidates: readonly Candidate[]): Set<Candidate> {
-  const out = new Set<Candidate>();
+function redundantCallStatements(candidates: readonly Candidate[]): Map<Candidate, Candidate> {
+  const out = new Map<Candidate, Candidate>();
   const sorted = [...candidates].sort((a, b) => a.range.start - b.range.start);
   for (const call of candidates) {
     if (call.mutator !== 'CallExpression') continue;
@@ -175,7 +212,7 @@ function redundantCallStatements(candidates: readonly Candidate[]): Set<Candidat
     for (let i = lo; i < sorted.length && sorted[i]!.range.start < end; i++) {
       const other = sorted[i]!;
       if (other !== call && other.range.end <= end) {
-        out.add(call);
+        out.set(call, other);
         break;
       }
     }

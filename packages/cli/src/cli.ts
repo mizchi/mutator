@@ -10,7 +10,8 @@ import { criticalMutants } from './critical.ts';
 import { qualityGate } from './gate.ts';
 import { DEFAULT_SKILL_DIR, initSkills, shippedSkills } from './init-skill.ts';
 import { formatHtml, formatMutationTestingJson } from './mte-report.ts';
-import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, resolveValues } from './options.ts';
+import { parseAcceptCli, parseCli, parseInitSkillCli, parseSelectCli, parseSkippedCli, resolveValues } from './options.ts';
+import { formatSkipped, listSkipped } from './skipped.ts';
 import { terminalProgress } from './progress.ts';
 import { formatAnnotations, formatSummary, oneLine } from './report.ts';
 import { SnapshotError } from './reuse.ts';
@@ -26,6 +27,8 @@ const USAGE = `usage: mutator [options]
        mutator select-tests --since <ref> [--format files|json]   rank the tests a change can break,
                        using static imports on a first run or a cached ranking: killers of mutants in
                        the changed functions, other tests covering them, then changed test files
+       mutator skipped [--format text|json]   list the candidates skip rules removed (duplicates,
+                       subsumed call removals, ...) with the rule and the mutant that justifies each; runs no test
        mutator init-skill [--dir <dir>] [--force]   copy the agent skills shipped with mutator
                        (${shippedSkills().join(', ')}) into <dir>/<skill>/ (default dir:
                        ${DEFAULT_SKILL_DIR}); --force overwrites copies that differ from the shipped ones
@@ -98,6 +101,10 @@ try {
   }
   if (process.argv[2] === 'select-tests') {
     await selectTestsCommand(process.argv.slice(3));
+    await exit(0);
+  }
+  if (process.argv[2] === 'skipped') {
+    await skippedCommand(process.argv.slice(3));
     await exit(0);
   }
   if (process.argv[2] === 'init-skill') {
@@ -243,6 +250,19 @@ async function selectTestsCommand(argv: string[]): Promise<void> {
   else if (files.length > 0) console.log(files.join('\n'));
   const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
   console.error(`select-tests: ${count(selection.killers.length, 'killer')}, ${count(selection.covering.length, 'other covering test')}, ${count(selection.changedTests.length, 'changed test file')} -> ${count(files.length, 'test file')}`);
+}
+
+/** `mutator skipped [--format text|json]`: what skip rules removed, from instrumentation alone. */
+async function skippedCommand(argv: string[]): Promise<void> {
+  const { format, values } = parseSkippedCli(argv);
+  if (values.help) {
+    console.log(USAGE);
+    return;
+  }
+  const { root, run } = await resolveValues(values, process.cwd());
+  const { skipped } = await listSkipped({ root, ...run });
+  if (format === 'json') console.log(JSON.stringify({ skipped }, null, 2));
+  else process.stdout.write(formatSkipped(skipped));
 }
 
 /** `mutator init-skill [--dir <dir>] [--force]`: copies the shipped agent skills into the project. */

@@ -155,6 +155,21 @@ export function parseAcceptCli(argv: string[]) {
   }
 }
 
+export const SKIPPED_FORMATS = ['text', 'json'] as const;
+
+/** `mutator skipped [--format text|json] [options]`. */
+export function parseSkippedCli(argv: string[]) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: { ...OPTIONS, format: { type: 'string' } }, allowNegative: true }).values;
+  } catch (error) {
+    throw new ConfigError(`skipped: ${(error as Error).message}`);
+  }
+  const { format = 'text', ...values } = parsed;
+  if (!(SKIPPED_FORMATS as readonly string[]).includes(format)) throw new ConfigError(`skipped: --format must be one of ${SKIPPED_FORMATS.join(', ')} (got ${format})`);
+  return { format: format as (typeof SKIPPED_FORMATS)[number], values: values as CliValues };
+}
+
 export const SELECT_FORMATS = ['files', 'json'] as const;
 
 /** `mutator select-tests --since <ref> [--format files|json] [options]`. */

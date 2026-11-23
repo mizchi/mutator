@@ -2,7 +2,7 @@
 // with the options its sessions are created with.
 import { globSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, DEFAULT_ARID_CALLEES, hash, instrument, relativePath as relative } from '@mizchi/mutator-core';
+import { type CallGraphSource, type InstrumentFlags, type InstrumentOptions, type SkippedCandidate, DEFAULT_ARID_CALLEES, hash, instrument, relativePath as relative } from '@mizchi/mutator-core';
 import { isFile } from './child-process.ts';
 import type { SourceInfo } from './coverage-cache.ts';
 import { loadPlugins } from './plugins.ts';
@@ -66,6 +66,7 @@ export function collectSources(root: string, files: readonly string[], instrumen
   const sources = new Map<string, SourceInfo>();
   const graphSources: CallGraphSource[] = [];
   const sourceHashes: Record<string, string> = {};
+  const skipped: SkippedCandidate[] = [];
   const mutants = files.flatMap((file) => {
     const content = readFileSync(file, 'utf8');
     const identity = relative(root, file);
@@ -73,9 +74,10 @@ export function collectSources(root: string, files: readonly string[], instrumen
     const result = instrument(file, content, { identity, ...instrumentOptions });
     sources.set(file, { scopes: result.scopes, imports: result.imports, reexports: result.reexports, loads: result.loads });
     graphSources.push({ file, scopes: result.scopes, calls: result.calls, imports: result.imports });
+    skipped.push(...result.skipped);
     return result.mutants;
   });
-  return { mutants, sources, graphSources, sourceHashes };
+  return { mutants, skipped, sources, graphSources, sourceHashes };
 }
 
 const RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '/index.ts', '/index.js'];

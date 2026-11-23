@@ -180,6 +180,22 @@ npx mutator select-tests --since main --format json
 
 The standalone [@mizchi/test-impact](./packages/test-impact/README.md) package provides a CLI and a Node API for the same cold selection. It can also select individual tests from recorded Chromium coverage without running mutation testing.
 
+### Candidates that were not made mutants
+
+```sh
+npx mutator skipped
+npx mutator skipped --format json
+```
+
+Some candidates are removed before they become mutants, because another mutant already covers them. `mutator skipped` lists each one with the rule that removed it, its category, and the key of the mutant that justifies it. It runs no test. The rules so far:
+
+| rule | category | removes |
+|---|---|---|
+| `same-edit` | duplicate | a second mutator making the same edit as another (for example `FnValue` returning `true` for an arrow whose body a `ConditionalExpression` mutant already replaces with `true`) |
+| `redundant-call` | subsumed, heuristic | `call();` -> `;` when another mutant lies inside the call (StrykerJS does the same). A test could kill the removal and miss the inner mutant; this is rare |
+
+Skipped candidates are not counted, reported or cached. An inner mutant that is disabled or ignored still justifies the skip, so ignoring code never adds mutants to it. An excluded mutator (`--exclude-mutator`) does not.
+
 ### Finding tests that detect nothing or are subsumed (kill matrix)
 
 ```sh

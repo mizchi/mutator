@@ -186,6 +186,15 @@ function trackEnvironment(): void {
       record(name);
       return Reflect.getOwnPropertyDescriptor(target, name);
     },
+    // Writes go to the real object with itself as the receiver. The default [[Set]] would
+    // define the property on the proxy with a bare `{ value }` descriptor, which process.env
+    // rejects for a variable that already exists.
+    set(target, name, value) {
+      return Reflect.set(target, name, value);
+    },
+    defineProperty(target, name, descriptor) {
+      return Reflect.defineProperty(target, name, descriptor);
+    },
     ownKeys(target) {
       const state = currentState();
       if (state) {

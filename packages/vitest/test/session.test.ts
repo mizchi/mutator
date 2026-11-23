@@ -337,6 +337,7 @@ describe('run-time inputs', () => {
         'test/all-env.test.ts': ['test/__snapshots__/all-env.test.ts.snap'],
         'test/none.test.ts': ['test/__snapshots__/none.test.ts.snap'],
         'test/reads.test.ts': ['fixtures/cases', 'fixtures/cases/a.txt', 'fixtures/data.json', 'fixtures/missing.json', 'src', 'test/__snapshots__/reads.test.ts.snap'],
+        'test/writes-env.test.ts': ['test/__snapshots__/writes-env.test.ts.snap'],
       });
       // Node's module loader reads WATCH_REPORT_DEPENDENCIES on its own: not an input of the test.
       expect(Object.fromEntries(dry.env ?? [])).toEqual({

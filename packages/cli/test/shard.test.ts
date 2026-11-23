@@ -124,6 +124,34 @@ describe('runSharded', () => {
     expect(completed).toEqual([1]);
   });
 
+  test('a job its precheck settles is never run, and its shards are not taken meanwhile', async () => {
+    const ran: string[] = [];
+    const done: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const run = runSharded({
+      workers: 2,
+      jobs: [{ id: 'skip', shards: [['a'], ['b']] }, { id: 'keep', shards: [['x']] }],
+      precheck: async (job) => {
+        if (job.id === 'skip') await gate;
+        return job.id === 'skip';
+      },
+      run: async (_w, job, shard) => {
+        ran.push(`${job.id}:${shard.join()}`);
+        await tick();
+        return { status: 'Survived', killedBy: [], durationMs: 1 };
+      },
+      onDone: (job) => done.push(job.id),
+    });
+    await tick();
+    await tick();
+    release();
+    const unsettled = await run;
+    expect(ran).toEqual(['keep:x']);
+    expect(done).toEqual(['keep']);
+    expect(unsettled).toEqual([]);
+  });
+
   test('stops taking work once `shouldStop` says so', async () => {
     let calls = 0;
     const done: string[] = [];

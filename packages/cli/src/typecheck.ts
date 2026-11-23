@@ -67,16 +67,8 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
   const pre = await untilDeadline(early, deadline, now);
   const { errors, equivalent, unchecked } = EMPTY();
   const cached = cachedTypechecks(root, cache, all);
-  const inputs: TypecheckInputs[] = cached.valid && cache ? [{
-    files: cache.inputs.files.map((f) => join(root, f)),
-    directories: cache.inputs.directories.map((f) => join(root, f)),
-    directoryChecks: cache.inputs.directoryChecks.map((f) => join(root, f)),
-    searches: cache.inputs.searches.map((search) => ({ ...search, directory: join(root, search.directory) })),
-  }] : [];
-  for (const [key, result] of cached.hits) {
-    if (result.error !== undefined) errors.set(key, result.error);
-    if (result.equivalent !== undefined) equivalent.set(key, result.equivalent);
-  }
+  const inputs = cachedInputs(root, cached.valid ? cache : undefined);
+  addHits(cached.hits, errors, equivalent);
   if (pre) {
     inputs.push(pre.inputs);
     for (const m of all) {
@@ -132,6 +124,103 @@ export async function typecheckJobs(root: string, setting: boolean | 'auto', mut
   } finally {
     checker.close();
   }
+}
+
+/** The checker inputs a valid cache was recorded with, as absolute paths. */
+function cachedInputs(root: string, cache: TypecheckCache | undefined): TypecheckInputs[] {
+  return cache ? [{
+    files: cache.inputs.files.map((f) => join(root, f)),
+    directories: cache.inputs.directories.map((f) => join(root, f)),
+    directoryChecks: cache.inputs.directoryChecks.map((f) => join(root, f)),
+    searches: cache.inputs.searches.map((search) => ({ ...search, directory: join(root, search.directory) })),
+  }] : [];
+}
+
+function addHits(hits: ReturnType<typeof cachedTypechecks>['hits'], errors: Map<string, string>, equivalent: TypecheckResult['equivalent']): void {
+  for (const [key, result] of hits) {
+    if (result.error !== undefined) errors.set(key, result.error);
+    if (result.equivalent !== undefined) equivalent.set(key, result.equivalent);
+  }
+}
+
+/** What type checking decided for a mutant: it does not compile, or it is equivalent. */
+export type TypecheckVerdict = { status: 'CompileError' } | { status: 'Ignored'; reason: `equivalent: ${string}` };
+
+/** Type checking that runs while mutants execute: each verdict arrives with its batch. */
+export interface StreamedTypecheck {
+  /** The mutant's verdict once its batch is checked; undefined when it type-checks, or nothing checks it. */
+  verdict(key: string): Promise<TypecheckVerdict | undefined>;
+  /** Every verdict, with the cache to store, once the whole check is done. */
+  done: Promise<TypecheckResult>;
+}
+
+/** Mutants per batch of a streamed check: small enough that the first jobs barely wait. */
+const STREAM_BATCH = 25;
+
+/**
+ * Type-check `mutants` on a worker thread in their given order (the order jobs start in), so a job
+ * waits only for its own batch. Cached verdicts are known at once. If the checker is missing or
+ * fails, every mutant is left to run as a test, as with `typecheck: auto`.
+ */
+export function streamTypecheck(
+  root: string,
+  mutants: readonly Mutant[],
+  log: (message: string) => void,
+  options: { cache?: TypecheckCache | undefined; checkInWorker?: typeof checkInWorker } = {},
+): StreamedTypecheck {
+  const all = mutants.filter((m) => TS_FILE.test(m.file));
+  const cached = cachedTypechecks(root, options.cache, all);
+  const errors = new Map<string, string>();
+  const equivalent: TypecheckResult['equivalent'] = new Map();
+  addHits(cached.hits, errors, equivalent);
+  const known = (key: string): TypecheckVerdict | undefined => {
+    if (errors.has(key)) return { status: 'CompileError' };
+    const reason = equivalent.get(key);
+    return reason === undefined ? undefined : { status: 'Ignored', reason };
+  };
+  const waiting = new Map<string, (verdict: TypecheckVerdict | undefined) => void>();
+  const pending = new Map(cached.missing.map((m) => [m.key, new Promise<TypecheckVerdict | undefined>((resolve) => waiting.set(m.key, resolve))]));
+  const release = (keys: Iterable<string>) => {
+    for (const key of keys) {
+      waiting.get(key)?.(known(key));
+      waiting.delete(key);
+    }
+  };
+  const started = performance.now();
+  const check = options.checkInWorker ?? checkInWorker;
+  const run = cached.missing.length === 0 ? Promise.resolve(undefined) : check({ root, batchSize: STREAM_BATCH }, cached.missing, {
+    onBatch: (batch) => {
+      for (const [key, value] of batch.errors) errors.set(key, value);
+      for (const [key, value] of batch.equivalent) equivalent.set(key, value as `equivalent: ${string}`);
+      release(batch.keys);
+    },
+  });
+  const done = run.then(
+    (checked): TypecheckResult => {
+      if (cached.missing.length > 0 && !checked) {
+        log('typecheck skipped: needs a tsconfig.json and either the typescript package or Bun 1.4+ (bun check); mutants that do not compile run as tests instead');
+        return { errors, equivalent, unchecked: new Set() };
+      }
+      const inputs = cachedInputs(root, cached.valid ? options.cache : undefined);
+      if (checked) {
+        for (const [key, value] of checked.errors) errors.set(key, value);
+        for (const [key, value] of checked.equivalent) equivalent.set(key, value as `equivalent: ${string}`);
+        inputs.push(checked.inputs);
+        log(`typecheck (TypeScript ${checked.version}): ${cached.missing.length} mutants in ${((performance.now() - started) / 1000).toFixed(1)}s, alongside mutant execution`);
+      }
+      const next = storeTypechecks(root, inputs, all, errors, equivalent, cached.valid ? options.cache : undefined);
+      return { errors, equivalent, unchecked: new Set(), ...(next ? { cache: next } : {}) };
+    },
+    (error: unknown): TypecheckResult => {
+      // Verdicts of the batches already received stand (jobs may have been settled by them); nothing is cached.
+      log(`typecheck failed: ${error instanceof Error ? error.message : String(error)}; mutants that do not compile run as tests instead`);
+      return { errors, equivalent, unchecked: new Set() };
+    },
+  ).finally(() => release([...waiting.keys()]));
+  return {
+    verdict: (key) => pending.get(key) ?? Promise.resolve(known(key)),
+    done,
+  };
 }
 
 /** The early type check's result, or undefined (and the check cancelled) if the deadline comes first. */

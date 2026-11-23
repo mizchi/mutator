@@ -38,6 +38,8 @@ export interface ShardedJob {
  * job: only the shards in flight finish, so a deadline is overrun by one shard at most.
  * With `allShards` (kill matrix) only a Timeout settles a job early: every other shard runs,
  * and the job's failing tests are those of all its shards.
+ * `precheck` runs when a job is first taken, before any of its shards; true settles the job
+ * elsewhere (e.g. it does not type-check): none of its shards run and `onDone` is not called.
  * Returns the jobs left unsettled: never started, or stopped between shards.
  */
 export async function runSharded<J extends ShardedJob>(input: {
@@ -47,14 +49,15 @@ export async function runSharded<J extends ShardedJob>(input: {
   onDone: (job: J, outcome: MutantRunResult) => void;
   shouldStop?: () => boolean;
   allShards?: boolean;
+  precheck?: (job: J) => Promise<boolean>;
 }): Promise<J[]> {
-  const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false, outcomes: [] as MutantRunResult[] }));
+  const state = input.jobs.map((job) => ({ job, next: 0, running: 0, durationMs: 0, settled: false, checking: false, outcomes: [] as MutantRunResult[] }));
   let unstarted = 0;
   let failed = false;
   const take = () => {
     if (failed || input.shouldStop?.()) return undefined;
     if (unstarted < state.length) return state[unstarted++]!;
-    return state.find((s) => s.next > 0 && !s.settled && s.next < s.job.shards.length);
+    return state.find((s) => s.next > 0 && !s.settled && !s.checking && s.next < s.job.shards.length);
   };
   const settle = (s: (typeof state)[number], outcome: MutantRunResult) => {
     s.settled = true;
@@ -62,6 +65,18 @@ export async function runSharded<J extends ShardedJob>(input: {
   };
   const workers = Array.from({ length: input.workers }, async (_, worker) => {
     for (let s = take(); s; s = take()) {
+      if (s.next === 0 && input.precheck) {
+        // Claimed while checking: no other worker takes a shard of this job meanwhile.
+        s.checking = true;
+        s.next = 1;
+        const decided = await input.precheck(s.job);
+        s.checking = false;
+        s.next = 0;
+        if (decided) {
+          s.settled = true;
+          continue;
+        }
+      }
       const index = s.next++;
       const shard = s.job.shards[index]!;
       s.running++;

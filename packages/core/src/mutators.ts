@@ -1,6 +1,7 @@
 import { type Frame, type Node, isDirective, isFunction, isSuperCall, isSuperConstructor, outermost, unwrap } from './ast.ts';
 import { regexMutations } from './regex.ts';
-import type { MutatorName, Range } from './types.ts';
+import { MINIMAL, equivalentUnderBound, isRelational } from './relational.ts';
+import type { MutatorName, Range, SkipCategory } from './types.ts';
 
 export interface Candidate {
   mutator: MutatorName;
@@ -8,12 +9,23 @@ export interface Candidate {
   replacement: string;
   /** Node from which the placement search starts. */
   anchor: Frame;
+  /** A rule removes this candidate before it becomes a mutant (recorded in `skipped`). */
+  skip?: { rule: string; category: SkipCategory; heuristic?: true };
 }
 
 export interface MutatorContext {
   source: string;
   slice(node: Node | Range): string;
+  /** Relational operators get the subsumption-minimal set (see relational.ts). */
+  minimalRelational?: boolean;
 }
+
+/** A replacement of comparison `node` that a syntactic lower bound proves equivalent is skipped. */
+const bounded = (candidate: Candidate, node: Node, to: string): Candidate =>
+  equivalentUnderBound(node, to) ? { ...candidate, skip: { rule: 'lower-bound', category: 'equivalent', heuristic: true } } : candidate;
+
+const minimalComparison = (node: Node, ctx: MutatorContext): node is Node & { operator: '<' | '<=' | '>' | '>=' } =>
+  ctx.minimalRelational === true && node.type === 'BinaryExpression' && isRelational(node.operator);
 
 type Mutator = (frame: Frame, ctx: MutatorContext) => Candidate[];
 
@@ -88,6 +100,9 @@ const EQUALITY: Record<string, string[]> = {
 const equalityOperator: Mutator = (frame, ctx) => {
   const { node } = frame;
   if (node.type !== 'BinaryExpression') return [];
+  if (minimalComparison(node, ctx)) {
+    return MINIMAL[node.operator].operators.map((to) => bounded(swapOperator(frame, ctx, 'EqualityOperator', node.operator, to), node, to));
+  }
   return (lookup(EQUALITY, node.operator) ?? []).map((to) => swapOperator(frame, ctx, 'EqualityOperator', node.operator, to));
 };
 
@@ -145,6 +160,10 @@ const conditionalExpression: Mutator = (frame, ctx) => {
   const isTest = frame.key === 'test';
   if (isTest && LOOPS.has(parent.node.type)) return [whole(frame, 'ConditionalExpression', 'false')];
   if (isTest && CONDITIONS.has(parent.node.type)) {
+    if (minimalComparison(node, ctx)) {
+      const constant = MINIMAL[node.operator].constant;
+      return [bounded(whole(frame, 'ConditionalExpression', constant), node, constant)];
+    }
     return [whole(frame, 'ConditionalExpression', 'true'), whole(frame, 'ConditionalExpression', 'false')];
   }
   const comparison = node.type === 'BinaryExpression' && Object.hasOwn(EQUALITY, node.operator);
@@ -157,6 +176,11 @@ const conditionalExpression: Mutator = (frame, ctx) => {
   // `a || <x>` with x=true / `a && <x>` with x=false collapse to equivalent-ish mutants of the parent.
   const parentOp = outer?.type === 'LogicalExpression' ? outer.operator : undefined;
   const out: Candidate[] = [];
+  if (minimalComparison(node, ctx)) {
+    const constant = MINIMAL[node.operator].constant;
+    if (constant === 'true' ? parentOp !== '||' : parentOp !== '&&') out.push(bounded(whole(frame, 'ConditionalExpression', constant), node, constant));
+    return out;
+  }
   if (parentOp !== '||') out.push(whole(frame, 'ConditionalExpression', 'true'));
   if (parentOp !== '&&') out.push(whole(frame, 'ConditionalExpression', 'false'));
   return out;

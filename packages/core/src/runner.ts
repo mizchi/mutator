@@ -152,9 +152,9 @@ export function numberDuplicates(): (id: string) => string {
 export const testFingerprint = (testFileHash: string, testId: string): string => hash(`${testFileHash}\0${testId}`);
 
 /** The instrument options an adapter passes through to `instrument`. */
-export type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak' | 'subsumeCoarse' | 'mutators' | 'ignorers'>;
+export type InstrumentFlags = Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak' | 'subsumeCoarse' | 'minimalRelational' | 'mutators' | 'ignorers'>;
 
-const FLAG_KEYS = ['arid', 'excludedMutators', 'weak', 'subsumeCoarse', 'mutators', 'ignorers'] as const satisfies readonly (keyof InstrumentFlags)[];
+const FLAG_KEYS = ['arid', 'excludedMutators', 'weak', 'subsumeCoarse', 'minimalRelational', 'mutators', 'ignorers'] as const satisfies readonly (keyof InstrumentFlags)[];
 
 /** The instrument options among `options` that are set (an option left undefined is left out). */
 export function instrumentFlags(options: { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined }): InstrumentFlags {
@@ -162,7 +162,7 @@ export function instrumentFlags(options: { readonly [K in keyof InstrumentFlags]
 }
 
 /** The instrument options that survive JSON: what a session hands a runner in another process (plugins go as module paths). */
-export type PortableFlags = Pick<InstrumentFlags, 'arid' | 'excludedMutators' | 'weak' | 'subsumeCoarse'>;
+export type PortableFlags = Pick<InstrumentFlags, 'arid' | 'excludedMutators' | 'weak' | 'subsumeCoarse' | 'minimalRelational'>;
 
 /** The portable instrument options among `options` that are set. */
 export function portableFlags(options: { readonly [K in keyof InstrumentFlags]?: InstrumentFlags[K] | undefined }): PortableFlags {

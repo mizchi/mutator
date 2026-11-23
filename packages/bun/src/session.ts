@@ -49,6 +49,7 @@ export interface BunSessionOptions {
   excludedMutators?: InstrumentOptions['excludedMutators'];
   weak?: InstrumentOptions['weak'];
   subsumeCoarse?: InstrumentOptions['subsumeCoarse'];
+  minimalRelational?: InstrumentOptions['minimalRelational'];
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
 }

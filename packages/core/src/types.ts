@@ -163,6 +163,12 @@ export interface InstrumentOptions {
    * strictly inside them, recorded as `solitary` skips. Heuristic; default false.
    */
   subsumeCoarse?: boolean;
+  /**
+   * Relational operators (`<`, `<=`, `>`, `>=`) get the subsumption-minimal set: `<` -> `<=`, `!=`,
+   * `false`, instead of both neighbours and both constants. Replacements a `.length` / `.size` /
+   * `indexOf` lower bound proves equivalent are skipped (`lower-bound`). Default false.
+   */
+  minimalRelational?: boolean;
   /** Mark every mutant under nodes they flag as ignored (like StrykerJS ignorers). */
   ignorers?: readonly MutantIgnorer[];
   /**

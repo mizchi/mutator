@@ -18,7 +18,25 @@ export interface MutatorContext {
   slice(node: Node | Range): string;
   /** Relational operators get the subsumption-minimal set (see relational.ts). */
   minimalRelational?: boolean;
+  /** Skip mutants that likely hang a loop (`loop-advance`, `loop-body`). */
+  skipHangs?: boolean;
 }
+
+const likelyHang = (candidate: Candidate, rule: 'loop-advance' | 'loop-body'): Candidate => ({ ...candidate, skip: { rule, category: 'timeout', heuristic: true } });
+
+/** Whether `frame` is the update of a `for` header (or one expression of a sequence there). */
+function inLoopUpdate(frame: Frame): boolean {
+  let f = frame;
+  while (f.parent && (f.parent.node.type === 'SequenceExpression' || f.parent.node.type === 'ParenthesizedExpression')) f = f.parent;
+  return f.key === 'update' && f.parent?.node.type === 'ForStatement';
+}
+
+/** A loop body that is the only place its loop advances: a while / do-while body, or a for without an update. */
+const advancingBody = (frame: Frame): boolean => {
+  const loop = frame.parent?.node;
+  if (frame.key !== 'body' || !loop) return false;
+  return loop.type === 'WhileStatement' || loop.type === 'DoWhileStatement' || (loop.type === 'ForStatement' && loop.update == null);
+};
 
 /** A replacement of comparison `node` that a syntactic lower bound proves equivalent is skipped. */
 const bounded = (candidate: Candidate, node: Node, to: string): Candidate =>
@@ -212,7 +230,8 @@ const updateOperator: Mutator = (frame, ctx) => {
   const { node } = frame;
   if (node.type !== 'UpdateExpression') return [];
   const to = node.operator === '++' ? '--' : '++';
-  return [whole(frame, 'UpdateOperator', ctx.slice(node).replace(node.operator, to))];
+  const candidate = whole(frame, 'UpdateOperator', ctx.slice(node).replace(node.operator, to));
+  return [ctx.skipHangs && inLoopUpdate(frame) ? likelyHang(candidate, 'loop-advance') : candidate];
 };
 
 const ASSIGNMENT: Record<string, string> = {
@@ -237,7 +256,8 @@ const assignmentOperator: Mutator = (frame, ctx) => {
   if (!to) return [];
   const logical = node.operator === '&&=' || node.operator === '||=' || node.operator === '??=';
   if (!logical && isStringy(node.right)) return [];
-  return [swapOperator(frame, ctx, 'AssignmentOperator', node.operator, to)];
+  const candidate = swapOperator(frame, ctx, 'AssignmentOperator', node.operator, to);
+  return [ctx.skipHangs && inLoopUpdate(frame) ? likelyHang(candidate, 'loop-advance') : candidate];
 };
 
 const PLACEHOLDER = 'Stryker was here!';
@@ -301,14 +321,15 @@ const stringLiteral: Mutator = (frame, ctx) => {
   return [];
 };
 
-const blockStatement: Mutator = (frame) => {
+const blockStatement: Mutator = (frame, ctx) => {
   const { node, parent } = frame;
   if (node.type !== 'BlockStatement' || node.body.length === 0) return [];
   // Constructors calling super(): emptying them breaks derived classes before any test runs.
   if (parent && isFunction(parent.node) && isSuperConstructor(parent, node)) {
     return [];
   }
-  return [whole(frame, 'BlockStatement', '{}')];
+  const candidate = whole(frame, 'BlockStatement', '{}');
+  return [ctx.skipHangs && advancingBody(frame) ? likelyHang(candidate, 'loop-body') : candidate];
 };
 
 const arrowFunction: Mutator = (frame) => {

@@ -8,7 +8,7 @@ import { criticalLines, disabledBy } from './disable.ts';
 import { emitPlacement, headerInsertion, startsWithSourceParenRegex } from './emit.ts';
 import { calleeName, importBindings, isReference, moduleLoads, reexportBindings, topLevelInfo } from './facts.ts';
 import { hash } from './hash.ts';
-import { type Candidate, type MutatorContext, mutators } from './mutators.ts';
+import { type Candidate, type MutatorContext, OPT_IN_MUTATORS, mutators } from './mutators.ts';
 import { type Placement, findPlacement } from './placement.ts';
 import { runtimeHeader } from './runtime.ts';
 import { createScopeTracker, isTopLevelScope } from '@mizchi/test-impact/source';
@@ -29,7 +29,8 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const program = parsed.program as unknown as Node;
   const lines = lineStarts(source);
   const locate = (r: Range): Location => ({ start: position(lines, r.start), end: position(lines, r.end) });
-  const excluded = new Set<string>(options.excludedMutators ?? []);
+  const enabled = new Set<string>(options.enabledMutators ?? []);
+  const excluded = new Set<string>([...(options.excludedMutators ?? []), ...[...OPT_IN_MUTATORS].filter((m) => !enabled.has(m))]);
   const active = [...mutators, ...(options.mutators ?? []).map((definition) => adaptMutator(definition, file))];
   const disabled = disabledBy(parsed.comments, (offset) => position(lines, offset).line);
   // The first function or class starting on a line after `// mutator-critical`.

@@ -334,6 +334,8 @@ const METHOD_SWAPS: Record<string, string> = {
   trimStart: 'trimEnd',
   min: 'max',
   max: 'min',
+  padStart: 'padEnd',
+  padEnd: 'padStart',
 };
 
 const methodExpression: Mutator = (frame, ctx) => {
@@ -489,6 +491,46 @@ const fnValue: Mutator = (frame, ctx) => {
   return values.filter((v) => !sameValue(body, v, ctx)).map((v) => ({ mutator: 'FnValue', range, replacement: v, anchor }));
 };
 
+// ---- MissingAwait (opt-in): `await p` -> `p` ----
+
+/** Whether `frame` (an await) is the value a function returns: `return await p`, `async () => await p`. */
+function returned(frame: Frame): Frame | undefined {
+  let f = frame;
+  while (f.parent && f.parent.node.type === 'ParenthesizedExpression') f = f.parent;
+  const parent = f.parent?.node;
+  if (parent?.type === 'ReturnStatement' && f.key === 'argument') return f.parent;
+  if (parent?.type === 'ArrowFunctionExpression' && f.key === 'body') return f;
+  return undefined;
+}
+
+/**
+ * Whether a `return` there is guarded: inside a `try` block (a rejection after the return would
+ * skip the handler), or a `catch` with a `finally` (which would run before the promise settles).
+ */
+function guarded(frame: Frame): boolean {
+  for (let f: Frame | undefined = frame; f?.parent; f = f.parent) {
+    if (isFunction(f.node)) return false;
+    const parent = f.parent.node;
+    if (parent.type === 'TryStatement' && (f.key === 'block' || (f.key === 'handler' && parent.finalizer))) return true;
+  }
+  return false;
+}
+
+const SETTLED = new Set(['Literal', 'TemplateLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'ClassExpression']);
+
+const missingAwait: Mutator = (frame, ctx) => {
+  const { node } = frame;
+  if (node.type !== 'AwaitExpression') return [];
+  const candidate = whole(frame, 'MissingAwait', ctx.slice(node.argument));
+  if (SETTLED.has(unwrap(node.argument).type)) return [{ ...candidate, skip: { rule: 'settled-value', category: 'equivalent' } }];
+  const at = returned(frame);
+  if (at && !guarded(at)) return [{ ...candidate, skip: { rule: 'awaited-by-caller', category: 'equivalent' } }];
+  return [candidate];
+};
+
+/** Mutators that run only when named in `enabledMutators`. */
+export const OPT_IN_MUTATORS: ReadonlySet<MutatorName> = new Set(['MissingAwait']);
+
 export const mutators: readonly Mutator[] = [
   arithmeticOperator,
   arrayDeclaration,
@@ -507,6 +549,7 @@ export const mutators: readonly Mutator[] = [
   stringLiteral,
   unaryOperator,
   updateOperator,
+  missingAwait,
   // Last: on an identical edit the established mutator keeps the name.
   fnValue,
 ];

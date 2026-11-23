@@ -16,6 +16,7 @@ export const MUTATOR_PRODUCTIVITY: readonly BuiltinMutatorName[] = [
   'UpdateOperator',
   'AssignmentOperator',
   'OptionalChaining',
+  'MissingAwait',
   'MethodExpression',
   'BooleanLiteral',
   'StringLiteral',

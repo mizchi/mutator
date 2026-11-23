@@ -92,6 +92,8 @@ export interface RunOptions {
   skipSubsumed?: boolean;
   /** Subsumption-minimal relational operator set. */
   minimalRelational?: boolean;
+  /** Opt-in mutators to run. */
+  enabledMutators?: readonly string[];
   /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
   accepted?: ReadonlyMap<string, string>;
   /**

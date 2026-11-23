@@ -17,6 +17,7 @@ export const BUILTIN_MUTATOR_NAMES = [
   'FnValue',
   'LogicalOperator',
   'MethodExpression',
+  'MissingAwait',
   'ObjectLiteral',
   'OptionalChaining',
   'Regex',
@@ -169,6 +170,8 @@ export interface InstrumentOptions {
    * `indexOf` lower bound proves equivalent are skipped (`lower-bound`). Default false.
    */
   minimalRelational?: boolean;
+  /** Opt-in mutators to run (`MissingAwait`). Built-in mutators not in `OPT_IN_MUTATORS` always run. */
+  enabledMutators?: readonly string[];
   /** Mark every mutant under nodes they flag as ignored (like StrykerJS ignorers). */
   ignorers?: readonly MutantIgnorer[];
   /**

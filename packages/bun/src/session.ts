@@ -50,6 +50,7 @@ export interface BunSessionOptions {
   weak?: InstrumentOptions['weak'];
   subsumeCoarse?: InstrumentOptions['subsumeCoarse'];
   minimalRelational?: InstrumentOptions['minimalRelational'];
+  enabledMutators?: InstrumentOptions['enabledMutators'];
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
 }

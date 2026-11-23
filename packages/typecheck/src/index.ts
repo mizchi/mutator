@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Worker } from 'node:worker_threads';
+import { fork } from 'node:child_process';
 import { bunTypescriptVersion, createBunChecker, withBunErrors } from './bun.ts';
 import { createClassicChecker } from './classic.ts';
 import { createNativeChecker } from './native.ts';
@@ -72,7 +72,7 @@ export interface TypecheckBatch {
 }
 
 /**
- * `createTypeChecker(options).check(mutants)` (and `.equivalent(mutants)`) on a worker thread, leaving this thread free
+ * `createTypeChecker(options).check(mutants)` (and `.equivalent(mutants)`) in a child process, leaving this thread free
  * (e.g. to drive a test run meanwhile). Undefined when there is nothing to check with.
  * With `batchSize`, mutants are checked in batches of that size, in order, and `onBatch` gets each batch's verdicts
  * as soon as they are known.
@@ -84,17 +84,20 @@ export function checkInWorker(
 ): Promise<{ version: string; errors: Map<string, string>; equivalent: Map<string, string>; inputs: import('./types.ts').TypecheckInputs } | undefined> {
   const { signal, ...data } = options;
   return new Promise((resolve, reject) => {
-    const worker = new Worker(WORKER_FILE, { workerData: { ...data, mutants } });
-    // Aborted: the result is not needed; stop the worker so it does not hold the process.
-    signal?.addEventListener('abort', () => void worker.terminate().then(() => resolve(undefined)), { once: true });
-    worker.on('message', (message) => {
-      if (message && 'batch' in message) {
-        onBatch?.(message.batch);
-        return;
-      }
-      resolve(message);
+    // `execArgv: []`: the parent may run under a test runner's loader flags, which the checker does not need.
+    const child = fork(WORKER_FILE, [], { serialization: 'advanced', execArgv: [], stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+    let stderr = '';
+    child.stderr?.on('data', (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+    let settled = false;
+    const finish = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+    // Aborted: the result is not needed; stop the child so it does not hold the process.
+    signal?.addEventListener('abort', () => { child.kill(); finish(() => resolve(undefined)); }, { once: true });
+    child.on('message', (message: { batch?: TypecheckBatch; result?: unknown }) => {
+      if (message.batch) onBatch?.(message.batch);
+      else finish(() => resolve(message.result as never));
     });
-    worker.once('error', reject);
-    worker.once('exit', (code) => (code === 0 ? resolve(undefined) : reject(new Error(`typecheck worker exited with code ${code}`))));
+    child.once('error', (error) => finish(() => reject(error)));
+    child.once('exit', (code, sig) => finish(() => (code === 0 ? resolve(undefined) : reject(new Error(`typecheck process exited with ${sig ?? `code ${code}`}${stderr ? `: ${stderr.trim().split('\n').at(-1)}` : ''}`)))));
+    child.send({ ...data, mutants });
   });
 }

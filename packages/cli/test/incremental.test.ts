@@ -98,6 +98,51 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
     });
   });
 
+  describe('run-time inputs of tests', () => {
+    const scale = 'export function scale(n: number, factor: number): number {\n  return n * factor;\n}\n';
+    const verdict = (r: Report) => r.entries.find((e) => e.mutant.original === 'n * factor' && e.mutant.replacement === 'n / factor');
+    const files = {
+      'src/a.ts': scale,
+      'fixtures/factor.json': '{ "factor": 1 }\n',
+      'fixtures/unused.json': '{}\n',
+      'test/a.test.ts': "import { readFileSync } from 'node:fs';\nimport { expect, test } from 'vitest';\nimport { scale } from '../src/a.ts';\nconst { factor } = JSON.parse(readFileSync(new URL('../fixtures/factor.json', import.meta.url), 'utf8'));\ntest('scale', () => { expect(scale(3, factor)).toBe(3 * factor); });\n",
+      'test/b.test.ts': "import { expect, test } from 'vitest';\nimport { scale } from '../src/a.ts';\ntest('scale by env', () => { const factor = Number(process.env.MUTATOR_TEST_FACTOR ?? '1'); expect(scale(4, factor)).toBe(4 * factor); });\n",
+    };
+
+    test('changing a fixture a test reads re-runs the verdicts it covered', async () => {
+      const root = project({ ...files, 'test/b.test.ts': "import { expect, test } from 'vitest';\nimport { scale } from '../src/a.ts';\ntest('other', () => { expect(scale(0, 5)).toBe(0); });\n" });
+      expect(verdict(await runMutation({ root, concurrency: 1 }))?.status).toBe('Survived');
+      edit(root, 'fixtures/factor.json', '1', '2');
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toEqual(['test/a.test.ts']);
+      expect(verdict(report)).toMatchObject({ status: 'Killed', source: 'run' });
+    });
+
+    test('changing an environment variable a test reads re-runs the verdicts it covered', async () => {
+      const root = project({ ...files, 'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { scale } from '../src/a.ts';\ntest('other', () => { expect(scale(0, 5)).toBe(0); });\n" });
+      try {
+        process.env.MUTATOR_TEST_FACTOR = '1';
+        expect(verdict(await runMutation({ root, concurrency: 1 }))?.status).toBe('Survived');
+        expect(verdict(await runMutation({ root, concurrency: 1 }))?.source).toBe('reuse');
+        process.env.MUTATOR_TEST_FACTOR = '2';
+        const report = await expectSameAsCold(root);
+        expect(report.dryRunFiles).toEqual(['test/b.test.ts']);
+        expect(verdict(report)).toMatchObject({ status: 'Killed', source: 'run' });
+      } finally {
+        delete process.env.MUTATOR_TEST_FACTOR;
+      }
+    });
+
+    test('changing a file no test read invalidates nothing', async () => {
+      const root = project(files);
+      await runMutation({ root, concurrency: 1 });
+      edit(root, 'fixtures/unused.json', '{}', '{ "x": 1 }');
+      const report = await runMutation({ root, concurrency: 1 });
+      expect(report.dryRunFiles).toEqual([]);
+      expect(report.entries.every((e) => e.source !== 'run')).toBe(true);
+    });
+  });
+
   test('editing a top-level constant without mutants', async () => {
     const root = project({
       'src/a.ts': 'const LIMIT = 10;\nexport function clamp(n: number): number {\n  return n > LIMIT ? -1 : n;\n}\n',

@@ -323,3 +323,28 @@ describe('a runtime without module.syncBuiltinESMExports', () => {
     }
   });
 });
+
+describe('run-time inputs', () => {
+  const readsRoot = fileURLToPath(new URL('./fixtures/reads', import.meta.url));
+
+  test('the dry run records the files and environment variables each test file reads', async () => {
+    const session = await createSession({ root: readsRoot, include: (file) => file.includes('/reads/src/') });
+    try {
+      const dry = await session.dryRun();
+      expect(dry.failed).toEqual([]);
+      // Vitest looks up each file's snapshot file: a snapshot added or edited later changes the key too.
+      expect(Object.fromEntries(dry.reads ?? [])).toEqual({
+        'test/all-env.test.ts': ['test/__snapshots__/all-env.test.ts.snap'],
+        'test/none.test.ts': ['test/__snapshots__/none.test.ts.snap'],
+        'test/reads.test.ts': ['fixtures/cases', 'fixtures/cases/a.txt', 'fixtures/data.json', 'fixtures/missing.json', 'src', 'test/__snapshots__/reads.test.ts.snap'],
+      });
+      // Node's module loader reads WATCH_REPORT_DEPENDENCIES on its own: not an input of the test.
+      expect(Object.fromEntries(dry.env ?? [])).toEqual({
+        'test/all-env.test.ts': ['*'],
+        'test/reads.test.ts': ['MUTATOR_READS_FLAG', 'MUTATOR_READS_META', 'MUTATOR_READS_OTHER'],
+      });
+    } finally {
+      await session.close();
+    }
+  });
+});

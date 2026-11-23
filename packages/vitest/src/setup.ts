@@ -1,5 +1,6 @@
 // Worker-side setup file injected in front of the project's setupFiles.
 // Self-contained on purpose: it is evaluated inside the test worker.
+import { constants } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,10 +24,14 @@ const ns = {
   inf: { static: {} as Record<string, number>, perTest: {} as Record<string, Record<string, number>> },
   /** test id -> processes it started (dry run only) */
   spawns: {} as Record<string, SpawnedCommand[]>,
+  /** Absolute paths this file read through `node:fs` (dry run only) */
+  reads: new Set<string>(),
+  /** Environment variables this file read; `*` when it listed them (dry run only) */
+  env: new Set<string>(),
   testId: null as string | null,
   hits: 0,
   hitLimit: config.hitLimit,
-} satisfies Required<RuntimeState> & { spawns: Record<string, SpawnedCommand[]> };
+} satisfies Required<RuntimeState> & { spawns: Record<string, SpawnedCommand[]>; reads: Set<string>; env: Set<string> };
 (globalThis as Record<string, unknown>)[GLOBAL] = ns;
 
 // Dry run only: record the processes each test starts. Mutants applied in memory are not
@@ -81,6 +86,125 @@ if (ns.collect) {
   }
 }
 
+// Dry run only: record the files and environment variables each test file reads, so
+// the CLI keys its cached verdicts on them. Like the spawn wrappers, these are installed
+// once per process and record into the state of the file running now.
+function currentState(): typeof ns | undefined {
+  const state = (globalThis as Record<string, unknown>)[GLOBAL] as typeof ns | undefined;
+  return state?.collect ? state : undefined;
+}
+
+/** `node:fs` functions whose first argument is a path they read (with their `Sync` forms). */
+const FS_READERS = ['readFile', 'readdir', 'opendir', 'stat', 'lstat', 'access', 'exists', 'open', 'createReadStream'] as const;
+const WRITE_FLAGS = /[wa]/;
+let reentrant = false;
+
+function recordRead(name: string, args: unknown[]): void {
+  const state = currentState();
+  if (!state || reentrant) return;
+  try {
+    const [target, flags] = args;
+    if (name.startsWith('open') && !name.startsWith('opendir')) {
+      // `r+` reads; flags that create, empty or append to the file write.
+      if (typeof flags === 'string' && WRITE_FLAGS.test(flags)) return;
+      if (typeof flags === 'number' && flags & (constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_TRUNC)) return;
+    }
+    const path = target instanceof URL ? (target.protocol === 'file:' ? fileURLToPath(target) : undefined)
+      : typeof target === 'string' ? target
+        : target instanceof Uint8Array ? Buffer.from(target).toString()
+          : undefined;
+    if (path === undefined) return;
+    const file = resolve(path);
+    // The CLI keeps only paths inside the project root; skip the obvious rest here.
+    if (/[/\\](?:node_modules|\.mutator)(?:[/\\]|$)/.test(file)) return;
+    state.reads.add(file);
+  } catch {
+    // Recording must never break the test.
+  }
+}
+
+function trackFileReads(): void {
+  const require = createRequire(import.meta.url);
+  const targets = [require('node:fs'), require('node:fs/promises')] as Record<string, Fn>[];
+  for (const target of targets) {
+    for (const name of FS_READERS.flatMap((n) => [n, `${n}Sync`])) {
+      const current = target[name];
+      if (typeof current !== 'function') continue;
+      const original = (current[ORIGINAL] ?? current) as Fn;
+      const wrapped = function (this: unknown, ...args: unknown[]) {
+        recordRead(name, args);
+        if (reentrant) return original.apply(this, args);
+        // A wrapped call reads only its own path, not the ones Node reads on the way.
+        reentrant = true;
+        try {
+          return original.apply(this, args);
+        } finally {
+          reentrant = false;
+        }
+      } as Fn;
+      wrapped[ORIGINAL] = original;
+      for (const key of Object.getOwnPropertySymbols(original)) if (key !== ORIGINAL) wrapped[key] = original[key];
+      Object.defineProperty(wrapped, 'length', { value: original.length });
+      target[name] = wrapped;
+    }
+  }
+  try {
+    syncBuiltinESMExports();
+  } catch {
+    // Not Node: reads go unrecorded.
+  }
+}
+
+const ENV_PROXY = Symbol.for('mutator.env');
+/** Read by Node's module loader while it loads a module, not by the test. */
+const LOADER_VARIABLES = new Set(['WATCH_REPORT_DEPENDENCIES', 'NODE_V8_COVERAGE']);
+
+/**
+ * Put a proxy in front of `process.env` that records the names read. Listing the
+ * variables (spreading, `Object.keys`, passing them to a child process) records `*`;
+ * the per-name lookups of that same listing are not recorded on top.
+ */
+function trackEnvironment(): void {
+  const env = process.env as NodeJS.ProcessEnv & { [ENV_PROXY]?: true };
+  if (env[ENV_PROXY]) return;
+  let listing = false;
+  const record = (name: string | symbol) => {
+    if (typeof name !== 'string' || listing || LOADER_VARIABLES.has(name)) return;
+    currentState()?.env.add(name);
+  };
+  process.env = new Proxy(env, {
+    get(target, name) {
+      if (name === ENV_PROXY) return true;
+      record(name);
+      return Reflect.get(target, name);
+    },
+    has(target, name) {
+      record(name);
+      return Reflect.has(target, name);
+    },
+    getOwnPropertyDescriptor(target, name) {
+      record(name);
+      return Reflect.getOwnPropertyDescriptor(target, name);
+    },
+    ownKeys(target) {
+      const state = currentState();
+      if (state) {
+        state.env.add('*');
+        listing = true;
+        queueMicrotask(() => {
+          listing = false;
+        });
+      }
+      return Reflect.ownKeys(target);
+    },
+  });
+}
+
+if (ns.collect) {
+  trackFileReads();
+  trackEnvironment();
+}
+
 // Once a test fails under an active mutant it is killed: skip the rest of this
 // file inside the worker (the main process can only cancel between files).
 let killed = false;
@@ -131,4 +255,6 @@ afterAll(({}, suite) => {
   if (sharedInfected) meta.mutatorConcurrentInfected = sharedInfected;
   const sharedSpawns = ns.spawns[CONCURRENT];
   if (sharedSpawns) meta.mutatorConcurrentSpawns = sharedSpawns;
+  if (ns.reads.size) meta.mutatorReads = [...ns.reads];
+  if (ns.env.size) meta.mutatorEnv = [...ns.env];
 });

@@ -34,6 +34,13 @@ export interface DryRunResult {
   infected?: Map<string, string[]>;
   /** test id -> processes it started (runners that support it); mutants applied in memory are not seen there. */
   spawns?: Map<string, SpawnedCommand[]>;
+  /**
+   * test file (relative) -> files and directories inside the root it read through `node:fs`
+   * while it ran, outside node_modules and .mutator (relative, sorted; runners that support it).
+   */
+  reads?: Map<string, string[]>;
+  /** test file (relative) -> environment variables it read (sorted); `*` when it listed them all. */
+  env?: Map<string, string[]>;
   /** Original source function scope (`relative file#scopeId`) -> tests that executed it. */
   sourceCoverage?: Map<string, string[]>;
   /** Tests whose source coverage may be missing (navigation, closed pages, missing maps). */

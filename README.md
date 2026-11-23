@@ -336,12 +336,14 @@ For mutants whose original and mutated expressions are side-effect free (compari
 
 ## Type checking
 
-Mutants of TypeScript files are type-checked with the project's own `typescript` before any test runs; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:
+Mutants of TypeScript files are type-checked with the project's own `typescript` before they run; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:
 
 - TypeScript ≤ 6: the compiler API (LanguageService with in-memory overrides)
 - TypeScript ≥ 7: the native API (`typescript/unstable/sync`) with a virtual file system, about 3–7× faster
 - With the Bun runner, Bun's own checker (`bun check`, Bun 1.4+) finds the type errors instead when it bundles the project's TypeScript major (`bun -p process.versions.typescript`, 7 for Bun 1.4). Each mutated text is checked in memory as a sibling of its file that nothing imports, so one `Bun.build({ check: true })` checks up to 200 mutants. A file in an import cycle (type-only imports included, from `bun check --explainFiles`) would be seen unmutated through the cycle, so its mutants are checked one by one at its own path instead, at about 30–60 ms each. On a Bun project of 141 source files it checked 10,757 mutants in 9 s, with the same verdicts as the native API there (96 s). Equivalences (below) still come from the project's TypeScript.
 - No `typescript` installed: Bun's checker alone, with any runner, when `bun` is available. It proves no equivalences.
+
+With `typecheck: 'auto'`, no `--time-budget` and no Bun checker, the check runs on a worker thread alongside mutant execution instead of before it. Mutants are checked in batches of 25, in the order they start running, and each mutant waits only for its own batch. The check is faster per mutant than a run, so it stays ahead and a mutant that does not compile is still never run. On ufo (864 runs, 1046 mutants checked) this took the cold run from 34 s to 29 s. `--since` keeps the check that starts alongside the dry run, and `--time-budget` the check-first order it needs to stop on time.
 
 `typecheck: 'auto'` (default) enables it when `tsconfig.json` and one of those checkers are present, and otherwise prints `typecheck skipped: …` with the reason; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
 

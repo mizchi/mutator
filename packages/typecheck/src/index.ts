@@ -64,20 +64,36 @@ export async function createTypeChecker(options: TypeCheckerOptions): Promise<Ty
 // Published builds ship worker.js next to index.js.
 const WORKER_FILE = fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './worker.ts' : './worker.js', import.meta.url));
 
+/** Verdicts of one batch of `checkInWorker`, in the order the mutants were given. */
+export interface TypecheckBatch {
+  keys: string[];
+  errors: Map<string, string>;
+  equivalent: Map<string, string>;
+}
+
 /**
  * `createTypeChecker(options).check(mutants)` (and `.equivalent(mutants)`) on a worker thread, leaving this thread free
  * (e.g. to drive a test run meanwhile). Undefined when there is nothing to check with.
+ * With `batchSize`, mutants are checked in batches of that size, in order, and `onBatch` gets each batch's verdicts
+ * as soon as they are known.
  */
 export function checkInWorker(
-  options: TypeCheckerOptions & { signal?: AbortSignal },
+  options: TypeCheckerOptions & { signal?: AbortSignal; batchSize?: number },
   mutants: readonly TypecheckMutant[],
+  { onBatch }: { onBatch?: (batch: TypecheckBatch) => void } = {},
 ): Promise<{ version: string; errors: Map<string, string>; equivalent: Map<string, string>; inputs: import('./types.ts').TypecheckInputs } | undefined> {
   const { signal, ...data } = options;
   return new Promise((resolve, reject) => {
     const worker = new Worker(WORKER_FILE, { workerData: { ...data, mutants } });
     // Aborted: the result is not needed; stop the worker so it does not hold the process.
     signal?.addEventListener('abort', () => void worker.terminate().then(() => resolve(undefined)), { once: true });
-    worker.once('message', resolve);
+    worker.on('message', (message) => {
+      if (message && 'batch' in message) {
+        onBatch?.(message.batch);
+        return;
+      }
+      resolve(message);
+    });
     worker.once('error', reject);
     worker.once('exit', (code) => (code === 0 ? resolve(undefined) : reject(new Error(`typecheck worker exited with code ${code}`))));
   });

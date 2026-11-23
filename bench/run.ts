@@ -1,23 +1,24 @@
 // Benchmark harness: mutator vs StrykerJS on pinned real-world projects.
 //
-// usage: node bench/run.ts [--phase setup,ours,stryker,callgraph] [--reps 2] bench/projects/<name>.json...
+// usage: node bench/run.ts [--phase setup,ours,stryker,mootant,callgraph] [--reps 2] [--max-load 3] bench/projects/<name>.json...
 //
-// For every project spec it keeps two clones under .tmp/bench2/ (gitignored):
-//   <name>          vitest 5 (what our tool runs against)
+// For every project spec it keeps three clones under .tmp/bench2/ (gitignored):
+//   <name>          vitest 5.1 (what our tool runs against)
 //   <name>-stryker  vitest 4 + Stryker 10 (Stryker's vitest-runner is broken on vitest 5)
+//   <name>-mootant  vitest 5.1 + mootant (its own cache in node_modules/.cache/mootant)
 // Separate clones also keep Stryker's .stryker-tmp sandboxes out of the clone our tool
 // scans (Vitest would pick up the duplicated tests).
 //
-// Every timed command is preceded by a preflight: 1-minute load average < 3 and no busy
+// Every timed command is preceded by a preflight: 1-minute load average < --max-load (3) and no busy
 // node process; orphaned vitest/stryker workers (ppid 1) left by earlier bench runs are
 // killed and logged. Results go to .tmp/bench2/results/<name>.json; `node bench/report.ts`
 // turns them into the tables of docs/benchmark.md.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { applyEdit, log, parseOurCounts, setupClone, sh, shellQuote } from './lib.ts';
+import { type Variant, applyEdit, log, parseOurCounts, setupClone, sh, shellQuote } from './lib.ts';
 
 export interface Edit {
   file: string;
@@ -37,6 +38,10 @@ export interface Spec {
   install?: string;
   vitestOurs?: string;
   vitestStryker?: string;
+  /** devDependencies forced in every clone, e.g. `{ "vite": "^7.0.0" }` where the project pins a vite Vitest 5 cannot load. */
+  pin?: Record<string, string>;
+  /** Paths for `mootant run` (it takes files and directories, not globs). Default: `src`. */
+  mootantPaths?: string[];
   /** Edit used for the timed "after one edit" runs. */
   edit: Edit;
   /** Edits for bench/callgraph-experiment.ts (scripts/callgraph-experiment.ts + mutate globs). */
@@ -52,7 +57,7 @@ export interface Counts {
 }
 
 export interface Measurement {
-  tool: 'ours' | 'stryker';
+  tool: Variant;
   run: string;
   rep: number;
   wallMs: number;
@@ -71,12 +76,15 @@ const UNDETECTED = ['Survived', 'NoCoverage'];
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
-    phase: { type: 'string', default: 'setup,ours,stryker,callgraph' },
+    phase: { type: 'string', default: 'setup,ours,stryker,mootant,callgraph' },
     reps: { type: 'string', default: '2' },
+    // A desktop with a browser and editors open rarely idles below 3.
+    'max-load': { type: 'string', default: '3' },
   },
 });
 const phases = new Set(values.phase.split(','));
 const reps = Number(values.reps);
+const maxLoad = Number(values['max-load']);
 
 function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -117,7 +125,7 @@ function preflight(label: string): number {
     }
     const busy = procs.filter((p) => p.pcpu > 20 && /node/.test(p.args) && p.pid !== process.pid && !ours.some((o) => o.pid === p.pid));
     const load = loadavg()[0]!;
-    if (load < 3 && busy.length === 0) return load;
+    if (load < maxLoad && busy.length === 0) return load;
     if (attempt % 6 === 0) log(`${label}: waiting (load ${load.toFixed(2)}, busy node: ${busy.map((p) => `${p.pid}:${p.pcpu}% ${p.args.slice(0, 60)}`).join(' | ') || 'none'})`);
     sleep(10_000);
   }
@@ -173,10 +181,26 @@ function parseStryker(dir: string, stdout: string): Counts | null {
   return { total, executed, reused, statuses, score: score(statuses) };
 }
 
+/** `mootant run --json --all`: every mutant with its status; mootant prints no executed/reused split, so `cached` stands for reused. */
+function parseMootant(stdout: string): Counts | null {
+  let report: { mutants?: { status: string; cached?: boolean }[] };
+  try {
+    report = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (!report.mutants) return null;
+  const statuses: Record<string, number> = {};
+  for (const m of report.mutants) statuses[m.status] = (statuses[m.status] ?? 0) + 1;
+  const reused = report.mutants.filter((m) => m.cached).length;
+  const decided = (statuses.NoCoverage ?? 0) + (statuses.Ignored ?? 0);
+  return { total: report.mutants.length, executed: report.mutants.length - reused - decided, reused, statuses, score: score(statuses) };
+}
+
 function makeRunner(spec: Spec, measurements: Measurement[]) {
   const logDir = join(WORK, 'logs', spec.name);
   mkdirSync(logDir, { recursive: true });
-  return (tool: 'ours' | 'stryker', run: string, rep: number, cmd: string, cwd: string): Measurement => {
+  return (tool: Variant, run: string, rep: number, cmd: string, cwd: string, stdoutTo?: string): Measurement => {
     const label = `${spec.name} ${tool} ${run} #${rep}`;
     const load = preflight(label);
     log(`${label} (load ${load.toFixed(2)})`);
@@ -184,8 +208,9 @@ function makeRunner(spec: Spec, measurements: Measurement[]) {
     const r = spawnSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', maxBuffer: 1 << 30 });
     const wallMs = performance.now() - t0;
     const logFile = join(logDir, `${tool}-${run}-${rep}.log`);
+    if (stdoutTo) writeFileSync(stdoutTo, r.stdout);
     writeFileSync(logFile, `$ ${cmd}\n# exit ${r.status}${r.signal ? ` signal ${r.signal}` : ''} wall ${(wallMs / 1000).toFixed(2)}s load ${load.toFixed(2)}\n--- stdout\n${r.stdout}\n--- stderr\n${r.stderr}`);
-    const counts = tool === 'ours' ? parseOurs(r.stdout) : parseStryker(cwd, r.stdout);
+    const counts = tool === 'ours' ? parseOurs(r.stdout) : tool === 'mootant' ? parseMootant(r.stdout) : parseStryker(cwd, r.stdout);
     const m: Measurement = { tool, run, rep, wallMs, exitCode: r.status, counts, load, log: logFile };
     log(`  -> ${(wallMs / 1000).toFixed(2)}s exit ${r.status}${r.signal ? ` (${r.signal})` : ''} ${counts ? `${counts.total} mutants, executed ${counts.executed}, score ${(counts.score * 100).toFixed(1)}%` : 'no counts'}`);
     if (r.status !== 0) log(`  !! non-zero exit, see ${logFile}`);
@@ -198,24 +223,27 @@ function measureOurs(spec: Spec, dir: string, measurements: Measurement[]): void
   const run = makeRunner(spec, measurements);
   const state = join(WORK, 'state', spec.name);
   mkdirSync(state, { recursive: true });
-  const snapshot = join(dir, '.mutator', 'snapshot.json');
+  const cache = join(dir, '.mutator');
   const include = spec.mutate.map((g) => `--include ${shellQuote(g)}`).join(' ');
   const base = `node ${shellQuote(CLI)} --root ${shellQuote(dir)} ${include} --reporter text --reporter json`;
-  const reset = (from?: string) => {
-    rmSync(join(dir, '.mutator'), { recursive: true, force: true });
-    if (from) {
-      mkdirSync(join(dir, '.mutator'), { recursive: true });
-      copyFileSync(from, snapshot);
-    }
+  // The whole cache directory: an `--include` run keeps its snapshot under .mutator/scopes/,
+  // not in .mutator/snapshot.json.
+  const save = (to: string) => {
+    rmSync(to, { recursive: true, force: true });
+    cpSync(cache, to, { recursive: true, filter: (src) => !/[/\\](report|processes)$/.test(src) });
   };
-  const cold = join(state, 'cold.json');
-  const cgCold = join(state, 'cold-callgraph.json');
+  const reset = (from?: string) => {
+    rmSync(cache, { recursive: true, force: true });
+    if (from) cpSync(from, cache, { recursive: true });
+  };
+  const cold = join(state, 'cold.mutator');
+  const cgCold = join(state, 'cold-callgraph.mutator');
 
   for (let i = 1; i <= reps; i++) {
     reset();
     run('ours', 'cold', i, base, dir);
-    copyFileSync(snapshot, cold);
-    copyFileSync(join(dir, '.mutator', 'report', 'mutation.json'), join(state, `cold-${i}.mutation.json`));
+    save(cold);
+    copyFileSync(join(cache, 'report', 'mutation.json'), join(state, `cold-${i}.mutation.json`));
   }
   for (let i = 1; i <= reps; i++) run('ours', 'warm', i, base, dir);
 
@@ -235,7 +263,7 @@ function measureOurs(spec: Spec, dir: string, measurements: Measurement[]): void
   for (let i = 1; i <= reps; i++) {
     reset();
     run('ours', 'cold-callgraph', i, `${base} --experimental-callgraph`, dir);
-    copyFileSync(snapshot, cgCold);
+    save(cgCold);
   }
   revert = applyEdit(dir, spec.edit);
   try {
@@ -286,6 +314,44 @@ function measureStryker(spec: Spec, dir: string, measurements: Measurement[]): v
   clean();
 }
 
+function measureMootant(spec: Spec, dir: string, measurements: Measurement[]): void {
+  const run = makeRunner(spec, measurements);
+  const state = join(WORK, 'state', spec.name);
+  mkdirSync(state, { recursive: true });
+  const cache = join(dir, 'node_modules', '.cache', 'mootant');
+  const saved = join(state, 'mootant-cache');
+  const paths = (spec.mootantPaths ?? ['src']).map(shellQuote).join(' ');
+  // --verbose adds ranges and replacements, which the shared-mutant comparison needs.
+  const base = `node_modules/.bin/mootant run ${paths} --json --all --verbose`;
+  const reset = (from?: string) => {
+    rmSync(cache, { recursive: true, force: true });
+    if (from) cpSync(from, cache, { recursive: true });
+  };
+  for (let i = 1; i <= reps; i++) {
+    reset();
+    const m = run('mootant', 'cold', i, base, dir, join(state, `mootant-cold-${i}.json`));
+    if (m.exitCode === 0 || m.exitCode === 1) {
+      rmSync(saved, { recursive: true, force: true });
+      cpSync(cache, saved, { recursive: true });
+    }
+  }
+  for (let i = 1; i <= reps; i++) run('mootant', 'warm', i, base, dir);
+  const revert = applyEdit(dir, spec.edit);
+  try {
+    for (let i = 1; i <= reps; i++) {
+      reset(saved);
+      run('mootant', 'edit-full', i, base, dir);
+      reset(saved);
+      run('mootant', 'edit-since', i, `${base} --since HEAD`, dir);
+      reset(saved);
+      run('mootant', 'edit-incremental', i, `${base} --incremental`, dir);
+    }
+  } finally {
+    revert();
+  }
+  reset(saved);
+}
+
 function callgraph(spec: Spec, dir: string): string {
   const args = spec.callgraphEdits.flatMap((e) => [e.file, e.from, e.to]);
   const load = preflight(`${spec.name} callgraph-experiment`);
@@ -311,14 +377,16 @@ for (const specPath of positionals) {
   const spec = JSON.parse(readFileSync(specPath, 'utf8')) as Spec;
   const resultPath = join(WORK, 'results', `${spec.name}.json`);
   const previous = existsSync(resultPath) ? JSON.parse(readFileSync(resultPath, 'utf8')) : {};
-  const result: Record<string, unknown> = { ...previous, spec, node: process.version, date: new Date().toISOString() };
+  const result: Record<string, unknown> = { ...previous, spec, node: process.version, date: new Date().toISOString(), maxLoad };
   const save = () => writeFileSync(resultPath, `${JSON.stringify({ ...result, preflight: [...((previous.preflight as string[]) ?? []), ...preflightLog] }, null, 2)}\n`);
 
   const oursDir = phases.has('setup') || phases.has('ours') || phases.has('callgraph') ? setupClone(WORK, spec, 'ours') : '';
   const strykerDir = phases.has('setup') || phases.has('stryker') ? setupClone(WORK, spec, 'stryker') : '';
+  const mootantDir = phases.has('setup') || phases.has('mootant') ? setupClone(WORK, spec, 'mootant') : '';
   if (phases.has('setup')) {
     verifyEdits(spec, oursDir, [spec.edit, ...spec.callgraphEdits]);
     verifyEdits(spec, strykerDir, [spec.edit]);
+    verifyEdits(spec, mootantDir, [spec.edit]);
   }
   if (phases.has('ours')) {
     const m: Measurement[] = [];
@@ -330,6 +398,12 @@ for (const specPath of positionals) {
     const m: Measurement[] = [];
     measureStryker(spec, strykerDir, m);
     result.stryker = m;
+    save();
+  }
+  if (phases.has('mootant')) {
+    const m: Measurement[] = [];
+    measureMootant(spec, mootantDir, m);
+    result.mootant = m;
     save();
   }
   if (phases.has('callgraph')) {

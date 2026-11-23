@@ -57,11 +57,17 @@ export interface CloneOptions {
  * up into mutator's own config), Vitest pinned, and the setup committed so that
  * `git diff HEAD` holds only a bench edit.
  */
-export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker', options: CloneOptions = {}): string {
-  const dir = join(work, variant === 'ours' ? spec.name : `${spec.name}-stryker`);
-  const vitest = variant === 'ours' ? (spec.vitestOurs ?? options.vitest ?? '5.0.3') : (spec.vitestStryker ?? '4.1.5');
+export type Variant = 'ours' | 'stryker' | 'mootant';
+
+/** mootant release the bench compares against. 0.2.0 needs Vitest >= 5.1 (`getSnapshotFiles`). */
+export const MOOTANT_VERSION = '0.2.0';
+
+export function setupClone(work: string, spec: Spec, variant: Variant, options: CloneOptions = {}): string {
+  const dir = join(work, variant === 'ours' ? spec.name : `${spec.name}-${variant}`);
+  // Stryker 10's vitest-runner is broken on Vitest 5, so its clone stays on Vitest 4.
+  const vitest = variant === 'stryker' ? (spec.vitestStryker ?? '4.1.5') : (spec.vitestOurs ?? options.vitest ?? '5.1.1');
   // What the setup depends on: a clone set up for other values is set up again.
-  const stamp = `${JSON.stringify({ commit: spec.commit, vitest, install: spec.install, checks: options.checks })}\n`;
+  const stamp = `${JSON.stringify({ commit: spec.commit, vitest, pin: spec.pin, install: spec.install, checks: options.checks, ...(variant === 'mootant' ? { mootant: MOOTANT_VERSION } : {}) })}\n`;
   const ready = join(dir, '.bench-ready');
   if (existsSync(ready) && readFileSync(ready, 'utf8') === stamp) return dir;
   rmSync(dir, { recursive: true, force: true });
@@ -79,6 +85,9 @@ export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker'
   pkg.devDependencies ??= {};
   for (const name of Object.keys(pkg.devDependencies)) if (name.startsWith('@vitest/')) delete pkg.devDependencies[name];
   pkg.devDependencies.vitest = vitest;
+  // e.g. a project's own vite 5, which Vitest 5 (vite >= 6.4) cannot load
+  for (const [name, version] of Object.entries(spec.pin ?? {})) pkg.devDependencies[name] = version;
+  if (variant === 'mootant') pkg.devDependencies.mootant = MOOTANT_VERSION;
   if (variant === 'stryker') {
     pkg.devDependencies['@stryker-mutator/core'] = '10.0.0';
     pkg.devDependencies['@stryker-mutator/vitest-runner'] = '10.0.0';
@@ -96,7 +105,7 @@ export function setupClone(work: string, spec: Spec, variant: 'ours' | 'stryker'
     };
     writeFileSync(join(dir, 'stryker.config.json'), `${JSON.stringify(config, null, 2)}\n`);
   }
-  writeFileSync(join(dir, '.git', 'info', 'exclude'), 'node_modules/\n.mutator/\nreports/\n.stryker-tmp/\n.bench-ready\n');
+  writeFileSync(join(dir, '.git', 'info', 'exclude'), 'node_modules/\n.mutator/\n.mootant/\nreports/\n.stryker-tmp/\n.bench-ready\n');
   log(`${spec.name}: installing ${variant} clone`);
   sh(spec.install ?? 'pnpm install --no-frozen-lockfile', dir);
   sh('git add -A && git -c user.name=bench -c user.email=bench@localhost commit -q -m "bench setup" --no-verify', dir);

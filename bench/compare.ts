@@ -1,6 +1,8 @@
-// Matches our mutants against Stryker's (both mutation-testing-elements JSON reports) on
-// file + range + replacement and reports per-mutator counts and verdict disagreements.
-// usage: node bench/compare.ts <ours mutation.json> <stryker mutation.json> [--verbose]
+// Matches our mutants against another tool's on file + range + replacement and reports
+// per-mutator counts and verdict disagreements. The other report is mutation-testing-elements
+// JSON (Stryker) or `mootant run --json --all --verbose` output. The `stryker` fields hold the
+// other tool's side either way.
+// usage: node bench/compare.ts <ours mutation.json> <other report.json> [--verbose]
 import { readFileSync } from 'node:fs';
 
 interface MteMutant {
@@ -29,8 +31,27 @@ const UNDETECTED = new Set(['Survived', 'NoCoverage']);
 // Stryker keeps trailing block comments in some replacements (`code === 32 /* */`).
 const norm = (t: string) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
 
+interface MootantMutant {
+  id: string;
+  file: string;
+  mutator: string;
+  status: string;
+  replacement?: string;
+  line: number;
+  column: number;
+  endLine?: number;
+  endColumn?: number;
+}
+
 function load(path: string): (MteMutant & { file: string })[] {
   const report = JSON.parse(readFileSync(path, 'utf8'));
+  // mootant: columns are 1-based like mutation-testing-elements.
+  if (Array.isArray(report.mutants)) {
+    return (report.mutants as MootantMutant[]).map((m) => ({
+      id: m.id, file: m.file, mutatorName: m.mutator, status: m.status, replacement: m.replacement ?? '',
+      location: { start: { line: m.line, column: m.column }, end: { line: m.endLine ?? m.line, column: m.endColumn ?? m.column } },
+    }));
+  }
   return Object.entries<{ mutants: MteMutant[] }>(report.files).flatMap(([file, f]) => f.mutants.map((m) => ({ ...m, file })));
 }
 

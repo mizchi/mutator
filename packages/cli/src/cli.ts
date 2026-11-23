@@ -59,6 +59,8 @@ const USAGE = `usage: mutator [options]
   --no-arid            also run mutants in logging-only code (console.*, logger.*, *.debug, ...)
   --[no-]typecheck     type-check mutants with the project's TypeScript first (default: auto)
   --no-weak-mutation   run covered mutants even when no test reaches them with a different value
+  --skip-subsumed      skip coarse mutants (statement, block, literal, body removals) that have a
+                       finer mutant inside them; heuristic, listed by mutator skipped
   --plugin <module>    plugin with custom mutators (path relative to root, or package), repeatable
   --exclude-mutator <name>  skip a mutator (built-in or custom), repeatable
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'

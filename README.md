@@ -197,6 +197,9 @@ Some candidates are removed before they become mutants, because another mutant a
 |---|---|---|
 | `same-edit` | duplicate | a second mutator making the same edit as another (for example `FnValue` returning `true` for an arrow whose body a `ConditionalExpression` mutant already replaces with `true`) |
 | `redundant-call` | subsumed, heuristic | `call();` -> `;` when another mutant lies inside the call (StrykerJS does the same). A test could kill the removal and miss the inner mutant; this is rare |
+| `solitary` | subsumed, heuristic; only with `--skip-subsumed` (`skipSubsumed: true`) | any other coarse mutant (`BlockStatement`, `ArrayDeclaration`, `ObjectLiteral`, `ArrowFunction`, `FnValue`) with another mutant strictly inside it |
+
+`--skip-subsumed` is off by default. On the five benchmark projects it removes 13–18% of the mutants. Cold runs got faster: cookie-es 15.7 → 13.5 s, pathe 18.3 → 17.3 s, ufo 33.3 → 25.5 s. Coarse removals are also the mutants most likely to time out: cookie-es had 29 timeouts without it and 20 with it. The cost is survivors that only the coarse mutant showed. Of the 405 mutants it removes across the five projects, 3 survived while every mutant inside them was killed. One example is `{ return "."; } -> {}` in pathe: the tests notice `"."` -> `""`, but not a missing return.
 
 Skipped candidates are not counted, reported or cached. An inner mutant that is disabled or ignored still justifies the skip, so ignoring code never adds mutants to it. An excluded mutator (`--exclude-mutator`) does not.
 

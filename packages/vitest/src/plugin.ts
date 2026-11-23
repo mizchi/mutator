@@ -10,6 +10,7 @@ export interface PluginOptions {
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];
   weak?: InstrumentOptions['weak'];
+  subsumeCoarse?: InstrumentOptions['subsumeCoarse'];
   /** Mutant identity uses paths relative to this directory. */
   root?: string;
 }

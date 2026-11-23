@@ -31,3 +31,30 @@ describe('mutator skipped', () => {
     expect(formatSkipped([])).toBe('skipped: 0\n');
   });
 });
+
+describe('--skip-subsumed', { timeout: 120_000 }, () => {
+  test('a run drops coarse mutants with finer ones inside; every other verdict is the same', async () => {
+    // Under the repository, so the fixture resolves vitest.
+    const root = mkdtempSync(join(import.meta.dirname, '../../../.tmp/solitary-'));
+    try {
+      mkdirSync(join(root, 'src'));
+      mkdirSync(join(root, 'test'));
+      writeFileSync(join(root, 'vitest.config.ts'), "import { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { include: ['test/**/*.test.ts'] } });\n");
+      writeFileSync(join(root, 'src/a.ts'), 'export function f(a: number): number {\n  if (a > 1) {\n    return a + 1;\n  }\n  return 0;\n}\n');
+      writeFileSync(join(root, 'test/a.test.ts'), "import { expect, test } from 'vitest';\nimport { f } from '../src/a.ts';\ntest('f', () => { expect(f(2)).toBe(3); expect(f(0)).toBe(0); });\n");
+      const { runMutation } = await import('../src/run.ts');
+      const off = await runMutation({ root, concurrency: 1, typecheck: false, snapshotPath: join(root, '.mutator/off.json') });
+      const on = await runMutation({ root, concurrency: 1, typecheck: false, skipSubsumed: true, snapshotPath: join(root, '.mutator/on.json') });
+      const verdicts = (r: typeof on) => new Map(r.entries.map((e) => [e.mutant.key, e.status]));
+      const before = verdicts(off);
+      const after = verdicts(on);
+      const { skipped } = await listSkipped({ root, runner: 'vitest', skipSubsumed: true });
+      const solitary = skipped.filter((s) => s.rule === 'solitary');
+      expect(solitary.map((s) => s.mutator)).toContain('BlockStatement');
+      expect(after.size).toBe(before.size - solitary.length);
+      for (const [key, status] of after) expect(before.get(key)).toBe(status);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -47,3 +47,34 @@ describe('skip records', () => {
     expect(skipped.map((s) => s.original)).toEqual(['k(b + 1);']);
   });
 });
+
+describe('subsumeCoarse (solitary rule)', () => {
+  const src = 'function f(a) {\n  if (a) {\n    return a + 1;\n  }\n  return 0;\n}';
+  const block = 'BlockStatement: { return a + 1; } -> {}';
+
+  test('off by default: a coarse mutant with a finer one inside is kept', () => {
+    const { mutants, skipped } = instrument('a.js', src);
+    expect(mutants.map(label)).toContain(block);
+    expect(skipped.filter((s) => s.rule === 'solitary')).toEqual([]);
+  });
+
+  test('on: the coarse mutant is skipped as subsumed by a finer mutant inside it', () => {
+    const { mutants, skipped } = instrument('a.js', src, { subsumeCoarse: true });
+    expect(mutants.map(label)).not.toContain(block);
+    const skip = skipped.find((s) => s.rule === 'solitary' && s.mutator === 'BlockStatement' && s.original.includes('a + 1'))!;
+    expect(skip).toMatchObject({ category: 'subsumed', heuristic: true });
+    const by = mutants.find((m) => m.key === skip.by)!;
+    expect(by.range.start).toBeGreaterThanOrEqual(skip.range.start);
+    expect(by.range.end).toBeLessThanOrEqual(skip.range.end);
+  });
+
+  test('on: a mutant over the same range is not finer, and keys of the rest stay the same', () => {
+    const arrow = 'const p = (a: number): boolean => a > 1;';
+    const off = instrument('a.ts', arrow).mutants.map((m) => m.key);
+    const on = instrument('a.ts', arrow, { subsumeCoarse: true }).mutants.map((m) => m.key);
+    expect(on.every((k) => off.includes(k))).toBe(true);
+    const whole = instrument('a.js', src, { subsumeCoarse: true }).mutants.filter((m) => m.mutator === 'BlockStatement').map(label);
+    // The function body still holds finer mutants, so it goes too; an empty-able block without inner mutants stays.
+    expect(whole).toEqual([]);
+  });
+});

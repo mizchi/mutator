@@ -88,6 +88,8 @@ export interface RunOptions {
    * different value; covered mutants no test infects are decided Survived without running.
    */
   weakMutation?: boolean;
+  /** Skip coarse mutants with a finer mutant inside (`solitary` skips). */
+  skipSubsumed?: boolean;
   /** Mutant key -> reason: undetected mutants judged equivalent; reported `Ignored` (the cache keeps the verdict). */
   accepted?: ReadonlyMap<string, string>;
   /**

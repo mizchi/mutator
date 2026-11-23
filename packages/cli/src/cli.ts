@@ -65,7 +65,8 @@ const USAGE = `usage: mutator [options]
                        finer mutant inside them; heuristic, listed by mutator skipped
   --plugin <module>    plugin with custom mutators (path relative to root, or package), repeatable
   --exclude-mutator <name>  skip a mutator (built-in or custom), repeatable
-  --enable-mutator <name>  run an opt-in mutator (MissingAwait), repeatable
+  --enable-mutator <name>  run an opt-in mutator (MissingAwait, ArrayElement, ObjectProperty,
+                       RegexFlag), repeatable
   --arid-callee <pat>  logging call pattern, repeatable (replaces the defaults), e.g. 'metrics.*'
   --mutants-per-line <n>  run at most n mutants per source line, most productive
                        mutators first (the rest stay pending; default: unlimited)

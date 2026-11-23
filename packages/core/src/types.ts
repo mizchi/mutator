@@ -7,6 +7,7 @@ export type { AstNode, Location, Position, Range } from '@mizchi/test-impact/sou
 export const BUILTIN_MUTATOR_NAMES = [
   'ArithmeticOperator',
   'ArrayDeclaration',
+  'ArrayElement',
   'ArrowFunction',
   'AssignmentOperator',
   'BlockStatement',
@@ -19,8 +20,10 @@ export const BUILTIN_MUTATOR_NAMES = [
   'MethodExpression',
   'MissingAwait',
   'ObjectLiteral',
+  'ObjectProperty',
   'OptionalChaining',
   'Regex',
+  'RegexFlag',
   'StringLiteral',
   'UnaryOperator',
   'UpdateOperator',

@@ -53,7 +53,7 @@ export default defineConfig({
 | `skipSubsumed` | `--skip-subsumed` | skip coarse mutants (block, literal, body removals) that have a finer mutant inside them, listed by `mutator skipped` (default off; heuristic) |
 | `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator`; see [plugins.md](plugins.md)) |
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |
-| `enabledMutators` | `--enable-mutator <name>` | opt-in mutators to run (`MissingAwait`) |
+| `enabledMutators` | `--enable-mutator <name>` | opt-in mutators to run (`MissingAwait`, `ArrayElement`, `ObjectProperty`, `RegexFlag`) |
 | `mutantsPerLine` | `--mutants-per-line <n>` | run at most n mutants per line, most productive first; the rest stay `Pending` |
 | `timeBudget` | `--time-budget <s>` | after s seconds from the start (dry run included), type-check no further mutant and start no new mutant run; the rest stay `Pending` and run next time. The dry run itself and the in-flight type-check batch and runs are not interrupted |
 | `critical` | `--critical <glob>` | every mutant in these files must run and be killed or accepted, otherwise exit 2 (also when `--time-budget` leaves one unrun); also `// mutator-critical` before a function |

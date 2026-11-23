@@ -259,6 +259,24 @@ const objectLiteral: Mutator = (frame) => {
   return node.type === 'ObjectExpression' && node.properties.length ? [whole(frame, 'ObjectLiteral', '{}')] : [];
 };
 
+/** Literals with more entries are left to ArrayDeclaration / ObjectLiteral: n removals of n entries each. */
+const MAX_ENTRIES = 16;
+
+/** ArrayElement / ObjectProperty (opt-in): the literal without one entry, for each entry. */
+const entryRemoval: Mutator = (frame, ctx) => {
+  const { node } = frame;
+  const array = node.type === 'ArrayExpression';
+  if (!array && node.type !== 'ObjectExpression') return [];
+  const entries: (Node | null)[] = array ? node.elements : node.properties;
+  if (entries.length > MAX_ENTRIES || entries.some((e) => e == null)) return [];
+  const texts = (entries as Node[]).map((e) => ctx.slice(e));
+  return texts.map((_, i) => {
+    const rest = texts.filter((__, j) => j !== i);
+    const text = array ? `[${rest.join(', ')}]` : rest.length ? `{ ${rest.join(', ')} }` : '{}';
+    return whole(frame, array ? 'ArrayElement' : 'ObjectProperty', text);
+  });
+};
+
 function stringLiteralExcluded(frame: Frame): boolean {
   const parent = frame.parent?.node;
   if (!parent) return true;
@@ -377,6 +395,25 @@ const callExpression: Mutator = (frame) => {
   if (expr.type === 'ChainExpression') expr = expr.expression;
   if (expr.type !== 'CallExpression' || isSuperCall(expr)) return [];
   return [whole(frame, 'CallExpression', ';')];
+};
+
+/** RegexFlag (opt-in): a regex literal without one of its flags, when still valid. */
+const regexFlag: Mutator = (frame, ctx) => {
+  const { node } = frame;
+  if (node.type !== 'Literal' || !node.regex) return [];
+  const raw = ctx.slice(node);
+  const slash = raw.lastIndexOf('/');
+  const pattern = raw.slice(1, slash);
+  const flags = raw.slice(slash + 1);
+  return [...flags].flatMap((_, i) => {
+    const rest = flags.slice(0, i) + flags.slice(i + 1);
+    try {
+      new RegExp(pattern, rest);
+    } catch {
+      return [];
+    }
+    return [whole(frame, 'RegexFlag', `/${pattern}/${rest}`)];
+  });
 };
 
 const regex: Mutator = (frame, ctx) => {
@@ -529,7 +566,7 @@ const missingAwait: Mutator = (frame, ctx) => {
 };
 
 /** Mutators that run only when named in `enabledMutators`. */
-export const OPT_IN_MUTATORS: ReadonlySet<MutatorName> = new Set(['MissingAwait']);
+export const OPT_IN_MUTATORS: ReadonlySet<MutatorName> = new Set(['MissingAwait', 'ArrayElement', 'ObjectProperty', 'RegexFlag']);
 
 export const mutators: readonly Mutator[] = [
   arithmeticOperator,
@@ -550,6 +587,8 @@ export const mutators: readonly Mutator[] = [
   unaryOperator,
   updateOperator,
   missingAwait,
+  entryRemoval,
+  regexFlag,
   // Last: on an identical edit the established mutator keeps the name.
   fnValue,
 ];

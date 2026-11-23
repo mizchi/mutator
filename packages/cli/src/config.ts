@@ -143,7 +143,7 @@ const properties = {
   skipSubsumed: { description: 'Skip coarse mutants (statement, block, literal and body removals) that have a finer mutant inside them (default false).', type: 'boolean' },
   plugins: strings('Plugin modules (relative paths or package names) providing custom mutators.'),
   excludedMutators: strings('Mutators to skip, built-in or custom, by name.'),
-  enabledMutators: strings('Opt-in mutators to run (MissingAwait).'),
+  enabledMutators: strings('Opt-in mutators to run (MissingAwait, ArrayElement, ObjectProperty, RegexFlag).'),
   mutantsPerLine: { description: 'Run at most this many mutants per source line, most productive mutators first (default: unlimited).', type: 'integer', minimum: 1 },
   timeBudget: { description: 'Seconds from the start of the run (dry run included) after which no further mutant is type-checked and no new mutant run starts; the rest stay pending (default: unlimited).', type: 'number', minimum: 0 },
   critical: strings('Globs (relative to the root) of critical sources: any undetected mutant there that is not accepted fails the run (exit 2), whatever the thresholds.'),

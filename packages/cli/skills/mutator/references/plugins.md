@@ -8,6 +8,7 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 |---|---|
 | `ArithmeticOperator` | `+` ↔ `-`, `*` ↔ `/`, `%` → `*` |
 | `ArrayDeclaration` | `[a, b]` → `[]`, `[]` → `["Stryker was here!"]` |
+| `ArrayElement` | `[a, b]` → `[b]`, `[a]` (one element at a time, literals up to 16 entries); opt-in (`--enable-mutator ArrayElement`) |
 | `ArrowFunction` | `() => x` → `() => undefined` |
 | `AssignmentOperator` | `+=` ↔ `-=`, `??=` → `&&=`, ... |
 | `BlockStatement` | a function or block body → `{}` |
@@ -20,8 +21,10 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 | `MethodExpression` | `startsWith` ↔ `endsWith`, `some` ↔ `every`, `toUpperCase` ↔ `toLowerCase`, `padStart` ↔ `padEnd`, `.sort()` removed, ... |
 | `MissingAwait` | `await p` → `p`; opt-in (`--enable-mutator MissingAwait`). Skipped as equivalent: `return await p` outside `try`, `await` of a literal |
 | `ObjectLiteral` | `{ a: 1 }` → `{}` |
+| `ObjectProperty` | `{ a, b }` → `{ b }`, `{ a }` (one property at a time, spreads and methods included, up to 16); opt-in (`--enable-mutator ObjectProperty`) |
 | `OptionalChaining` | `a?.b` → `a.b` |
 | `Regex` | a regular expression simplified, e.g. `/ab+c/` → `/abc/` |
+| `RegexFlag` | `/a/gi` → `/a/i`, `/a/g` (one flag at a time, only when the pattern stays valid); opt-in (`--enable-mutator RegexFlag`) |
 | `StringLiteral` | `"x"` → `""`, `""` → `"Stryker was here!"` |
 | `UnaryOperator` | `-x` → `+x`, ... |
 | `UpdateOperator` | `i++` ↔ `i--` |

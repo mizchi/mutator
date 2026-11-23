@@ -46,7 +46,7 @@ Where the speed comes from:
 | undetected mutants | split by where the tests stopped short: not detected, not infected, not reached (with a fix for each) | Survived, NoCoverage |
 | equivalent mutants | `mutator accept <key>` (keyed, outside the source, reported when stale) and `?.` proven unneeded by types; disable comments | disable comments (`// Stryker disable`, also honoured by mutator) |
 | a test file failing to load under a mutant | detected | Survived (StrykerJS 10's Vitest runner) |
-| mutators | 18, including function return values by type and call statement removal; logging-only code is skipped (arid) | its own set, including `switch` case removal and a richer regex mutator; skips everything under `as` casts |
+| mutators | 18, including function return values by type and call statement removal, plus 4 opt-in (`--enable-mutator`: MissingAwait, ArrayElement, ObjectProperty, RegexFlag); logging-only code is skipped (arid) | its own set, including `switch` case removal and a richer regex mutator; skips everything under `as` casts |
 | beyond the score | critical regions, `--kill-matrix` (redundant tests), `--reporter simplify` (code no test needs), `select-tests` (tests a change can break), `--reporter agent` and agent skills, a GitHub Action with a cached snapshot | Stryker Dashboard, plugins for many runners and checkers |
 | reports | mutation-testing-elements JSON and HTML (the format StrykerJS emits), text, GitHub annotations | mutation-testing-elements HTML / JSON, progress, dashboard |
 | maturity | 0.x | stable, widely used |

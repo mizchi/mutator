@@ -25,6 +25,7 @@ export async function resolveSetup(root: string, options: RunOptions, log: (mess
   const arid = combineArid(options.arid, plugins.aridCallees);
   const instrumentOptions: InstrumentFlags = {
     ...(options.weakMutation === false ? { weak: false } : {}),
+    ...(options.skipSubsumed ? { subsumeCoarse: true } : {}),
     ...(arid !== undefined ? { arid } : {}),
     ...(plugins.mutators.length ? { mutators: plugins.mutators } : {}),
     ...(plugins.ignorers.length ? { ignorers: plugins.ignorers } : {}),

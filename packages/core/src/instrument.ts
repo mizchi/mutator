@@ -113,7 +113,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   }
   // Decided on the full candidate set so that a `ranges` restriction never changes the outcome.
   // An ignored inner mutant still justifies the skip: ignoring code must not add mutants to it.
-  const redundant = redundantCallStatements(found.map((f) => f.candidate));
+  const redundant = subsumedByInner(found.map((f) => f.candidate), options.subsumeCoarse ? COARSE : CALL_ONLY);
 
   for (const [node, names] of refs) scopes.get(node)!.refs = [...names].sort();
   const mutants: Mutant[] = [];
@@ -135,7 +135,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
     }
     const justifier = redundant.get(candidate);
     if (justifier) {
-      skippedAs('redundant-call', 'subsumed', sameEdit.get(justifier) ?? justifier, true);
+      skippedAs(candidate.mutator === 'CallExpression' ? 'redundant-call' : 'solitary', 'subsumed', sameEdit.get(justifier) ?? justifier, true);
       continue;
     }
     let key = hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
@@ -192,16 +192,23 @@ export function instrument(file: string, source: string, options: InstrumentOpti
 
 const LOW_PRIORITY: ReadonlySet<MutatorName> = new Set(['FnValue']);
 
+/** Always: Stryker's filter for `call();` -> `;`. */
+const CALL_ONLY: ReadonlySet<MutatorName> = new Set(['CallExpression']);
+/** With `subsumeCoarse`: every mutator that removes or empties a region holding other code. */
+const COARSE: ReadonlySet<MutatorName> = new Set(['CallExpression', 'BlockStatement', 'ArrayDeclaration', 'ObjectLiteral', 'ArrowFunction', 'FnValue']);
+
 /**
- * Stryker's filter for `call();` -> `;`: dropped when another mutant lies inside the statement,
- * since that one already exercises it. Maps the call removal to that mutant.
+ * A coarse candidate (`call();` -> `;`, `{ ... }` -> `{}`, ...) is dropped when another candidate
+ * lies strictly inside its range, since a test that kills that one exercises the coarse change's
+ * code too. Maps each dropped candidate to that inner candidate. Heuristic: a test can kill the
+ * inner change and still miss the removal (e.g. `{ return "."; }` -> `{}` when callers coerce).
  */
-function redundantCallStatements(candidates: readonly Candidate[]): Map<Candidate, Candidate> {
+function subsumedByInner(candidates: readonly Candidate[], coarse: ReadonlySet<MutatorName>): Map<Candidate, Candidate> {
   const out = new Map<Candidate, Candidate>();
   const sorted = [...candidates].sort((a, b) => a.range.start - b.range.start);
-  for (const call of candidates) {
-    if (call.mutator !== 'CallExpression') continue;
-    const { start, end } = call.range;
+  for (const outer of candidates) {
+    if (!coarse.has(outer.mutator)) continue;
+    const { start, end } = outer.range;
     let lo = 0;
     let hi = sorted.length;
     while (lo < hi) {
@@ -211,8 +218,10 @@ function redundantCallStatements(candidates: readonly Candidate[]): Map<Candidat
     }
     for (let i = lo; i < sorted.length && sorted[i]!.range.start < end; i++) {
       const other = sorted[i]!;
-      if (other !== call && other.range.end <= end) {
-        out.set(call, other);
+      // The same range is a sibling edit, not a finer one (except for a call statement, as before).
+      const sameRange = other.range.start === start && other.range.end === end;
+      if (other !== outer && other.range.end <= end && (!sameRange || outer.mutator === 'CallExpression')) {
+        out.set(outer, other);
         break;
       }
     }

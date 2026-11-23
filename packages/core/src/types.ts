@@ -158,6 +158,11 @@ export interface InstrumentOptions {
   mutators?: readonly MutatorDefinition[];
   /** Weak-mutation probes in dry runs (default true): mutants no test infects are not run. */
   weak?: boolean;
+  /**
+   * Skip coarse mutants (statement, block, literal and body removals) that have a finer mutant
+   * strictly inside them, recorded as `solitary` skips. Heuristic; default false.
+   */
+  subsumeCoarse?: boolean;
   /** Mark every mutant under nodes they flag as ignored (like StrykerJS ignorers). */
   ignorers?: readonly MutantIgnorer[];
   /**

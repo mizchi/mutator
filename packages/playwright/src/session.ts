@@ -31,7 +31,7 @@ import { RUN_FILE_ENV, type RunConfig, type RunResults, SETTINGS_ENV, type Setti
 import { type RunRequest, type RunnerOutcome, createProcessRunner } from './runner.ts';
 import { type WebServerConfig, acquireServers } from './server.ts';
 
-export interface PlaywrightSessionOptions extends Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak'> {
+export interface PlaywrightSessionOptions extends Pick<InstrumentOptions, 'arid' | 'excludedMutators' | 'weak' | 'subsumeCoarse'> {
   root: string;
   /** Absolute paths of the source files to mutate. */
   targets: readonly string[];

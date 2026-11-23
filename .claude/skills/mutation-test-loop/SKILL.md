@@ -34,6 +34,22 @@ mkdir -p .mutator && npx mutator --since <base> --reporter agent > .mutator/agen
   - `childProcessTest`: a test runs the sources in a child process, where mutants are not observed. Gaps with `childProcess: true` may already be covered there: prefer an in-process test of the same behaviour, or leave them.
 - Exit codes: 4 means the tests fail without any mutant: stop and fix them first. 2 (the project's quality gate: `thresholds.break`, `--fail-on-survived`, critical regions) is expected while gaps remain; the JSON is complete, carry on.
 
+Then start a ledger, `.mutator/ledger.md`, with one row per gap. Fill in its verdict as you go, so the work survives a context reset or a handoff:
+
+```md
+| key | file:line | gap | verdict | test / reason |
+|---|---|---|---|---|
+| 1yhqbzzp7bx | src/a.ts:12 | notInfected | killed | test/a.test.ts "clamps at the bound" |
+```
+
+Use only these verdicts:
+
+- `killed`: a new or changed test detects it (confirmed by the re-check in step 3)
+- `accepted`: equivalent, recorded with `mutator accept` (step 4)
+- `suspected bug`: the mutant looks more correct than the original; stop and ask
+- `could not kill`: two re-checks failed and you do not know why
+- `not testable`: observing it needs something the tests cannot reach (timing, a real network, process exit)
+
 ## 2. Close each gap
 
 Handle the gaps one function at a time (group them by `scope.id`). Read the test files in `coveredBy`, so the new test fits the existing ones: put it in the same file, follow its style, and reuse its helpers.
@@ -48,6 +64,7 @@ Rules for every test you write:
 
 - **Assert behaviour a caller can observe.** Do not reach into private state, mock the function under test, or assert the exact sequence of internal calls. A test that only pins the implementation kills the mutant but breaks on any refactor.
 - **Write a test that fails on the mutated code.** The test name should describe a behaviour, not the mutant.
+- **Never compute the expected value with the code under test.** `expect(f(x)).toBe(f(x))` style tests, or an expected value copied from running `f`, only pin the current behaviour, bugs included. Derive it from the specification, a hand calculation, or an independent implementation.
 - **Do not change the code under test** to kill a mutant, unless it has a real bug. If you find one, say so and stop for confirmation.
 - **Never let the code under test decide what a test destroys.** Under a mutant it may return anything: a test that kills the pids or deletes the paths a function returns can kill or delete the wrong ones. Act only on the processes and files the test itself created.
 
@@ -64,6 +81,7 @@ npx mutator --reporter agent $(jq -r '.gaps[].key | "--only=" + .' .mutator/agen
 - The score and the quality gate cover only the selected mutants: an exit code 2 here just means some of them are still undetected.
 - A key that matches no mutant gives an `unknownKey` warning (and exit 1). The code changed since the key was taken, so run step 1 again. Read `warnings`, not the exit code, when the command runs through `xargs` or a script that changes exit codes.
 - If it is still listed, the test does not separate the two versions. Look again at the input or the assertion, instead of adding more tests of the same kind.
+- After two re-checks that leave the same mutant listed, stop on it: mark it `could not kill` in the ledger with what you tried, and move on.
 
 ## 4. Mutants no test can detect
 
@@ -77,15 +95,13 @@ This writes to `mutator.accepted.json`, together with where the mutant is (`file
 
 ## 5. Finish
 
-Run step 1 again (it re-runs the mutants your new tests cover, so it takes longer than the `--only` checks). Stop when every gap is either:
+Run step 1 again (it re-runs the mutants your new tests cover, so it takes longer than the `--only` checks). Stop when every gap has a verdict in the ledger.
 
-- killed,
-- accepted with a reason, or
-- listed for the user as "not sure".
+Then report, from the ledger:
 
-Then report:
-
-- how many gaps were killed, accepted and left
+- how many gaps were killed and accepted, and which are `suspected bug`, `could not kill` or `not testable`
 - the tests you added or changed
 - the accepted mutants and their reasons
 - any real bug you found
+
+`.mutator/` is ignored by Git, so the ledger stays local; delete it once the report is written.

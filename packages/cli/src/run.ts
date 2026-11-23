@@ -272,7 +272,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // The previous snapshot when it can be reused; every consumer below goes through this.
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
-    const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
+    const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated, { reads: reusable?.reads ?? {}, env: reusable?.env ?? {} });
     let dryPlan = planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
       const related = await session.relatedTestFiles(files);
@@ -300,7 +300,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (dry.failed.length > 0) throw new BaselineError(formatBaselineFailure(dry, root));
     const merged = mergeDryRun({ root, previous: reusable, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
-    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
+    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated, { reads: Object.fromEntries(merged.reads), env: Object.fromEntries(merged.env) });
     for (const test of merged.tests) {
       const file = testFileOf(test.id);
       if (dryFiles.has(file)) test.fingerprint = testFingerprint(finalTestFiles[file]!, test.id);

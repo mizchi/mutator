@@ -1,6 +1,6 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join } from 'node:path';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import {
   type DryRunResult,
   type Mutant,
@@ -36,6 +36,10 @@ export interface CliSnapshot extends RunSnapshot {
   hits: Record<string, number>;
   /** test id -> processes it started in the dry run */
   spawns?: Record<string, SpawnedCommand[]>;
+  /** test file (relative) -> files and directories (relative) it read through `node:fs` in the dry run */
+  reads?: Record<string, string[]>;
+  /** test file (relative) -> environment variables it read in the dry run; `*` when it listed them all */
+  env?: Record<string, string[]>;
   /** source file (relative) -> scope id -> entry */
   scopes?: Record<string, Record<string, ScopeEntry>>;
   /** Source file (relative) -> static module requests in evaluation order. */
@@ -87,8 +91,18 @@ function statementsReordered(before: Iterable<ScopeEntry>, after: Iterable<Scope
   return !sameOrder(oldOrder.filter((item) => newItems.has(item)), newOrder.filter((item) => oldItems.has(item)));
 }
 
+export interface TestInputs {
+  /** test file (relative) -> files and directories (relative) it read through `node:fs` */
+  reads?: Readonly<Record<string, readonly string[]>>;
+  /** test file (relative) -> environment variables it read; `*` when it listed them all */
+  env?: Readonly<Record<string, readonly string[]>>;
+  /** Values of the variables; defaults to this process's environment, which the test workers inherit. */
+  environment?: NodeJS.ProcessEnv;
+}
+
 /**
- * Content hash of each test file together with the local files it imports.
+ * Content hash of each test file together with the local files it imports, and the files and
+ * environment variables it read while it ran (the snapshot of an unchanged input reuses its verdicts).
  * Mutated sources are left out: the dry-run planner follows their edits per scope.
  */
 export function testFileHashes(
@@ -96,13 +110,50 @@ export function testFileHashes(
   testFiles: readonly string[],
   deps: Readonly<Record<string, readonly string[]>>,
   mutated: ReadonlySet<string>,
+  /** What each test file read at run time: files and directories (relative), and environment variables. */
+  inputs: TestInputs = {},
 ): Record<string, string> {
   const read = (rel: string) => {
     const file = join(root, rel);
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
   };
   const content = (rel: string) => (mutated.has(rel) ? '' : read(rel));
-  return Object.fromEntries(testFiles.map((rel) => [rel, hash([read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, content(dep)])].join('\0'))]));
+  const environment = inputs.environment ?? process.env;
+  return Object.fromEntries(testFiles.map((rel) => {
+    const parts = [read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, content(dep)])];
+    const reads = inputs.reads?.[rel] ?? [];
+    if (reads.length) parts.push('\0reads', ...reads.flatMap((file) => [file, inputContent(join(root, file))]));
+    const names = inputs.env?.[rel] ?? [];
+    if (names.length) parts.push('\0env', ...names.flatMap((name) => [name, name === '*' ? wholeEnvironment(environment) : envValue(environment[name])]));
+    return [rel, hash(parts.join('\0'))];
+  }));
+}
+
+/** What a test sees of a path it read: a file's content, a directory's entries, or that it is missing. */
+function inputContent(file: string): string {
+  try {
+    if (statSync(file).isDirectory()) return `\0dir\0${readdirSync(file).sort().join('\0')}`;
+    return readFileSync(file, 'utf8');
+  } catch {
+    return '\0missing';
+  }
+}
+
+const envValue = (value: string | undefined) => (value === undefined ? '\0unset' : value);
+
+/**
+ * Variables that differ between shells and terminals of the same machine, left out of the
+ * key of a test that listed every variable: keying on them would re-collect it on every run.
+ */
+const VOLATILE_ENV = new Set(['_', 'PWD', 'OLDPWD', 'SHLVL', 'COLUMNS', 'LINES', 'WINDOWID', 'TERM_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'SECURITYSESSIONID', 'LaunchInstanceID']);
+const VOLATILE_ENV_PREFIX = /^(?:npm_|SSH_|TMUX|ITERM_|VSCODE_|KITTY_|WEZTERM_|GHOSTTY_|XPC_|__CF|Apple_PubSub|VITEST_)/;
+
+function wholeEnvironment(environment: NodeJS.ProcessEnv): string {
+  return Object.keys(environment)
+    .filter((name) => !VOLATILE_ENV.has(name) && !VOLATILE_ENV_PREFIX.test(name))
+    .sort()
+    .map((name) => `${name}=${environment[name]}`)
+    .join('\0');
 }
 
 export type DryRunPlan =
@@ -243,7 +294,11 @@ export function planDryRun(input: {
 
 const sorted = (files: ReadonlySet<string>, testFiles: Readonly<Record<string, string>>) => [...files].filter((f) => f in testFiles).sort();
 
-export type MergedDryRun = Omit<DryRunResult, 'failed' | 'failures' | 'spawns'> & { spawns: Map<string, SpawnedCommand[]> };
+export type MergedDryRun = Omit<DryRunResult, 'failed' | 'failures' | 'spawns' | 'reads' | 'env'> & {
+  spawns: Map<string, SpawnedCommand[]>;
+  reads: Map<string, string[]>;
+  env: Map<string, string[]>;
+};
 
 /** Combine a partial dry run with the previous snapshot's data for the test files that were skipped. */
 export function mergeDryRun(input: {
@@ -283,6 +338,14 @@ export function mergeDryRun(input: {
 
   const deps = new Map(dry.deps);
   for (const [file, list] of Object.entries(previous?.deps ?? {})) if (keptModule(file)) deps.set(file, list);
+  // Re-collected test files keep only what they read this time.
+  const keptFiles = (current: ReadonlyMap<string, string[]> | undefined, before: Record<string, string[]> | undefined) => {
+    const merged = new Map([...(current ?? [])].filter(([file]) => dryFiles.has(file)));
+    for (const [file, list] of Object.entries(before ?? {})) if (keptModule(file)) merged.set(file, list);
+    return merged;
+  };
+  const reads = keptFiles(dry.reads, previous?.reads);
+  const env = keptFiles(dry.env, previous?.env);
 
   const hits = new Map(Object.entries(previous?.hits ?? {}).filter(([k]) => alive.has(k)));
   // A partial run only sees some test files: never lower a hit count (and thus a hit limit).
@@ -302,5 +365,5 @@ export function mergeDryRun(input: {
     for (const id of previous?.sourceCoverageIncomplete ?? []) if (keptModule(previous?.index[id]?.module)) sourceCoverageIncomplete!.add(id);
     if (!dry.sourceCoverage) for (const test of dry.tests) sourceCoverageIncomplete!.add(test.id);
   }
-  return { tests, coverage, staticKeys, hits, index, staticByFile, deps, spawns, ...(sourceCoverage ? { sourceCoverage, sourceCoverageIncomplete: sourceCoverageIncomplete! } : {}) };
+  return { tests, coverage, staticKeys, hits, index, staticByFile, deps, spawns, reads, env, ...(sourceCoverage ? { sourceCoverage, sourceCoverageIncomplete: sourceCoverageIncomplete! } : {}) };
 }

@@ -20,7 +20,7 @@ function execution(run: Session['runMutant'], count = 1) {
   const ctx: ExecuteContext = {
     root: '/p', log: (message) => messages.push(message), runner: 'vitest',
     sessionOptions: { root: '/p', targets: new Set(), pluginModules: [], hasPluginObjects: false },
-    session, sessions: [session], merged: { ...emptyDryRun(), coverage, spawns: new Map(), tests: [{ id: entry.tests[0]!, fingerprint: 'f', durationMs: 20_000 }] },
+    session, sessions: [session], merged: { ...emptyDryRun(), coverage, spawns: new Map(), reads: new Map(), env: new Map(), tests: [{ id: entry.tests[0]!, fingerprint: 'f', durationMs: 20_000 }] },
     started: performance.now(), timeBudget: undefined, concurrency: 1, killMatrix: false,
     fileOverheadMs: 100, previousDurations: new Map(),
   };

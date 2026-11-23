@@ -1,6 +1,74 @@
-# Benchmark: mutator vs StrykerJS
+# Benchmark: mutator vs StrykerJS and mootant
 
-Measured 2026-10-09 on five small-to-medium TypeScript libraries tested with Vitest. The harness that produced every number below is in [`bench/`](../bench).
+Five small-to-medium TypeScript libraries tested with Vitest. The harness that produced every number below is in [`bench/`](../bench). The latest run (2026-11-24) adds [mootant](https://mootant.org/) 0.2.0. The first run (2026-10-09) follows it, with the method and the bugs it found.
+
+## Latest run (2026-11-24): mutator, StrykerJS and mootant
+
+Wall-clock seconds, mean of two runs. mutator at `07e0413` (main, before #71). The edits are the same as in the first run.
+
+| project | mutants (mutator / Stryker / mootant) | cold | no change | one edit, diff only: mutator `--since` / mootant `--since` | one edit, whole project: mutator full / Stryker `--incremental` / mootant `--incremental` |
+|---|---|---|---|---|---|
+| defu | 107 / 103 / 59 | 3.12 / 3.05 / **2.21** | **0.32** / 1.08 / **0.32** | 1.10 / **0.61** | 2.85 / **1.29** / 1.48 |
+| scule | 153 / 81 / 125 | 5.62 / **2.81** / 5.24 | **0.34** / 1.17 / **0.34** | 1.18 / **0.87** | 2.61 / **1.17** / 2.00 |
+| cookie-es | 727 / 725 / 506 | 16.2 / **11.9** / 12.5 | **0.34** / 1.43 / 1.00 | 1.04 / **0.66** | 4.72 / **1.64** / 1.75 |
+| pathe | 547 / 524 / 457 | 18.0 / **9.50** / 31.7 | **0.36** / 2.51 / 0.49 | 1.47 / **1.12** | 7.60 / 2.59 / 2.80 |
+| ufo | 1109 / 1011 / 862 | 33.2 / **19.7** / 24.0 | **0.37** / 1.80 / 0.91 | 1.46 / **0.81** | 6.03 / 2.03 / **1.43** |
+
+What changed since the first run:
+
+- **StrykerJS is now faster on cold runs on four of the five projects.** In the first run mutator was faster on four.
+  - Part of the change is ours. mutator now type-checks every mutant before the first one runs, which on ufo is 8.5 s of the 33 s (#60). #71 runs that check alongside execution and brings ufo to about 25.5 s.
+  - Part of it is Stryker. Its numbers dropped (ufo 25.9 → 19.7 s, defu 7.3 → 3.1 s) with the same Stryker and Vitest versions. The first run's machine was busier (see its Environment).
+  - Raising mutator's `-j` from 6 to 11 sessions does not help (ufo 25.3 / 25.5 s with #71). The remaining gap is the fixed cost of each mutant run, about 90 ms on ufo: every run evaluates the test file and its imports in a fresh forked worker. See #61.
+- **No-change reruns:** mutator is still the fastest (0.3–0.4 s). mootant matches it on defu and scule.
+- **After an edit:**
+  - Diff only: mootant's `--since` beats mutator's on every project, by 0.3–0.6 s.
+  - Whole project: Stryker's and mootant's incremental modes beat mutator's full rerun by 2–5x. mutator re-runs every mutant whose enclosing function changed, and every survivor whose covering tests load the edited file. Stryker re-runs only mutants in changed code. mootant's `--incremental` keys tests on what they read outside the mutated files, which it documents as a heuristic.
+- **mootant generates the fewest mutants** (59–862). It drops duplicates, likely equivalents and likely hangs through about 90 named skip rules, and it has no BlockStatement or FnValue mutator. Its scores are therefore lower and not comparable.
+- **Verdicts on shared mutants:**
+
+  | project | shared with mootant | disagreements with mootant | disagreements with Stryker |
+  |---|---|---|---|
+  | defu | 26 | 0 | 1 |
+  | scule | 54 | 4 | 0 |
+  | cookie-es | 220 | 3 | 5 |
+  | pathe | 191 | 1 | 5 |
+  | ufo | 336 | 1 | 5 |
+
+  Shared mutants are few because the mutator sets differ, not because positions disagree.
+
+Environment differences from the first run:
+
+- **Vitest:** mutator and mootant run on Vitest 5.1.1, since mootant 0.2.0 needs ≥ 5.1. Stryker stays on 4.1.5.
+- **Load:** the preflight load limit was 6 (`--max-load 6`) instead of 3. With a browser and editors open, the machine did not idle below 3.
+- **Versions:** Node v24.22.2, pnpm 12.8.1.
+- **scule** now pins `vite@^7`: its own vite 5 cannot load Vitest 5.
+- **mootant** runs `mootant run <paths> --json --all --verbose` with its default preset (`recommended`). pathe passes the three files of its mutate set.
+- **"Executed" for mootant** counts mutants that were neither cached nor NoCoverage.
+
+<details>
+<summary>Per-project tables (2026-11-24)</summary>
+
+Statuses: K Killed, T Timeout, CE CompileError, S Survived, NC NoCoverage.
+
+| project | scenario | mutator | Stryker | mootant |
+|---|---|---|---|---|
+| defu | cold | 3.19 / 3.05 (78 run) | 3.36 / 2.73 | 2.57 / 1.85 (58 run) |
+| defu | edit, whole project | 2.84 / 2.86 (70 run) | 1.29 / 1.29 (4 run) | 1.47 / 1.48 (41 run) |
+| scule | cold | 5.47 / 5.76 (109 run) | 3.11 / 2.51 | 5.59 / 4.89 (121 run) |
+| scule | edit, whole project | 2.61 / 2.61 (34 run) | 1.18 / 1.17 (1 run) | 1.99 / 2.02 (39 run) |
+| cookie-es | cold | 16.4 / 16.1 (541 run) | 12.7 / 11.1 | 12.6 / 12.5 (500 run) |
+| cookie-es | edit, whole project | 4.84 / 4.61 (87 run) | 1.64 / 1.64 (5 run) | 1.80 / 1.70 (32 run) |
+| pathe | cold | 18.0 / 18.0 (421 run) | 10.3 / 8.75 | 31.7 / 31.7 (452 run) |
+| pathe | edit, whole project | 7.53 / 7.66 (135 run) | 2.60 / 2.58 (52 run) | 2.76 / 2.84 (26 run) |
+| ufo | cold | 33.3 / 33.1 (864 run) | 20.0 / 19.3 | 25.2 / 22.8 (798 run) |
+| ufo | edit, whole project | 6.11 / 5.95 (44 run) | 2.03 / 2.04 (8 run) | 1.46 / 1.41 (20 run) |
+
+Without `--incremental`, mootant re-runs every mutant of the edited files and their tests: cookie-es 11.9 s, pathe 32.4 s, ufo 19.2 s. `node bench/report.ts` prints the full tables from `.tmp/bench2/results/`.
+
+</details>
+
+## First run (2026-10-09): mutator vs StrykerJS
 
 ## Summary
 
@@ -257,15 +325,18 @@ The aborted first defu run did log one status difference: `src/_utils.ts:25 true
 ## Reproducing
 
 ```sh
-# all projects, all phases (clone + install + verify, ours, Stryker, call graph experiment)
+# all projects, all phases (clone + install + verify, ours, Stryker, mootant, call graph experiment)
 node bench/run.ts bench/projects/*.json
+# on a desktop that does not idle below a load of 3
+node bench/run.ts --max-load 6 bench/projects/*.json
 # a subset of phases / one project
 node bench/run.ts --phase setup,ours bench/projects/defu.json
 node bench/run.ts --phase callgraph --reps 2 bench/projects/ufo.json
 # markdown tables from .tmp/bench2/results/*.json
 node bench/report.ts
-# shared-mutant comparison of two mutation-testing-elements reports
+# shared-mutant comparison with Stryker's report, or with mootant's --json --all --verbose output
 node bench/compare.ts .tmp/bench2/state/ufo/cold-2.mutation.json .tmp/bench2/state/ufo/stryker-cold-2.mutation.json --verbose
+node bench/compare.ts .tmp/bench2/state/ufo/cold-2.mutation.json .tmp/bench2/state/ufo/mootant-cold-2.json --verbose
 ```
 
 A project spec (`bench/projects/<name>.json`) contains:
@@ -275,7 +346,9 @@ A project spec (`bench/projects/<name>.json`) contains:
 | `repo`, `commit` | the git URL and the pinned commit |
 | `mutate` | globs, passed to `--include` and to Stryker's `mutate` |
 | `install` | optional; default `pnpm install --no-frozen-lockfile` |
-| `vitestOurs` / `vitestStryker` | optional Vitest versions |
+| `vitestOurs` / `vitestStryker` | optional Vitest versions (default 5.1.1 for mutator and mootant, 4.1.5 for Stryker) |
+| `pin` | optional devDependencies forced in every clone, e.g. `{ "vite": "^7.0.0" }` |
+| `mootantPaths` | optional paths for `mootant run` (default `src`); it takes files and directories, not globs |
 | `edit` | the edit for the timed runs: `{file, from, to, kind, note}`; `from` must occur exactly once |
 | `callgraphEdits` | the edits for the call graph experiment |
 
@@ -285,9 +358,9 @@ Everything the harness writes goes under `.tmp/bench2/` (gitignored):
 
 | path | contents |
 |---|---|
-| `<name>` and `<name>-stryker` | the two clones; `.bench-ready` marks finished setup, delete it to rebuild |
+| `<name>`, `<name>-stryker`, `<name>-mootant` | the three clones; `.bench-ready` marks finished setup, delete it to rebuild |
 | `logs/<name>/*.log` | the full stdout/stderr of every run |
-| `state/<name>/` | cold snapshots and mutation-testing-elements reports |
+| `state/<name>/` | cold caches (`cold.mutator/`, `mootant-cache/`) and the cold reports |
 | `results/<name>.json` | the raw measurements |
 
 A full run of the five projects takes about 1–1.5 h, most of it the load-average waits.

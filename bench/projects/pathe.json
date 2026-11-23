@@ -37,5 +37,10 @@
       "kind": "semantic",
       "note": "relative: drive letters compared case-insensitively"
     }
+  ],
+  "mootantPaths": [
+    "src/_path.ts",
+    "src/utils.ts",
+    "src/_internal.ts"
   ]
 }

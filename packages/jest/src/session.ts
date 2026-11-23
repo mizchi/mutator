@@ -39,6 +39,7 @@ export interface JestSessionOptions {
   weak?: InstrumentOptions['weak'];
   subsumeCoarse?: InstrumentOptions['subsumeCoarse'];
   minimalRelational?: InstrumentOptions['minimalRelational'];
+  enabledMutators?: InstrumentOptions['enabledMutators'];
   /** Custom mutators / ignorers, used for `mutants()` in this process. */
   mutators?: InstrumentOptions['mutators'];
   ignorers?: InstrumentOptions['ignorers'];

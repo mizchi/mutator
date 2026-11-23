@@ -17,7 +17,8 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 | `EqualityOperator` | `<` ↔ `<=`, `>` ↔ `>=`, `===` ↔ `!==` |
 | `FnValue` | a short function body → `{ return 0; }`, `{ return 1; }`, `{ return ""; }`, `{ return "xyzzy"; }`, ... |
 | `LogicalOperator` | `&&` ↔ `\|\|`, `??` → `&&` |
-| `MethodExpression` | `startsWith` ↔ `endsWith`, `some` ↔ `every`, `toUpperCase` ↔ `toLowerCase`, `.sort()` removed, ... |
+| `MethodExpression` | `startsWith` ↔ `endsWith`, `some` ↔ `every`, `toUpperCase` ↔ `toLowerCase`, `padStart` ↔ `padEnd`, `.sort()` removed, ... |
+| `MissingAwait` | `await p` → `p`; opt-in (`--enable-mutator MissingAwait`). Skipped as equivalent: `return await p` outside `try`, `await` of a literal |
 | `ObjectLiteral` | `{ a: 1 }` → `{}` |
 | `OptionalChaining` | `a?.b` → `a.b` |
 | `Regex` | a regular expression simplified, e.g. `/ab+c/` → `/abc/` |

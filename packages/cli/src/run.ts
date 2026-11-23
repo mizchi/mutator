@@ -35,10 +35,10 @@ import { changesSince, diffTouched, sinceFocus, skippedInDiff, uncollectedTests 
 import { publishSnapshot, readSnapshot, writeSnapshot } from './snapshot.ts';
 import { snapshotFiles } from './snapshot-store.ts';
 import { score } from './status.ts';
-import { applyTypecheck, classifyPlan } from './tally.ts';
+import { type Job, applyTypecheck, classifyPlan, settleByTypecheck } from './tally.ts';
 import type { TimeoutRetries } from './timeout-retry.ts';
 import { type DetectionRegression, type SelectionReason, type TestChanges, changedTestIds, compareTests, detectionRegressions, reviewTestChanges, testChangeSelection } from './test-impact.ts';
-import { type EarlyTypecheck, TS_FILE, startTypecheck, typecheckJobs } from './typecheck.ts';
+import { type EarlyTypecheck, type TypecheckResult, TS_FILE, startTypecheck, streamTypecheck, typecheckJobs } from './typecheck.ts';
 
 export interface RunOptions {
   root: string;
@@ -278,7 +278,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // The previous snapshot when it can be reused; every consumer below goes through this.
     const reusable = valid ? previous : undefined;
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
-    const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated);
+    const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated, { reads: reusable?.reads ?? {}, env: reusable?.env ?? {} });
     let dryPlan = planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });
     if (dryPlan.all && !options.fullDryRun && options.include?.length && session.relatedTestFiles) {
       const related = await session.relatedTestFiles(files);
@@ -306,7 +306,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (dry.failed.length > 0) throw new BaselineError(formatBaselineFailure(dry, root));
     const merged = mergeDryRun({ root, previous: reusable, dry, dryFiles, testFiles, mutants });
     // Re-hash with the dependencies just observed, and derive test fingerprints from the file hashes.
-    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated);
+    const finalTestFiles = testFileHashes(root, testFileList, Object.fromEntries(merged.deps), mutated, { reads: Object.fromEntries(merged.reads), env: Object.fromEntries(merged.env) });
     for (const test of merged.tests) {
       const file = testFileOf(test.id);
       if (dryFiles.has(file)) test.fingerprint = testFingerprint(finalTestFiles[file]!, test.id);
@@ -362,8 +362,14 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     // Only mutants still to decide reach the type checker (sampled-out ones are already Pending),
     // within the time budget: those it does not reach stay Pending.
     const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : undefined;
-    const typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline, preferBun });
-    applyTypecheck(tally, jobs, notInfected, typecheck);
+    // Without a deadline, an early check or Bun's batch checker, type checking runs alongside mutant
+    // execution: jobs are checked in the order they start, and each waits only for its own batch.
+    const alongside = jobs.length > 0 && (options.typecheck ?? 'auto') === 'auto' && !early && deadline === undefined && !preferBun;
+    let typecheck: TypecheckResult = { errors: new Map(), equivalent: new Map(), unchecked: new Set() };
+    if (!alongside) {
+      typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline, preferBun });
+      applyTypecheck(tally, jobs, notInfected, typecheck);
+    }
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));
     const previousDurations = new Map((reusable?.results ?? []).flatMap((r) => r.durationMs === undefined ? [] : [[r.key, r.durationMs] as const]));
@@ -377,14 +383,28 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       checkpoint = new Checkpoint(snapshotPath + '.resume.sqlite', inputs);
       remaining = checkpoint.restore(jobs, tally, killMatrix);
     }
-    log(`${assigned.length} mutants, ${remaining.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}`);
+    log(`${assigned.length} mutants, ${remaining.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}${alongside ? ', type-checked alongside' : ''}`);
     const resumed = jobs.length - remaining.length;
     if (resumed) log(`resumed ${resumed}/${jobs.length} mutants from checkpoint, ${remaining.length} left to run`);
+    // Mutants restored from the checkpoint go last: only their cache entry needs them.
+    const pendingJobs = new Set(remaining);
+    const stream = alongside ? streamTypecheck(root, [...remaining, ...jobs.filter((j) => !pendingJobs.has(j))].map((j) => j.entry.mutant).concat(notInfected.map((i) => report[i]!.mutant)), log, { cache: reusable?.typecheck }) : undefined;
+    const precheck = stream && (async (job: Job) => {
+      const verdict = await stream.verdict(job.entry.mutant.key);
+      if (verdict) settleByTypecheck(tally, job, verdict);
+      return verdict?.status;
+    });
     const { executed, timeoutRetries, runtimeErrorRetries, estimate } = await executeJobs(remaining, tally, {
       root, log, runner, sessionOptions, session, sessions, merged, started, timeBudget: options.timeBudget,
       concurrency: options.concurrency, killMatrix, fileOverheadMs, previousDurations, resumed,
       ...(checkpoint ? { checkpoint } : {}), ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+      ...(precheck ? { precheck } : {}),
     });
+    if (stream) {
+      typecheck = await stream.done;
+      // Mutants weak mutation decided without a run take the type checker's verdict too.
+      applyTypecheck(tally, [], notInfected, typecheck);
+    }
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
     const regressions = detectionRegressions(reusable?.results ?? [], report, reusable?.testReview?.regressions);

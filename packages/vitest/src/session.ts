@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { isAbsolute, matchesGlob, normalize, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { debuglog } from 'node:util';
@@ -136,7 +136,8 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const testPathKey = (file: string) => process.platform === 'win32' ? file.replaceAll('\\', '/') : file;
       const wanted = files && new Set(files.map(testPathKey));
       const specs = wanted ? all.filter((s) => wanted.has(testPathKey(s.moduleId))) : all;
-      const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root, vitest.projects.length > 1) : emptyDryRun();
+      const started = Date.now();
+      const dry = specs.length > 0 ? collectDryRun(await run(null, DEFAULT_HIT_LIMIT, specs), options.root, vitest.projects.length > 1, started) : emptyDryRun();
       dry.deps = collectDeps(vitest, specs.map((s) => s.moduleId), options.root);
       for (const [id, location] of dry.index) locate(id, location);
       return dry;
@@ -291,7 +292,26 @@ function testId(root: string, test: TestCase, multiProject = false): string {
   return `${relative(root, test.module.moduleId)}#${multiProject ? `[${test.module.project.name}] ` : ''}${test.fullName}`;
 }
 
-function collectDryRun(result: TestRunResult, root: string, multiProject = false): DryRunResult {
+/**
+ * Keep the paths a test file read inside the root. A file changed at or after the dry run
+ * started was written by a test, not given to it: it is left out of the key.
+ */
+function readInputs(root: string, files: readonly string[], since: number): string[] {
+  const kept = new Set<string>();
+  for (const file of files) {
+    const rel = relative(root, file);
+    if (rel === '' || rel.startsWith('../') || isAbsolute(rel)) continue;
+    try {
+      if (statSync(file).mtimeMs >= since) continue;
+    } catch {
+      // Missing: its later appearance changes the key.
+    }
+    kept.add(rel);
+  }
+  return [...kept].sort();
+}
+
+function collectDryRun(result: TestRunResult, root: string, multiProject = false, since = Date.now()): DryRunResult {
   const tests: TestInfo[] = [];
   const coverage = new Map<string, string[]>();
   const hits = new Map<string, number>();
@@ -302,11 +322,16 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
   const staticByFile = new Map<string, Set<string>>();
   const infected = new Map<string, string[]>();
   const spawns = new Map<string, SpawnedCommand[]>();
+  const reads = new Map<string, string[]>();
+  const env = new Map<string, string[]>();
   const distinct = numberDuplicates();
 
   for (const module of result.testModules) {
-    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorConcurrentSpawns?: SpawnedCommand[]; mutatorCounts?: Record<string, number> };
+    const moduleMeta = module.meta() as { mutatorStatic?: Record<string, number>; mutatorConcurrent?: Record<string, number>; mutatorConcurrentInfected?: Record<string, number>; mutatorConcurrentSpawns?: SpawnedCommand[]; mutatorCounts?: Record<string, number>; mutatorReads?: string[]; mutatorEnv?: string[] };
     const moduleFile = relative(root, module.moduleId);
+    const read = readInputs(root, moduleMeta.mutatorReads ?? [], since);
+    if (read.length) reads.set(moduleFile, [...new Set([...(reads.get(moduleFile) ?? []), ...read])].sort());
+    if (moduleMeta.mutatorEnv?.length) env.set(moduleFile, [...new Set([...(env.get(moduleFile) ?? []), ...moduleMeta.mutatorEnv])].sort());
     const moduleStatic = staticByFile.get(moduleFile) ?? new Set<string>();
     staticByFile.set(moduleFile, moduleStatic);
     for (const key of Object.keys(moduleMeta.mutatorStatic ?? {})) {
@@ -352,7 +377,7 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
     failed.push(id);
     failures.set(id, describeError(error));
   }
-  return { tests, coverage, staticKeys, failed, failures, hits, index, staticByFile, deps: new Map(), infected, spawns };
+  return { tests, coverage, staticKeys, failed, failures, hits, index, staticByFile, deps: new Map(), infected, spawns, reads, env };
 }
 
 /** The run as classifyRun reads it. */

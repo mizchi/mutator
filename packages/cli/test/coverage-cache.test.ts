@@ -1,7 +1,10 @@
-import { describe, expect, test } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, describe, expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
 import { emptyDryRun } from '@mizchi/mutator-core';
-import { type CliSnapshot, mergeDryRun, planDryRun } from '../src/coverage-cache.ts';
+import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from '../src/coverage-cache.ts';
 
 const root = '/p';
 const loc = { start: { line: 1, column: 0 }, end: { line: 1, column: 1 } };
@@ -82,5 +85,57 @@ describe('planDryRun', () => {
     const sources = new Map([[m.file, { scopes: [m.scope], imports: [], reexports: [] }]]);
     const plan = planDryRun({ root, previous, valid: true, testFiles: { 'test/a.test.ts': 'x' }, sources, resolve: () => undefined });
     expect(plan).toEqual({ all: false, files: [], stale: [], impacted: [] });
+  });
+});
+
+describe('testFileHashes with run-time inputs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mutator-inputs-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'test'));
+  mkdirSync(join(dir, 'fixtures/cases'), { recursive: true });
+  writeFileSync(join(dir, 'test/a.test.ts'), 'a');
+  writeFileSync(join(dir, 'test/b.test.ts'), 'b');
+  writeFileSync(join(dir, 'fixtures/data.json'), '{"n":1}');
+  const files = ['test/a.test.ts', 'test/b.test.ts'];
+  const hashes = (inputs: Parameters<typeof testFileHashes>[4]) => testFileHashes(dir, files, {}, new Set(), inputs);
+
+  test('a file a test read changes only that test file\'s hash', () => {
+    const reads = { 'test/a.test.ts': ['fixtures/data.json'] };
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/data.json'), '{"n":2}');
+    const after = hashes({ reads });
+    expect(after['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    expect(after['test/b.test.ts']).toBe(before['test/b.test.ts']);
+  });
+
+  test('a read directory is keyed on its entries, a missing file on its absence', () => {
+    const reads = { 'test/a.test.ts': ['fixtures/cases', 'fixtures/missing.json'] };
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/cases/one.txt'), '');
+    const added = hashes({ reads });
+    expect(added['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    writeFileSync(join(dir, 'fixtures/missing.json'), '');
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(added['test/a.test.ts']);
+  });
+
+  test('an environment variable a test read is keyed on its value, unset included', () => {
+    const env = { 'test/a.test.ts': ['API_URL'] };
+    const unset = hashes({ env, environment: {} });
+    const set = hashes({ env, environment: { API_URL: 'http://a' } });
+    expect(set['test/a.test.ts']).not.toBe(unset['test/a.test.ts']);
+    expect(hashes({ env, environment: { API_URL: 'http://b' } })['test/a.test.ts']).not.toBe(set['test/a.test.ts']);
+    expect(hashes({ env, environment: { API_URL: 'http://a', OTHER: 'x' } })).toEqual(set);
+  });
+
+  test('listing every variable keys on the whole environment except per-shell ones', () => {
+    const env = { 'test/a.test.ts': ['*'] };
+    const base = hashes({ env, environment: { A: '1', PWD: '/x', SHLVL: '1' } });
+    expect(hashes({ env, environment: { A: '1', PWD: '/y', SHLVL: '2', OLDPWD: '/z' } })).toEqual(base);
+    expect(hashes({ env, environment: { A: '2', PWD: '/x', SHLVL: '1' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+    expect(hashes({ env, environment: { A: '1', B: '', PWD: '/x' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+  });
+
+  test('without run-time inputs the hash is unchanged', () => {
+    expect(hashes({ reads: {}, env: {} })).toEqual(testFileHashes(dir, files, {}, new Set()));
   });
 });

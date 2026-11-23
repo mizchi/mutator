@@ -14,19 +14,21 @@ mutator does what [StrykerJS](https://stryker-mutator.io/) does for JavaScript a
 
 ### Speed
 
-Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); measured 2026-10-09 on an Apple M3 Pro with StrykerJS 10 and `coverageAnalysis: "perTest"`):
+Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); measured 2026-11-24 on an Apple M3 Pro with StrykerJS 10 and `coverageAnalysis: "perTest"`; mutator at `07e0413`):
 
-| project | mutants (mutator / Stryker) | first run | rerun, no change | rerun after a one-line edit (mutator `--since` / Stryker `--incremental`) | score on shared mutants |
-|---|---|---|---|---|---|
-| defu | 107 / 103 | **2.0** / 7.3 | **0.26** / 2.1 | **0.63** / 2.5 | 84.0 / 84.0 |
-| scule | 153 / 81 | **2.9** / 6.5 | **0.25** / 2.1 | **0.68** / 2.1 | 92.2 / 92.2 |
-| cookie-es | 727 / 725 | **12.2** / 16.7 | **0.28** / 2.2 | **0.71** / 2.6 | 86.3 / 86.3 |
-| pathe | 547 / 524 | 16.8 / 15.2 | **0.30** / 4.2 | **1.0** / 4.3 | 87.4 / 87.0 |
-| ufo | 1109 / 1011 | **23.6** / 25.9 | **1.1** / 3.0 | **1.1** / 3.5 | 82.6 / 82.6 |
+| project | mutants (mutator / Stryker) | first run | rerun, no change | rerun after a one-line edit (mutator `--since` / Stryker `--incremental`) |
+|---|---|---|---|---|
+| defu | 107 / 103 | 3.12 / 3.05 | **0.32** / 1.08 | **1.10** / 1.29 |
+| scule | 153 / 81 | 5.62 / **2.81** | **0.34** / 1.17 | 1.18 / 1.17 |
+| cookie-es | 727 / 725 | 16.2 / **11.9** | **0.34** / 1.43 | **1.04** / 1.64 |
+| pathe | 547 / 524 | 18.0 / **9.50** | **0.36** / 2.51 | **1.47** / 2.59 |
+| ufo | 1109 / 1011 | 33.2 / **19.7** | **0.37** / 1.80 | **1.46** / 2.03 |
 
-- Reruns are where the gap is: 8–14x faster with no change (ufo 3x, where one of the two runs was an outlier), 3–4x after an edit. First runs are similar (faster on four projects, slightly slower on pathe).
-- Verdicts agree on every mutant both tools generate, except two in pathe that break a test file while Vitest collects it: StrykerJS reports them Survived, mutator detected.
-- StrykerJS ran on Vitest 4.1.5 (StrykerJS 10's Vitest runner did not work with Vitest 5 when measured), mutator on Vitest 5.0.3. Mutator sets differ, so totals and overall scores are not comparable; the last column compares the mutants both generate.
+- **Reruns:** 3–7x faster with no change, and as fast or up to 1.8x faster after an edit. `--since` also reports only the diff, where Stryker reports the whole project.
+- **First runs are slower,** up to 2x on pathe. One cause is that mutator type-checks every mutant before the first one runs (8.5 s of ufo's 33 s). Running that check alongside execution brings ufo to about 25.5 s. The other cause is the fixed cost of each mutant run, a fresh worker per run.
+- **Verdicts:** on the mutants both tools generate, they differ on 0–5 per project. The scores on those shared mutants are within 1 point.
+- **Versions:** StrykerJS ran on Vitest 4.1.5 (StrykerJS 10's Vitest runner does not work with Vitest 5), mutator on Vitest 5.1.1. Mutator sets differ, so totals and overall scores are not comparable.
+- **mootant 0.2.0** is in the same benchmark. It is faster than mutator on cold runs of four projects and on `--since`, and generates the fewest mutants. See [the details](docs/benchmark.md#latest-run-2026-11-24-mutator-strykerjs-and-mootant).
 
 Where the speed comes from:
 
@@ -77,6 +79,8 @@ Saves during a run queue one follow-up. It starts when both the current run and 
 `--include-test-changes` extends `--since` to mutants covered by added, edited or removed tests. Tests without reached mutants fall back to the files in their observed import graph. `selectionReasons` in the JSON/agent report records the tests that selected each mutant. A compatible previous snapshot also enables detection-regression warnings: a mutant in unchanged code was Killed before, but is Survived or NoCoverage now. Without that snapshot, `comparison` is `unavailable`; no regression claim is made. The default `--since` continues to report changed code and rechecks for removed killers only.
 
 Cache validation includes enclosing pnpm/npm workspace manifests and lockfiles, stopping at the repository boundary. Each `--include`/`--exclude` scope keeps its snapshot under `.mutator/scopes/`, so alternating between scopes preserves each scope's results. `.mutator/snapshot.json` continues to contain the latest run for existing scripts. `--shared-cache` stores snapshots under Git's common directory, separated by package, scope and environment, so worktrees can reuse them without a copy script. `select-tests` accepts the same flag. Snapshot writes are atomic.
+
+With Vitest and Vite+, the dry run also records what each test file reads while it runs: files and directories inside the project read through `node:fs` / `node:fs/promises` (`readFile`, `readdir`, `opendir`, `stat`, `lstat`, `access`, `exists`, `open` with a read flag, `createReadStream`, sync forms included; outside `node_modules` and `.mutator`), and the environment variables it reads through `process.env` (or `import.meta.env`, which Vitest serves from it). Their content (a directory's entries, or the file's absence) and values join that test file's key, so editing a fixture or changing a variable re-collects the file and re-runs the verdicts its tests covered; a file no test read changes nothing. A test that lists every variable (`Object.keys(process.env)`, a spread, a child process started without `env`) is keyed on the whole environment except per-shell variables such as `PWD`, `SHLVL`, `TERM_SESSION_ID` and `npm_*`. Files changed after the dry run started (written by the tests themselves) are left out. Values come from the environment mutator runs in; reads made by native code or through file descriptors are not tracked.
 
 For Vitest and Vite+, the first run with an explicit `include` uses Vite's import graph to collect coverage only from related test files, including re-exports and literal dynamic imports. Computed imports, CommonJS loading, child processes, workers, unsupported source transforms or an unavailable graph fall back to a full dry run. `--full-dry-run` always collects every test file; runners without dependency discovery keep that behavior too.
 
@@ -360,12 +364,14 @@ For mutants whose original and mutated expressions are side-effect free (compari
 
 ## Type checking
 
-Mutants of TypeScript files are type-checked with the project's own `typescript` before any test runs; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:
+Mutants of TypeScript files are type-checked with the project's own `typescript` before they run; those that introduce a new type error in their file become `CompileError`, are not run, and are excluded from the score (like StrykerJS's typescript-checker). The backend follows the installed version:
 
 - TypeScript ≤ 6: the compiler API (LanguageService with in-memory overrides)
 - TypeScript ≥ 7: the native API (`typescript/unstable/sync`) with a virtual file system, about 3–7× faster
 - With the Bun runner, Bun's own checker (`bun check`, Bun 1.4+) finds the type errors instead when it bundles the project's TypeScript major (`bun -p process.versions.typescript`, 7 for Bun 1.4). Each mutated text is checked in memory as a sibling of its file that nothing imports, so one `Bun.build({ check: true })` checks up to 200 mutants. A file in an import cycle (type-only imports included, from `bun check --explainFiles`) would be seen unmutated through the cycle, so its mutants are checked one by one at its own path instead, at about 30–60 ms each. On a Bun project of 141 source files it checked 10,757 mutants in 9 s, with the same verdicts as the native API there (96 s). Equivalences (below) still come from the project's TypeScript.
 - No `typescript` installed: Bun's checker alone, with any runner, when `bun` is available. It proves no equivalences.
+
+With `typecheck: 'auto'`, no `--time-budget` and no Bun checker, the check runs on a worker thread alongside mutant execution instead of before it. Mutants are checked in batches of 25, in the order they start running, and each mutant waits only for its own batch. The check is faster per mutant than a run, so it stays ahead and a mutant that does not compile is still never run. On ufo (864 runs, 1046 mutants checked) this took the cold run from 34 s to 29 s. `--since` keeps the check that starts alongside the dry run, and `--time-budget` the check-first order it needs to stop on time.
 
 `typecheck: 'auto'` (default) enables it when `tsconfig.json` and one of those checkers are present, and otherwise prints `typecheck skipped: …` with the reason; `--no-typecheck` / `typecheck: false` disables it. Only the mutated file's diagnostics are compared, so a mutant whose error appears only in other files (e.g. through an inferred return type) is still run and judged by the tests.
 

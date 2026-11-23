@@ -124,7 +124,12 @@ export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly 
     }
     const verdict = decided(entry.mutant.key);
     if (!verdict) continue;
-    tally.settle(index, { mutant: entry.mutant, source: 'static', killedBy: [], coveredBy: tally.report[index]!.coveredBy, ...verdict });
+    settleByTypecheck(tally, jobs[i]!, verdict);
     jobs.splice(i, 1);
   }
+}
+
+/** A job that type checking decided (it does not compile, or is equivalent): settled without a run. */
+export function settleByTypecheck(tally: Tally, { index, entry }: Job, verdict: { status: MutantStatus; reason?: ResultReason }): void {
+  tally.settle(index, { mutant: entry.mutant, source: 'static', killedBy: [], coveredBy: tally.report[index]!.coveredBy, ...verdict });
 }

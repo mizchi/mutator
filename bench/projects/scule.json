@@ -41,5 +41,8 @@
       "kind": "semantic",
       "note": "isUppercase(): default argument now reports true"
     }
-  ]
+  ],
+  "pin": {
+    "vite": "^7.0.0"
+  }
 }

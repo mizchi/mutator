@@ -1,6 +1,6 @@
 // Running the mutants that need a run, over parallel runner sessions and within the time budget.
 import { availableParallelism } from 'node:os';
-import { type Session, estimatedCost, orderByCost, relativePath as relative } from '@mizchi/mutator-core';
+import { type MutantStatus, type Session, estimatedCost, orderByCost, relativePath as relative } from '@mizchi/mutator-core';
 import type { Checkpoint } from './checkpoint.ts';
 import type { MutationProgress } from './progress.ts';
 import type { MergedDryRun } from './coverage-cache.ts';
@@ -35,6 +35,11 @@ export interface ExecuteContext {
   checkpoint?: Pick<Checkpoint, 'save'>;
   onProgress?: (state: MutationProgress | undefined) => void;
   previousDurations: ReadonlyMap<string, number>;
+  /**
+   * Called before a job's first run; a status settles the job without running it (type checking
+   * alongside execution). The job is settled by the callee.
+   */
+  precheck?: (job: Job) => Promise<MutantStatus | undefined>;
 }
 
 /**
@@ -69,6 +74,8 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   if (parallel) ctx.sessions.push(...workers);
   for (const s of workers) s.useTestIndex(merged.index);
   let executed = 0;
+  // Settled by `precheck`, without a run.
+  let decided = 0;
   let observedWorkMs = 0;
   let completedCostMs = 0;
   const resumed = ctx.resumed ?? 0;
@@ -78,14 +85,14 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   const interactive = large ? ctx.onProgress : undefined;
   const eta = () => `ETA ~${formatDuration(remainingMs(prediction, completedCostMs, observedWorkMs))}`;
   const update = () => interactive?.({
-    completed: resumed + executed,
+    completed: resumed + executed + decided,
     total,
     elapsedMs: performance.now() - ctx.started,
     remainingMs: remainingMs(prediction, completedCostMs, observedWorkMs),
   });
   const retries = new RetryCounts();
   update();
-  const heartbeatLog = () => log(`progress: ${resumed + executed}/${total}, elapsed ${formatDuration(performance.now() - ctx.started)}, ${eta()}`);
+  const heartbeatLog = () => log(`progress: ${resumed + executed + decided}/${total}, elapsed ${formatDuration(performance.now() - ctx.started)}, ${eta()}`);
   const heartbeat = large ? setInterval(interactive ? update : heartbeatLog, interactive ? 1000 : 15_000) : undefined;
   heartbeat?.unref();
   const unsettled = await runSharded({
@@ -93,6 +100,17 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
     jobs: sharded,
     shouldStop: () => performance.now() >= deadline,
     allShards: ctx.killMatrix,
+    ...(ctx.precheck ? {
+      precheck: async (job: (typeof sharded)[number]) => {
+        const status = await ctx.precheck!(job);
+        if (status === undefined) return false;
+        decided++;
+        const { mutant } = job.entry;
+        if (interactive) update();
+        else log(`[${resumed + executed + decided}/${total}] ${status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
+        return true;
+      },
+    } : {}),
     // A shard keeps its job's timeout: test durations leave out module loading, so a
     // proportional share is too tight for shards of many files. Loops are caught by the stall timer.
     run: async (worker, { entry }, tests) => {
@@ -120,7 +138,7 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
       const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...matrix };
       tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
       if (interactive) update();
-      else log(`[${resumed + executed}/${total}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);
+      else log(`[${resumed + executed + decided}/${total}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);
     },
   }).finally(() => {
     clearInterval(heartbeat);

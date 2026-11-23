@@ -113,6 +113,22 @@ describe('checkInWorker', () => {
     expect(checked?.inputs.files).toContain(join(root, 'src/chain.ts'));
   });
 
+  test.each(['typescript6', 'typescript7'] as const)('streams results per batch, in the given order, before the final result (%s)', async (alias) => {
+    const root = projectWith(alias);
+    const { bad, fine, eq } = mutantsIn(root);
+    const batches: { keys: string[]; errors: string[]; equivalent: string[] }[] = [];
+    const checked = await checkInWorker({ root, batchSize: 1 }, [fine, bad, eq], {
+      onBatch: (batch) => batches.push({ keys: batch.keys, errors: [...batch.errors.keys()], equivalent: [...batch.equivalent.keys()] }),
+    });
+    expect(batches).toEqual([
+      { keys: ['fine'], errors: [], equivalent: [] },
+      { keys: ['bad'], errors: ['bad'], equivalent: [] },
+      { keys: ['eq'], errors: [], equivalent: ['eq'] },
+    ]);
+    expect([...checked!.errors.keys()]).toEqual(['bad']);
+    expect([...checked!.equivalent.keys()]).toEqual(['eq']);
+  });
+
   test('is undefined without typescript or tsconfig', async () => {
     const root = join(tmp, `tc-none-worker-${process.pid}`);
     roots.push(root);

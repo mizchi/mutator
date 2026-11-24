@@ -127,7 +127,8 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
       const { outcome, retried } = await runWithTimeoutRetry((o) => workers[worker]!.runMutant(entry.mutant.key, [...tests], o), options);
       const message = retries.count(retried, outcome.status);
       if (message) log(`${message}: ${outcome.status} ${relative(root, entry.mutant.file)}:${entry.mutant.location.start.line}`);
-      return outcome;
+      // Relative before anything keeps it: the checkpoint, the shard merge, the report and the snapshot.
+      return outcome.reason ? { ...outcome, reason: `error: ${relativize(outcome.reason.slice('error: '.length), root)}` } : outcome;
     },
     onDone: (job, outcome) => {
       ctx.checkpoint?.save(job, outcome);
@@ -138,7 +139,7 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
       observedWorkMs += outcome.durationMs;
 
       const matrix = ctx.killMatrix && outcome.status === 'Killed' ? { matrix: true as const } : {};
-      const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...(outcome.reason ? { reason: `error: ${relativize(outcome.reason.slice('error: '.length), root)}` as const } : {}), ...matrix };
+      const settled: ReportEntry = { mutant, status: outcome.status, source: 'run', killedBy: outcome.killedBy, coveredBy: report[index]!.coveredBy, ...(outcome.reason ? { reason: outcome.reason } : {}), ...matrix };
       tally.settle(index, settled, resultOf(settled, { durationMs: outcome.durationMs }));
       if (interactive) update();
       else log(`[${resumed + executed + decided}/${total}] ${outcome.status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}${large && executed < jobs.length ? ` (${eta()})` : ''}`);

@@ -343,6 +343,22 @@ describe('runtime errors', () => {
     expect(report.entries.find((e) => e.mutant.original === 'true' && e.mutant.replacement === 'false')).toMatchObject({ status: 'RuntimeError', reason });
     expect(readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.find((r) => r.status === 'RuntimeError')?.reason).toBe(reason);
   });
+
+  test('a run resumed from its checkpoint keeps the runtime error relative to the project', async () => {
+    const root = project({
+      'src/boot.ts': 'export const ready = true;\nif (!ready) throw new Error(`boot failed in ${import.meta.filename}`);\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { ready } from '../src/boot.ts';\ntest('a', () => { expect(ready).toBe(true); });\n",
+    });
+    // Stop after the first mutant, the runtime error, so the resumed run restores it from the checkpoint.
+    const interrupt = (line: string) => {
+      if (line.startsWith('[1/')) throw new Error('interrupted');
+    };
+    await expect(runMutation({ root, concurrency: 1, log: interrupt })).rejects.toThrow('interrupted');
+    const resumed = await runMutation({ root, concurrency: 1 });
+    const reason = 'error: test/a.test.ts: boot failed in src/boot.ts';
+    expect(resumed.entries.find((e) => e.mutant.original === 'true' && e.mutant.replacement === 'false')).toMatchObject({ status: 'RuntimeError', source: 'reuse', reason });
+    expect(readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.find((r) => r.status === 'RuntimeError')?.reason).toBe(reason);
+  });
 });
 
 describe('worker crashes', () => {

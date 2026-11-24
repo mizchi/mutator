@@ -593,9 +593,9 @@ jobs:
         with:
           node-version: 24
       - run: npm ci
-      - uses: mizchi/mutator@v0.5.3
+      - uses: mizchi/mutator@v0.5.4
         with:
-          version: '0.5.3'
+          version: '0.5.4'
           args: --time-budget 600 --fail-on-survived
 ```
 
@@ -670,9 +670,9 @@ jobs:
           cache: npm
       - run: npm ci
       # Install @mizchi/mutator 0.5.0 or later in the project.
-      - uses: mizchi/mutator@v0.5.3
+      - uses: mizchi/mutator@v0.5.4
         with:
-          version: '0.5.3'
+          version: '0.5.4'
           shard: ${{ matrix.shard }}/4
           args: --reporter text --reporter json --fail-on-survived
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -730,7 +730,7 @@ pnpm run pack-smoke      # install the packed packages and test all runtime adap
 node scripts/robustness.ts <dir>...   # instrument every file and check the output parses
 ```
 
-Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.5.3`, and update the reference explicitly when upgrading.
+Releasing: set the same version in every `packages/*/package.json`, add its section to `CHANGELOG.md`, and push a new `v<version>` tag. All tags are immutable, including existing major-version tags such as `v0`. If a release fails or needs a fix, use a new version and tag instead of moving or recreating the existing tag. Pin the GitHub Action to a full version, such as `uses: mizchi/mutator@v0.5.4`, and update the reference explicitly when upgrading.
 
 The `release` workflow runs only for newly created tags. Before publishing, it uses the same Linux and Windows verification as pull requests: type checking, the full test suite and packed CLI smoke tests for Vitest, Vite+, Jest, Bun and Playwright. Windows also runs focused native-path regressions before the smoke tests. POSIX signal and orphan-reaping tests run on Linux. The packed projects live outside the workspace in paths containing spaces, and every adapter must detect mutants.
 

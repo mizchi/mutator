@@ -140,7 +140,7 @@ function inputContent(root: string, rel: string): string {
   const recursive = rel.endsWith(RECURSIVE_READ);
   const path = join(root, recursive ? rel.slice(0, -RECURSIVE_READ.length) : rel);
   try {
-    if (statSync(path).isDirectory()) return `\0dir\0${listing(path, recursive).sort().join('\0')}`;
+    if (statSync(path).isDirectory()) return `\0dir\0${listing(root, path, recursive).sort().join('\0')}`;
     return `\0file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
   } catch {
     return '\0missing';
@@ -152,27 +152,48 @@ const UNLISTED = new Set(['node_modules', '.mutator']);
 
 /**
  * `<type>:<name>` of each entry, names joined with `/` (a POSIX `\\` stays part of the name).
- * A recursive listing descends into directory symlinks too, as Node's recursive readdirSync
- * does, without visiting a real directory twice (symlink cycles).
+ * A recursive listing descends into directory symlinks too, as Node's recursive readdirSync does,
+ * listing each alias's descendants under its own name. A symlink's entry names its target, and a
+ * directory already on the current path is not entered again (symlink cycles).
  */
-function listing(dir: string, recursive: boolean, prefix = '', seen = new Set<string>()): string[] {
-  if (recursive) {
-    const real = realpathSync(dir);
-    if (seen.has(real)) return [];
-    seen.add(real);
-  }
+function listing(root: string, dir: string, recursive: boolean, prefix = '', ancestors: ReadonlySet<string> = new Set()): string[] {
+  const path = recursive ? new Set([...ancestors, realpathSync(dir)]) : ancestors;
   const entries: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (UNLISTED.has(entry.name)) continue;
     const name = prefix + entry.name;
-    const type = entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : entry.isSymbolicLink() ? 'l' : 'o';
+    const full = join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      const target = resolvedTarget(full);
+      // Relative to the project when inside it, so the key does not depend on where it is checked out.
+      const shown = target === undefined ? '\0dangling' : target.startsWith(realRoot(root)) ? relative(realRoot(root), target) : target;
+      entries.push(`l:${name}\0${shown}`);
+      if (recursive && target !== undefined && !path.has(target) && isDirectory(full)) entries.push(...listing(root, full, true, `${name}/`, path));
+      continue;
+    }
+    const type = entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : 'o';
     entries.push(`${type}:${name}`);
-    if (!recursive) continue;
-    const path = join(dir, entry.name);
-    const descend = entry.isDirectory() || (entry.isSymbolicLink() && isDirectory(path));
-    if (descend) entries.push(...listing(path, true, `${name}/`, seen));
+    if (recursive && entry.isDirectory()) entries.push(...listing(root, full, true, `${name}/`, path));
   }
   return entries;
+}
+
+const realRoots = new Map<string, string>();
+const realRoot = (root: string) => {
+  let real = realRoots.get(root);
+  if (real === undefined) {
+    real = resolvedTarget(root) ?? root;
+    realRoots.set(root, real);
+  }
+  return real;
+};
+
+function resolvedTarget(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 function isDirectory(path: string): boolean {

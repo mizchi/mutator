@@ -157,6 +157,20 @@ describe('testFileHashes with run-time inputs', () => {
     expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
   });
 
+  // Directory symlinks need privileges on Windows.
+  test.skipIf(process.platform === 'win32')('retargeting a symlink between two directories the walk already visited changes the key', () => {
+    mkdirSync(join(dir, 'fixtures/alias/a'), { recursive: true });
+    mkdirSync(join(dir, 'fixtures/alias/b'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/alias/a/x'), '');
+    writeFileSync(join(dir, 'fixtures/alias/b/y'), '');
+    symlinkSync('a', join(dir, 'fixtures/alias/link'), 'dir');
+    const reads = { 'test/a.test.ts': [`fixtures/alias${RECURSIVE_READ}`] };
+    const before = hashes({ reads });
+    rmSync(join(dir, 'fixtures/alias/link'));
+    symlinkSync('b', join(dir, 'fixtures/alias/link'), 'dir');
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+  });
+
   test('the project root directory is keyed on its entries', () => {
     for (const reads of [{ 'test/a.test.ts': ['.'] }, { 'test/a.test.ts': [`.${RECURSIVE_READ}`] }]) {
       const before = hashes({ reads });

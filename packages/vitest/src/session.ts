@@ -16,6 +16,7 @@ import {
   emptyDryRun,
   hash,
   numberDuplicates,
+  RECURSIVE_READ,
   testFingerprint,
   relativePath as relative,
 } from '@mizchi/mutator-core';
@@ -298,15 +299,17 @@ function testId(root: string, test: TestCase, multiProject = false): string {
  */
 function readInputs(root: string, files: readonly string[], since: number): string[] {
   const kept = new Set<string>();
-  for (const file of files) {
-    const rel = relative(root, file);
-    if (rel === '' || rel.startsWith('../') || isAbsolute(rel)) continue;
+  for (const read of files) {
+    const recursive = read.endsWith(RECURSIVE_READ);
+    const file = recursive ? read.slice(0, -RECURSIVE_READ.length) : read;
+    const rel = relative(root, file) || '.';
+    if (rel.startsWith('../') || rel === '..' || isAbsolute(rel)) continue;
     try {
       if (statSync(file).mtimeMs >= since) continue;
     } catch {
       // Missing: its later appearance changes the key.
     }
-    kept.add(rel);
+    kept.add(recursive ? rel + RECURSIVE_READ : rel);
   }
   return [...kept].sort();
 }

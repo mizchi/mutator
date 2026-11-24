@@ -133,6 +133,17 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
       }
     });
 
+    test('a fixture written during the run by another test does not enter the key of a test not re-collected', async () => {
+      const root = project({ ...files, 'test/b.test.ts': "import { expect, test } from 'vitest';\ntest('other', () => { expect(1).toBe(1); });\n" });
+      expect(verdict(await runMutation({ root, concurrency: 1 }))?.status).toBe('Survived');
+      // Only test/b is re-collected, and it rewrites the fixture test/a read: test/a's verdicts predate that write.
+      write(root, 'test/b.test.ts', "import { writeFileSync } from 'node:fs';\nimport { expect, test } from 'vitest';\ntest('other', () => { writeFileSync(new URL('../fixtures/factor.json', import.meta.url), '{ \"factor\": 2 }\\n'); expect(1).toBe(1); });\n");
+      expect((await runMutation({ root, concurrency: 1 })).dryRunFiles).toEqual(['test/b.test.ts']);
+      const report = await expectSameAsCold(root);
+      expect(report.dryRunFiles).toContain('test/a.test.ts');
+      expect(verdict(report)).toMatchObject({ status: 'Killed', source: 'run' });
+    });
+
     test('changing a file no test read invalidates nothing', async () => {
       const root = project(files);
       await runMutation({ root, concurrency: 1 });

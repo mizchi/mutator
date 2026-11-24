@@ -15,6 +15,9 @@ test('reads fixtures', async () => {
   expect(existsSync(join(root, 'fixtures/missing.json'))).toBe(false);
   expect(statSync(join(root, 'src')).isDirectory()).toBe(true);
   expect(await readFile(join(root, 'fixtures/cases/a.txt'), 'utf8')).toBe('a\n');
+  // The project root itself, and a recursive listing (keyed on every descendant).
+  expect(readdirSync(root)).toContain('fixtures');
+  expect(readdirSync(join(root, 'fixtures'), { recursive: true })).toContain('data.json');
   // Outside the project, under node_modules or .mutator: not recorded.
   readFileSync(createRequire(import.meta.url).resolve('vitest/package.json'));
   existsSync(join(root, 'node_modules/left-pad/package.json'));

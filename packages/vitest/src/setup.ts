@@ -4,7 +4,7 @@ import { constants } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { RUNTIME_GLOBAL, RuntimeState, SpawnedCommand } from '@mizchi/mutator-core';
+import type { RECURSIVE_READ, RUNTIME_GLOBAL, RuntimeState, SpawnedCommand } from '@mizchi/mutator-core';
 import { afterAll, afterEach, beforeEach, inject } from 'vitest';
 
 import type {} from './provided.ts';
@@ -97,6 +97,7 @@ function currentState(): typeof ns | undefined {
 /** `node:fs` functions whose first argument is a path they read (with their `Sync` forms). */
 const FS_READERS = ['readFile', 'readdir', 'opendir', 'stat', 'lstat', 'access', 'exists', 'open', 'createReadStream'] as const;
 const WRITE_FLAGS = /[wa]/;
+const RECURSIVE: typeof RECURSIVE_READ = '/**';
 let reentrant = false;
 
 function recordRead(name: string, args: unknown[]): void {
@@ -104,6 +105,8 @@ function recordRead(name: string, args: unknown[]): void {
   if (!state || reentrant) return;
   try {
     const [target, flags] = args;
+    // `readdir(dir, { recursive: true })` and `opendir` likewise list every descendant.
+    const recursive = name.startsWith('readdir') || name.startsWith('opendir') ? typeof flags === 'object' && flags !== null && (flags as { recursive?: unknown }).recursive === true : false;
     if (name.startsWith('open') && !name.startsWith('opendir')) {
       // `r+` reads; flags that create, empty or append to the file write.
       if (typeof flags === 'string' && WRITE_FLAGS.test(flags)) return;
@@ -117,7 +120,7 @@ function recordRead(name: string, args: unknown[]): void {
     const file = resolve(path);
     // The CLI keeps only paths inside the project root; skip the obvious rest here.
     if (/[/\\](?:node_modules|\.mutator)(?:[/\\]|$)/.test(file)) return;
-    state.reads.add(file);
+    state.reads.add(recursive ? file + RECURSIVE : file);
   } catch {
     // Recording must never break the test.
   }

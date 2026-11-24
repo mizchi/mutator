@@ -135,6 +135,45 @@ describe('testFileHashes with run-time inputs', () => {
     expect(hashes({ env, environment: { A: '1', B: '', PWD: '/x' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
   });
 
+  test('a recursive directory read is keyed on every descendant, a plain one on its entries only', () => {
+    mkdirSync(join(dir, 'fixtures/tree/sub'), { recursive: true });
+    const plain = { 'test/a.test.ts': ['fixtures/tree'] };
+    const recursive = { 'test/a.test.ts': ['fixtures/tree/**'] };
+    const before = { plain: hashes({ reads: plain }), recursive: hashes({ reads: recursive }) };
+    writeFileSync(join(dir, 'fixtures/tree/sub/nested.txt'), '');
+    expect(hashes({ reads: plain })).toEqual(before.plain);
+    expect(hashes({ reads: recursive })['test/a.test.ts']).not.toBe(before.recursive['test/a.test.ts']);
+  });
+
+  test('the project root directory is keyed on its entries', () => {
+    for (const reads of [{ 'test/a.test.ts': ['.'] }, { 'test/a.test.ts': ['./**'] }]) {
+      const before = hashes({ reads });
+      writeFileSync(join(dir, `root-${reads['test/a.test.ts']![0]!.length}.case`), '');
+      expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    }
+  });
+
+  test('file contents are keyed on their bytes, apart from the directory and missing markers', () => {
+    const reads = { 'test/a.test.ts': ['fixtures/blob.bin'] };
+    writeFileSync(join(dir, 'fixtures/blob.bin'), Buffer.from([0x80]));
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/blob.bin'), Buffer.from([0x81]));
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    // A file whose text spells a marker is not the marker.
+    const marker = { 'test/a.test.ts': ['fixtures/marker'] };
+    const missing = hashes({ reads: marker });
+    writeFileSync(join(dir, 'fixtures/marker'), '\0missing');
+    expect(hashes({ reads: marker })['test/a.test.ts']).not.toBe(missing['test/a.test.ts']);
+  });
+
+  test('listing every variable keys on npm configuration, not on per-invocation npm variables', () => {
+    const env = { 'test/a.test.ts': ['*'] };
+    const base = hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1' } });
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'mutate', npm_package_version: '1.0.1', VITEST_WORKER_ID: '2' } })).toEqual(base);
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'y', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1', VITEST_MODE: 'x' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+  });
+
   test('without run-time inputs the hash is unchanged', () => {
     expect(hashes({ reads: {}, env: {} })).toEqual(testFileHashes(dir, files, {}, new Set()));
   });

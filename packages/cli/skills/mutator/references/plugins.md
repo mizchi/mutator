@@ -19,12 +19,12 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 | `FnValue` | a short function body → `{ return 0; }`, `{ return 1; }`, `{ return ""; }`, `{ return "xyzzy"; }`, ... |
 | `LogicalOperator` | `&&` ↔ `\|\|`, `??` → `&&` |
 | `MethodExpression` | `startsWith` ↔ `endsWith`, `some` ↔ `every`, `toUpperCase` ↔ `toLowerCase`, `padStart` ↔ `padEnd`, `.sort()` removed, ... |
-| `MissingAwait` | `await p` → `p`; opt-in (`--enable-mutator MissingAwait`). Skipped as equivalent: `return await p` outside `try`, `await` of a literal |
+| `MissingAwait` | `await p` → `p`. Skipped as equivalent: `return await p` outside `try`, `await` of a literal |
 | `ObjectLiteral` | `{ a: 1 }` → `{}` |
 | `ObjectProperty` | `{ a, b }` → `{ b }`, `{ a }` (one property at a time, spreads and methods included, up to 16); opt-in (`--enable-mutator ObjectProperty`) |
 | `OptionalChaining` | `a?.b` → `a.b` |
 | `Regex` | a regular expression simplified, e.g. `/ab+c/` → `/abc/` |
-| `RegexFlag` | `/a/gi` → `/a/i`, `/a/g` (one flag at a time, only when the pattern stays valid); opt-in (`--enable-mutator RegexFlag`) |
+| `RegexFlag` | `/a/gi` → `/a/i`, `/a/g` (one flag at a time, only when the pattern stays valid). Removing `g` from a pattern that can match only once (anchored, no `m`, no top-level `\|`) is skipped as equivalent |
 | `StringLiteral` | `"x"` → `""`, `""` → `"Stryker was here!"` |
 | `UnaryOperator` | `-x` → `+x`, ... |
 | `UpdateOperator` | `i++` ↔ `i--` |

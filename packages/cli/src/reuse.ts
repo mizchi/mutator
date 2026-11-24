@@ -14,8 +14,9 @@ import { snapshotFiles } from './snapshot-store.ts';
 // Bump whenever mutators or the snapshot format change (new mutants in unchanged code have
 // no cached coverage), or when cached verdicts may be wrong (0.0.8: static mutants ran
 // without the tests that reached them while running; 0.0.15: verdicts ignored the files and
-// environment variables tests read), so old snapshots are not reused.
-export const SNAPSHOT_VERSION = '0.0.15';
+// environment variables tests read; 0.0.16: MissingAwait and RegexFlag on by default), so old
+// snapshots are not reused.
+export const SNAPSHOT_VERSION = '0.0.16';
 
 export const ENV_FILES = ['package.json', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb', 'tsconfig.json', 'pnpm-workspace.yaml'];
 

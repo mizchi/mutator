@@ -40,12 +40,27 @@ describe('ArrayElement / ObjectProperty (opt-in)', () => {
   });
 });
 
-describe('RegexFlag (opt-in)', () => {
+describe('RegexFlag', () => {
   const flags = (src: string, on = true) =>
-    instrument('a.js', src, on ? { enabledMutators: ['RegexFlag'] } : {}).mutants.filter((m) => m.mutator === 'RegexFlag').map((m) => `${m.original} -> ${m.replacement}`);
+    instrument('a.js', src, on ? {} : { excludedMutators: ['RegexFlag'] }).mutants.filter((m) => m.mutator === 'RegexFlag').map((m) => `${m.original} -> ${m.replacement}`);
+  const skippedFlags = (src: string) =>
+    instrument('a.js', src).skipped.filter((s) => s.mutator === 'RegexFlag').map((s) => `${s.replacement} (${s.rule}, ${s.category})`);
 
-  test('off unless enabled', () => {
+  test('on by default; --exclude-mutator turns it off', () => {
+    expect(flags('x = /a/gi;')).toHaveLength(2);
     expect(flags('x = /a/gi;', false)).toEqual([]);
+  });
+
+  test('removing `g` from a pattern that can match only once is equivalent', () => {
+    expect(skippedFlags(String.raw`x = /\/+$/g;`)).toEqual([String.raw`/\/+$/ (single-match, equivalent)`]);
+    expect(skippedFlags('x = /^#/g;')).toEqual(['/^#/ (single-match, equivalent)']);
+  });
+
+  test('a top-level alternative, the m flag or an escaped $ can match more than once', () => {
+    expect(skippedFlags('x = /^-+|-+$/g;')).toEqual([]);
+    expect(skippedFlags('x = /^a/gm;')).toEqual([]);
+    expect(skippedFlags(String.raw`x = /a\$/g;`)).toEqual([]);
+    expect(skippedFlags('x = /(a|b)$/g;')).toEqual(['/(a|b)$/ (single-match, equivalent)']);
   });
 
   test('removes one flag at a time', () => {

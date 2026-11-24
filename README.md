@@ -14,18 +14,18 @@ mutator does what [StrykerJS](https://stryker-mutator.io/) does for JavaScript a
 
 ### Speed
 
-Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); measured 2026-11-24 on an Apple M3 Pro with StrykerJS 10 and `coverageAnalysis: "perTest"`; mutator at `07e0413`):
+Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); StrykerJS 10 with `coverageAnalysis: "perTest"` measured 2026-11-24, mutator at `79f4771` on 2026-11-25, on an Apple M3 Pro):
 
 | project | mutants (mutator / Stryker) | first run | rerun, no change | rerun after a one-line edit (mutator `--since` / Stryker `--incremental`) |
 |---|---|---|---|---|
-| defu | 107 / 103 | 3.12 / 3.05 | **0.32** / 1.08 | **1.10** / 1.29 |
-| scule | 153 / 81 | 5.62 / **2.81** | **0.34** / 1.17 | 1.18 / 1.17 |
-| cookie-es | 727 / 725 | 16.2 / **11.9** | **0.34** / 1.43 | **1.04** / 1.64 |
-| pathe | 547 / 524 | 18.0 / **9.50** | **0.36** / 2.51 | **1.47** / 2.59 |
-| ufo | 1109 / 1011 | 33.2 / **19.7** | **0.37** / 1.80 | **1.46** / 2.03 |
+| defu | 107 / 103 | **2.81** / 3.05 | **0.38** / 1.08 | **1.13** / 1.29 |
+| scule | 154 / 81 | 4.50 / **2.81** | **0.34** / 1.17 | 1.27 / **1.17** |
+| cookie-es | 730 / 725 | 13.0 / **11.9** | **0.34** / 1.43 | **1.11** / 1.64 |
+| pathe | 551 / 524 | 15.2 / **9.50** | **0.39** / 2.51 | **1.45** / 2.59 |
+| ufo | 1136 / 1011 | 33.9 / **19.7** | **0.42** / 1.80 | **1.86** / 2.03 |
 
-- **Reruns:** 3–7x faster with no change, and as fast or up to 1.8x faster after an edit. `--since` also reports only the diff, where Stryker reports the whole project.
-- **First runs are slower,** up to 2x on pathe. One cause is that mutator type-checks every mutant before the first one runs (8.5 s of ufo's 33 s). Running that check alongside execution brings ufo to about 25.5 s. The other cause is the fixed cost of each mutant run, a fresh worker per run.
+- **Reruns:** 3–6x faster with no change, and up to 1.8x faster after an edit (scule is within 0.1 s). `--since` also reports only the diff, where Stryker reports the whole project.
+- **First runs are slower** on four projects, up to 1.7x on ufo and pathe. Running the type check alongside execution cut 10–20% from four of them; the rest is the fixed cost of each mutant run, a fresh worker per run.
 - **Verdicts:** on the mutants both tools generate, they differ on 0–5 per project. The scores on those shared mutants are within 1 point.
 - **Versions:** StrykerJS ran on Vitest 4.1.5 (StrykerJS 10's Vitest runner does not work with Vitest 5), mutator on Vitest 5.1.1. Mutator sets differ, so totals and overall scores are not comparable.
 - **mootant 0.2.0** is in the same benchmark. It is faster than mutator on cold runs of four projects and on `--since`, and generates the fewest mutants. See [the details](docs/benchmark.md#latest-run-2026-11-24-mutator-strykerjs-and-mootant).

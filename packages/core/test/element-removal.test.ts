@@ -66,6 +66,11 @@ describe('RegexFlag', () => {
   test('an end-anchored pattern that can match empty can match twice: `"baa".replace(/a*$/g, "x")` is "bxx"', () => {
     expect(skippedFlags('x = /a*$/g;')).toEqual([]);
     expect(skippedFlags('x = /(?<=a)$/g;')).toEqual([]);
+    // \b allows an empty match in context only: `"baa".replace(/a*\b$/g, "x")` is "bxx".
+    expect(skippedFlags(String.raw`x = /a*\b$/g;`)).toEqual([]);
+    expect(skippedFlags('x = /a*(?=$)$/g;')).toEqual([]);
+    // A consuming suffix stays eligible.
+    expect(skippedFlags('x = /a+$/g;')).toEqual(['/a+$/ (single-match, equivalent)']);
     // Start-anchored ones match at index 0 only, empty or not.
     expect(skippedFlags('x = /^a*/g;')).toEqual(['/^a*/ (single-match, equivalent)']);
   });

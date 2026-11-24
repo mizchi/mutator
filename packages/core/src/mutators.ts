@@ -443,7 +443,8 @@ function singleMatch(pattern: string, flags: string): boolean {
   // the trailing run and then the empty string at the end. A lookbehind can match empty in context.
   if (pattern.startsWith('^')) return true;
   const trailing = /(\\*)\$$/.exec(pattern);
-  if (trailing === null || trailing[1]!.length % 2 !== 0 || /\(\?<[=!]/.test(pattern)) return false;
+  // Assertions (\b, \B, lookarounds) can allow an empty match in context that '' alone does not show.
+  if (trailing === null || trailing[1]!.length % 2 !== 0 || /\(\?<?[=!]|\\[bB]/.test(pattern)) return false;
   try {
     return !new RegExp(pattern, flags.replace('g', '')).test('');
   } catch {

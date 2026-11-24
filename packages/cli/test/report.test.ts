@@ -12,6 +12,13 @@ const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
 });
 
 describe('formatSummary', () => {
+  test('a diff with no mutants to score says n/a, not 100%', () => {
+    const report: Report = { entries: [entry(0, 'Killed')], executed: 0, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    const text = formatSummary(report, '/p');
+    expect(text).toMatch(/^score \(changed code\): n\/a \(no mutants to score\)/m);
+    expect(text).not.toContain('100.0%');
+  });
+
   test('lists at most 20 mutants per kind of gap, and counts the rest', () => {
     const entries = [...Array.from({ length: 30 }, (_, i) => entry(i, 'NoCoverage')), ...Array.from({ length: 5 }, (_, i) => entry(100 + i, 'Survived'))];
     const report: Report = { entries, executed: 35, dryRunFiles: [], scope: 'all', score: 0, durationMs: 1, notRun: { sampled: 0, budget: 0 } };

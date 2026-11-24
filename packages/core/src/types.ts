@@ -100,6 +100,8 @@ export type SkipCategory = 'equivalent' | 'noise' | 'timeout' | 'owned' | 'subsu
 
 /** A candidate a skip rule removed before it became a mutant. Never run, never counted. */
 export interface SkippedCandidate {
+  /** The key the candidate would have as a mutant (without the suffix numbering identical keys). */
+  key: string;
   file: string;
   mutator: MutatorName;
   range: Range;

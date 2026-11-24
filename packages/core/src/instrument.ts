@@ -124,15 +124,16 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const usedKeys = new Map<string, number>();
   for (const { candidate, scope, astPath } of found) {
     if (!inRange(candidate)) continue;
+    const keyOf = () => hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
     const skippedAs = (rule: string, category: SkipCategory, by: Candidate, heuristic = false) =>
       pending.push({
-        skip: { file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic: true as const } : {}) },
+        skip: { key: keyOf(), file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic: true as const } : {}) },
         by,
       });
     if (candidate.skip) {
       const { rule, category, heuristic } = candidate.skip;
       pending.push({
-        skip: { file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic } : {}) },
+        skip: { key: keyOf(), file, mutator: candidate.mutator, range: candidate.range, location: locate(candidate.range), original: ctx.slice(candidate.range), replacement: candidate.replacement, rule, category, ...(heuristic ? { heuristic } : {}) },
       });
       continue;
     }
@@ -146,7 +147,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
       skippedAs(candidate.mutator === 'CallExpression' ? 'redundant-call' : 'solitary', 'subsumed', sameEdit.get(justifier) ?? justifier, true);
       continue;
     }
-    let key = hash(`${options.identity ?? file}\0${scope.id}\0${astPath}\0${candidate.mutator}\0${candidate.replacement}`);
+    let key = keyOf();
     const dup = (usedKeys.get(key) ?? 0) + 1;
     usedKeys.set(key, dup);
     if (dup > 1) key = `${key}-${dup}`;

@@ -7,6 +7,9 @@ export const isDetected = (status: MutantStatus): boolean => status === 'Killed'
 /** Survived (not detected or not infected) or NoCoverage (not reached); accepted ones are Ignored. */
 export const isUndetected = (status: MutantStatus): boolean => status === 'Survived' || status === 'NoCoverage';
 
+/** Whether any entry counts towards the score (a score over none is not applicable). */
+export const hasScore = (entries: readonly { status: MutantStatus }[]): boolean => entries.some((e) => isDetected(e.status) || isUndetected(e.status));
+
 /** Detected over detected and undetected; 1 when there is neither. */
 export function score(entries: readonly { status: MutantStatus }[]): number {
   const detected = entries.filter((e) => isDetected(e.status)).length;

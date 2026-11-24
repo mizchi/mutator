@@ -279,6 +279,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const valid = previous !== undefined && previous.toolVersion === SNAPSHOT_VERSION && previous.envHash === envHash && previous.index !== undefined;
     // The previous snapshot when it can be reused; every consumer below goes through this.
     const reusable = valid ? previous : undefined;
+    if (!previous && !options.snapshotPath && (options.include !== undefined || options.exclude !== undefined)) {
+      const { include: _include, exclude: _exclude, ...unscoped } = options;
+      const defaults = snapshotFiles(root, unscoped, envHash);
+      if (paths[0] !== defaults[0] && defaults.some((path) => existsSync(path))) {
+        log('no cached results for this --include/--exclude selection: each selection keeps its own snapshot (.mutator/scopes/), so this run starts cold');
+      }
+    }
     // Hash each test file with the helpers it imported last time: editing a helper re-collects the file.
     const testFiles = testFileHashes(root, testFileList, reusable?.deps ?? {}, mutated, { reads: reusable?.reads ?? {}, env: reusable?.env ?? {} });
     let dryPlan = planDryRun({ root, previous, valid, testFiles, sources, resolve: importResolver(files) });

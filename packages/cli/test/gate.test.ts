@@ -81,9 +81,9 @@ describe('qualityGate and child processes', () => {
 
 describe('thresholds in reports', () => {
   test('text summary labels the score', () => {
-    expect(formatSummary(report(0.9), '/p', thresholds)).toContain('score: 90.0% [high]');
-    expect(formatSummary(report(0.7), '/p', thresholds)).toContain('score: 70.0% [low]');
-    expect(formatSummary(report(0.3), '/p', { high: 40, low: 35, break: null })).toContain('score: 30.0% [danger]');
+    expect(formatSummary(report(0.9, ['Killed']), '/p', thresholds)).toContain('score: 90.0% [high]');
+    expect(formatSummary(report(0.7, ['Killed']), '/p', thresholds)).toContain('score: 70.0% [low]');
+    expect(formatSummary(report(0.3, ['Killed']), '/p', { high: 40, low: 35, break: null })).toContain('score: 30.0% [danger]');
   });
 
   test('mte report carries the configured thresholds', () => {

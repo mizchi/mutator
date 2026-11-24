@@ -11,7 +11,9 @@ export async function listSkipped(options: RunOptions): Promise<{ skipped: Skipp
   const root = realpathSync.native(resolve(options.root));
   const { files, instrumentOptions } = await resolveSetup(root, options, options.log ?? (() => {}));
   const { skipped, mutants } = collectSources(root, files, instrumentOptions);
-  return { skipped: skipped.map((s) => ({ ...s, file: relative(root, s.file) })), mutants };
+  // Columns 1-based, as in the reports and the text output.
+  const column = (p: { line: number; column: number }) => ({ line: p.line, column: p.column + 1 });
+  return { skipped: skipped.map((s) => ({ ...s, file: relative(root, s.file), location: { start: column(s.location.start), end: column(s.location.end) } })), mutants };
 }
 
 export function formatSkipped(skipped: readonly SkippedCandidate[]): string {

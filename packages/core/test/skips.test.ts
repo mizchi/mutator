@@ -78,3 +78,14 @@ describe('subsumeCoarse (solitary rule)', () => {
     expect(whole).toEqual([]);
   });
 });
+
+describe('skip keys', () => {
+  test('a skipped candidate carries the key it has as a mutant when the rule is off', () => {
+    const src = 'function f(a) {\n  if (a) {\n    return a + 1;\n  }\n  return 0;\n}';
+    const off = instrument('a.js', src).mutants;
+    const { skipped } = instrument('a.js', src, { subsumeCoarse: true });
+    const solitary = skipped.filter((s) => s.rule === 'solitary');
+    expect(solitary.length).toBeGreaterThan(0);
+    for (const s of solitary) expect(off.find((m) => m.key === s.key)?.replacement).toBe(s.replacement);
+  });
+});

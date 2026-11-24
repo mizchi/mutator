@@ -18,6 +18,9 @@ describe('mutator skipped', () => {
     const rows = skipped.map((s) => `${s.file}:${s.location.start.line} ${s.rule} ${s.category}`);
     expect(rows).toEqual(expect.arrayContaining(['src/a.ts:2 redundant-call subsumed', 'src/a.ts:4 same-edit duplicate']));
     for (const s of skipped) expect(mutants.some((m) => m.key === s.by)).toBe(true);
+    // 1-based columns, like mutation.json: `  g(a + 1);` starts at column 3.
+    expect(skipped.find((s) => s.rule === 'redundant-call')?.location.start).toEqual({ line: 2, column: 3 });
+    for (const s of skipped) expect(s.key).toMatch(/^[0-9a-z]+$/);
   });
 
   test('text format: one line per skip and a count by rule', async () => {

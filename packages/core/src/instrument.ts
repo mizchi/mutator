@@ -38,7 +38,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   const critical: Range[] = [];
   const ignoredBy = createIgnoreCheck(options.ignorers ?? [], file, source);
   const isArid = options.arid === false ? () => false : createAridCheck(source, options.arid ?? {});
-  const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end), ...(options.minimalRelational ? { minimalRelational: true } : {}) };
+  const ctx: MutatorContext = { source, slice: (r) => source.slice(r.start, r.end), ...(options.minimalRelational ? { minimalRelational: true } : {}), ...(options.skipHangs ? { skipHangs: true } : {}) };
 
   const tracker = createScopeTracker(source, program, parsed.comments);
   const path: string[] = [];

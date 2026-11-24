@@ -90,6 +90,8 @@ export interface RunOptions {
   weakMutation?: boolean;
   /** Skip coarse mutants with a finer mutant inside (`solitary` skips). */
   skipSubsumed?: boolean;
+  /** Skip mutants that likely hang a loop. */
+  skipHangs?: boolean;
   /** Subsumption-minimal relational operator set. */
   minimalRelational?: boolean;
   /** Opt-in mutators to run. */

@@ -50,6 +50,7 @@ export default defineConfig({
 | `typecheck` | `--[no-]typecheck` | type-check mutants with the project's TypeScript first; ill-typed ones are `CompileError` and not run (default `auto`) |
 | `weakMutation` | `--no-weak-mutation` | weak mutation decides a covered mutant no test reaches with a different value as Survived without running it (default on) |
 | `minimalRelational` | `--minimal-relational` | relational operators get the subsumption-minimal set (`<` -> `<=`, `!=`, `false`); replacements a `.length` / `indexOf` lower bound proves equivalent are skipped (default off) |
+| `skipHangs` | `--skip-hangs` | skip mutants that likely hang a loop: a reversed `for` update, an emptied body the loop advances in (default off; heuristic) |
 | `skipSubsumed` | `--skip-subsumed` | skip coarse mutants (block, literal, body removals) that have a finer mutant inside them, listed by `mutator skipped` (default off; heuristic) |
 | `plugins` | `--plugin <module>` | modules with custom mutators or ignorers (`definePlugin`, `defineMutator`, `defineIgnorer` from `@mizchi/mutator`; see [plugins.md](plugins.md)) |
 | `excludedMutators` | `--exclude-mutator <name>` | mutators to skip, built-in or custom |

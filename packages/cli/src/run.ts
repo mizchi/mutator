@@ -359,8 +359,9 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const inScope = options.only ? selectOnly(options.only, since, mutants) : since;
     const assigned = shard ? entries.filter((e) => owns(e.mutant.key)) : entries;
     if (shard) log(`shard ${shard.index}/${shard.total}: ${assigned.length}/${mutants.length} mutants`);
-    const { tally, jobs, notInfected } = classifyPlan(assigned, merged.coverage, inScope, sampled);
+    const { tally, jobs, notInfected, noCoverage: unreached } = classifyPlan(assigned, merged.coverage, inScope, sampled);
     const { report, results, notRun } = tally;
+    const undecided = [...notInfected, ...unreached].map((i) => report[i]!.mutant);
     // Only mutants still to decide reach the type checker (sampled-out ones are already Pending),
     // within the time budget: those it does not reach stay Pending.
     const deadline = options.timeBudget !== undefined ? started + options.timeBudget * 1000 : undefined;
@@ -369,8 +370,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const alongside = jobs.length > 0 && (options.typecheck ?? 'auto') === 'auto' && !early && deadline === undefined && !preferBun;
     let typecheck: TypecheckResult = { errors: new Map(), equivalent: new Map(), unchecked: new Set() };
     if (!alongside) {
-      typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...notInfected.map((i) => report[i]!.mutant)], log, { early, cache: reusable?.typecheck, deadline, preferBun });
-      applyTypecheck(tally, jobs, notInfected, typecheck);
+      typecheck = await typecheckJobs(root, options.typecheck ?? 'auto', [...jobs.map((j) => j.entry.mutant), ...undecided], log, { early, cache: reusable?.typecheck, deadline, preferBun });
+      applyTypecheck(tally, jobs, notInfected, typecheck, unreached);
     }
     const decided = [...(typecheck.errors.size ? [`${typecheck.errors.size} do not type-check`] : []), ...(typecheck.equivalent.size ? [`${typecheck.equivalent.size} equivalent by types`] : [])];
     const fileOverheadMs = Math.max(100, (dryRunMs - dry.tests.reduce((sum, t) => sum + t.durationMs, 0)) / Math.max(1, dryFiles.size));
@@ -385,12 +386,25 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       checkpoint = new Checkpoint(snapshotPath + '.resume.sqlite', inputs);
       remaining = checkpoint.restore(jobs, tally, killMatrix);
     }
-    log(`${assigned.length} mutants, ${remaining.length} to run${decided.length ? ` (${decided.join(', ')})` : ''}${alongside ? ', type-checked alongside' : ''}`);
     const resumed = jobs.length - remaining.length;
-    if (resumed) log(`resumed ${resumed}/${jobs.length} mutants from checkpoint, ${remaining.length} left to run`);
     // Mutants restored from the checkpoint go last: only their cache entry needs them.
     const pendingJobs = new Set(remaining);
-    const stream = alongside ? streamTypecheck(root, [...remaining, ...jobs.filter((j) => !pendingJobs.has(j))].map((j) => j.entry.mutant).concat(notInfected.map((i) => report[i]!.mutant)), log, { cache: reusable?.typecheck }) : undefined;
+    const stream = alongside ? streamTypecheck(root, [...remaining, ...jobs.filter((j) => !pendingJobs.has(j))].map((j) => j.entry.mutant).concat(undecided), log, { cache: reusable?.typecheck }) : undefined;
+    // Verdicts the type-check cache already holds settle now: those mutants are not "to run".
+    let cachedVerdicts = 0;
+    if (stream) {
+      remaining = remaining.filter((job) => {
+        const verdict = stream.cached(job.entry.mutant.key);
+        if (!verdict) return true;
+        settleByTypecheck(tally, job, verdict);
+        cachedVerdicts++;
+        return false;
+      });
+    }
+    const cachedNote = cachedVerdicts ? `${cachedVerdicts} decided by the cached type check` : undefined;
+    const notes = [...decided, ...(cachedNote ? [cachedNote] : [])];
+    log(`${assigned.length} mutants, ${remaining.length} to run${notes.length ? ` (${notes.join(', ')})` : ''}${alongside && remaining.length ? ', type-checked alongside' : ''}`);
+    if (resumed) log(`resumed ${resumed}/${jobs.length} mutants from checkpoint, ${remaining.length} left to run`);
     const precheck = stream && (async (job: Job) => {
       const verdict = await stream.verdict(job.entry.mutant.key);
       if (verdict) settleByTypecheck(tally, job, verdict);
@@ -405,7 +419,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     if (stream) {
       typecheck = await stream.done;
       // Mutants weak mutation decided without a run take the type checker's verdict too.
-      applyTypecheck(tally, [], notInfected, typecheck);
+      applyTypecheck(tally, [], notInfected, typecheck, unreached);
     }
 
     const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });

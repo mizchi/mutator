@@ -2,15 +2,15 @@ import { describe, expect, test } from 'vitest';
 import { instrument } from '../src/instrument.ts';
 
 const run = (src: string, enabled = true) => {
-  const { mutants, skipped } = instrument('a.js', src, enabled ? { enabledMutators: ['MissingAwait'] } : {});
+  const { mutants, skipped } = instrument('a.js', src, enabled ? {} : { excludedMutators: ['MissingAwait'] });
   return {
     placed: mutants.filter((m) => m.mutator === 'MissingAwait').map((m) => `${m.original} -> ${m.replacement}`),
     skipped: skipped.filter((s) => s.mutator === 'MissingAwait').map((s) => `${s.original} -> ${s.replacement} (${s.rule}, ${s.category})`),
   };
 };
 
-describe('MissingAwait (opt-in)', () => {
-  test('is off unless enabled', () => {
+describe('MissingAwait', () => {
+  test('is on by default; --exclude-mutator turns it off', () => {
     expect(run('async function f() { await g(); }', false).placed).toEqual([]);
   });
 

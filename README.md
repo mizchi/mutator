@@ -46,7 +46,7 @@ Where the speed comes from:
 | undetected mutants | split by where the tests stopped short: not detected, not infected, not reached (with a fix for each) | Survived, NoCoverage |
 | equivalent mutants | `mutator accept <key>` (keyed, outside the source, reported when stale) and `?.` proven unneeded by types; disable comments | disable comments (`// Stryker disable`, also honoured by mutator) |
 | a test file failing to load under a mutant | detected | Survived (StrykerJS 10's Vitest runner) |
-| mutators | 18, including function return values by type and call statement removal, plus 4 opt-in (`--enable-mutator`: MissingAwait, ArrayElement, ObjectProperty, RegexFlag); logging-only code is skipped (arid) | its own set, including `switch` case removal and a richer regex mutator; skips everything under `as` casts |
+| mutators | 20, including function return values by type, call statement removal, a dropped `await` and a dropped regex flag, plus 2 opt-in (`--enable-mutator`: ArrayElement, ObjectProperty); logging-only code is skipped (arid) | its own set, including `switch` case removal and a richer regex mutator; skips everything under `as` casts |
 | beyond the score | critical regions, `--kill-matrix` (redundant tests), `--reporter simplify` (code no test needs), `select-tests` (tests a change can break), `--reporter agent` and agent skills, a GitHub Action with a cached snapshot | Stryker Dashboard, plugins for many runners and checkers |
 | reports | mutation-testing-elements JSON and HTML (the format StrykerJS emits), text, GitHub annotations | mutation-testing-elements HTML / JSON, progress, dashboard |
 | maturity | 0.x | stable, widely used |
@@ -200,6 +200,8 @@ Some candidates are removed before they become mutants, because another mutant a
 | `solitary` | subsumed, heuristic; only with `--skip-subsumed` (`skipSubsumed: true`) | any other coarse mutant (`BlockStatement`, `ArrayDeclaration`, `ObjectLiteral`, `ArrowFunction`, `FnValue`) with another mutant strictly inside it |
 | `lower-bound` | equivalent, heuristic; only with `--minimal-relational` | a comparison replacement that a syntactic lower bound makes equal to the original: `.length` / `.size` >= 0, `split(...).length` >= 1, `indexOf` / `findIndex` / `search` >= -1. Examples: `s.length >= 0` -> `true`, `xs.indexOf(x) > -1` -> `!= -1` |
 | `loop-advance`, `loop-body` | timeout, heuristic; only with `--skip-hangs` (`skipHangs: true`) | mutants that likely never let a loop end: reversing a `for` update (`i++` -> `i--`, `i += 2` -> `i -= 2`), and emptying the body a loop advances in (a `while` / `do` body, or a `for` body without an update) |
+| `awaited-by-caller`, `settled-value` | equivalent | dropping `await` where it cannot matter: `return await p` (or `async () => await p`) outside a `try` block or a `catch` with `finally`, and awaiting a literal, object, array or function |
+| `single-match` | equivalent, heuristic | removing `g` from a regex that can match only once: anchored at the start or end, without `m` and without a top-level alternative |
 
 `--minimal-relational` (`minimalRelational: true`) mutates `<`, `<=`, `>`, `>=` with the subsumption-minimal set (Kaminski, Ammann and Offutt 2011). `<` becomes `<=`, `!=` and `false` (and `<=` becomes `<`, `==`, `true`), instead of both neighbours and both constants. The default set has 4 replacements per comparison and the minimal set 3, and the tests that kill all three kill the others too.
 

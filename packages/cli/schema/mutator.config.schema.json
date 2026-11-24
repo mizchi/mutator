@@ -202,7 +202,7 @@
       }
     },
     "enabledMutators": {
-      "description": "Opt-in mutators to run (MissingAwait, ArrayElement, ObjectProperty, RegexFlag).",
+      "description": "Opt-in mutators to run (ArrayElement, ObjectProperty).",
       "type": "array",
       "items": {
         "type": "string"

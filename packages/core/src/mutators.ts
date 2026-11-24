@@ -418,7 +418,29 @@ const callExpression: Mutator = (frame) => {
   return [whole(frame, 'CallExpression', ';')];
 };
 
-/** RegexFlag (opt-in): a regex literal without one of its flags, when still valid. */
+/**
+ * Whether `pattern` can match at most once in a string: anchored at the start or the end, without
+ * the `m` flag and without a top-level alternative (`/^-+|-+$/` matches at both ends).
+ */
+function singleMatch(pattern: string, flags: string): boolean {
+  if (flags.includes('m')) return false;
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\') { i++; continue; }
+    if (inClass) { if (c === ']') inClass = false; continue; }
+    if (c === '[') inClass = true;
+    else if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === '|' && depth === 0) return false;
+  }
+  // An end `$` must not be escaped: an odd number of backslashes before it escapes it.
+  const trailing = /(\\*)\$$/.exec(pattern);
+  return pattern.startsWith('^') || (trailing !== null && trailing[1]!.length % 2 === 0);
+}
+
+/** RegexFlag: a regex literal without one of its flags, when still valid. */
 const regexFlag: Mutator = (frame, ctx) => {
   const { node } = frame;
   if (node.type !== 'Literal' || !node.regex) return [];
@@ -433,7 +455,9 @@ const regexFlag: Mutator = (frame, ctx) => {
     } catch {
       return [];
     }
-    return [whole(frame, 'RegexFlag', `/${pattern}/${rest}`)];
+    const candidate = whole(frame, 'RegexFlag', `/${pattern}/${rest}`);
+    // Without `g`, replace and split still see the one match there can be.
+    return [flags[i] === 'g' && singleMatch(pattern, flags) ? { ...candidate, skip: { rule: 'single-match', category: 'equivalent' as const, heuristic: true as const } } : candidate];
   });
 };
 
@@ -587,7 +611,7 @@ const missingAwait: Mutator = (frame, ctx) => {
 };
 
 /** Mutators that run only when named in `enabledMutators`. */
-export const OPT_IN_MUTATORS: ReadonlySet<MutatorName> = new Set(['MissingAwait', 'ArrayElement', 'ObjectProperty', 'RegexFlag']);
+export const OPT_IN_MUTATORS: ReadonlySet<MutatorName> = new Set(['ArrayElement', 'ObjectProperty']);
 
 export const mutators: readonly Mutator[] = [
   arithmeticOperator,

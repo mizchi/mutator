@@ -116,4 +116,29 @@ describe('a cold run type-checks alongside mutant execution', { timeout: 120_000
     expect(overlapped.executed).toBe(first.executed);
     expect(logs.some((m) => /^typecheck \(TypeScript .*\): \d+ mutants in [\d.]+s, alongside mutant execution$/.test(m))).toBe(true);
   });
+
+  test('mutants no test reaches are type-checked too: an uncompilable one is CompileError, not a gap', async () => {
+    const root = project();
+    writeFileSync(join(root, 'src/b.ts'), 'export function kind(n: number): "pos" | "neg" {\n  return n > 0 ? "pos" : "neg";\n}\n');
+    for (const typecheck of [undefined, 3600] as const) {
+      const report = await runMutation({ root, concurrency: 1, snapshotPath: join(root, `.mutator/nc-${typecheck}.json`), ...(typecheck ? { timeBudget: typecheck } : {}) });
+      const uncovered = report.entries.filter((e) => e.mutant.file.replaceAll('\\', '/').endsWith('src/b.ts'));
+      // "pos" -> "" does not type-check against the literal union; nothing covers src/b.ts.
+      expect(uncovered.find((e) => e.mutant.original === '"pos"')?.status).toBe('CompileError');
+      expect(uncovered.some((e) => e.status === 'NoCoverage')).toBe(true);
+    }
+  });
+
+  test('an unchanged rerun counts cached CompileErrors as decided, not as mutants to run', async () => {
+    const root = project();
+    const first = await runMutation({ root, concurrency: 1 });
+    const compileErrors = first.entries.filter((e) => e.status === 'CompileError').length;
+    expect(compileErrors).toBeGreaterThan(0);
+    const logs: string[] = [];
+    const again = await runMutation({ root, concurrency: 1, log: (m) => logs.push(m) });
+    expect(again.executed).toBe(0);
+    expect(logs).toContainEqual(expect.stringMatching(new RegExp(`, 0 to run \\(${compileErrors} decided by the cached type check\\)$`)));
+    expect(logs.filter((m) => /^\[\d+\/\d+\]/.test(m))).toEqual([]);
+    expect(again.entries.filter((e) => e.status === 'CompileError').length).toBe(compileErrors);
+  });
 });

@@ -9,7 +9,7 @@ import { loadPlugins } from './plugins.ts';
 import type { RunOptions } from './run.ts';
 import { type Runner, type RunnerSessionOptions, detectRunner } from './runner.ts';
 
-const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
+export const DEFAULT_INCLUDE = ['src/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'];
 // What the instrumenter parses; `--include 'dir/**'` also matches directories and other files.
 const SOURCE_FILE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const DEFAULT_EXCLUDE = ['**/node_modules/**', '**/*.d.ts', '**/*.{test,spec}.*', '**/__tests__/**'];

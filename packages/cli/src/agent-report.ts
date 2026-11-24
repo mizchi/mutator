@@ -4,6 +4,7 @@ import { relativePath as relative } from '@mizchi/mutator-core';
 import { readFileSync } from 'node:fs';
 import { childProcessMessage } from './child-process.ts';
 import { reported } from './gate.ts';
+import { hasScore } from './status.ts';
 import { type Gap, NO_COVERAGE_MESSAGE, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
 import type { Report } from './run.ts';
@@ -60,7 +61,7 @@ export interface AgentReport {
   estimate?: Report['estimate'];
   scope: Report['scope'];
   selection?: 'only';
-  score: number;
+  score: number | null;
   counts: Record<string, number>;
   gaps: AgentGap[];
   warnings: (
@@ -133,7 +134,8 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
     ...(report.selectionReasons ? { selectionReasons: report.selectionReasons } : {}),
     ...(report.testChanges ? { testChanges: report.testChanges } : {}),
     ...(report.selection ? { selection: report.selection } : {}),
-    score: report.score,
+    // null when no mutant counts (e.g. --since with nothing in the diff): not a perfect score.
+    score: hasScore(reported(report)) ? report.score : null,
     counts,
     gaps,
     warnings: [

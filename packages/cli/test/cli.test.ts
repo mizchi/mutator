@@ -167,7 +167,8 @@ test('a reader that closes the pipe early (grep -q) does not crash the exit', ()
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
+  // Six CLI starts through `sh` take several seconds on a Windows runner; the test checks for a crash, not for speed.
+}, 30_000);
 
 test('tests that run but reach no mutant are reported as a setup problem, not as missing tests', () => {
   const root = join(import.meta.dirname, '../../../.tmp', `cli-no-coverage-${process.pid}`);

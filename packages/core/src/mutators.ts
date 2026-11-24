@@ -429,22 +429,30 @@ function singleMatch(pattern: string, flags: string): boolean {
   if (flags.includes('m')) return false;
   let depth = 0;
   let inClass = false;
+  // Assertions (\b, \B, lookarounds) outside a character class: they can allow an empty match
+  // in context that '' alone does not show. Inside a class `[\b]` is a backspace, not an assertion.
+  let assertion = false;
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
-    if (c === '\\') { i++; continue; }
+    if (c === '\\') {
+      if (!inClass && (pattern[i + 1] === 'b' || pattern[i + 1] === 'B')) assertion = true;
+      i++;
+      continue;
+    }
     if (inClass) { if (c === ']') inClass = false; continue; }
     if (c === '[') inClass = true;
-    else if (c === '(') depth++;
-    else if (c === ')') depth--;
+    else if (c === '(') {
+      depth++;
+      if (/^\(\?<?[=!]/.test(pattern.slice(i, i + 4))) assertion = true;
+    } else if (c === ')') depth--;
     else if (c === '|' && depth === 0) return false;
   }
   // `^` without `m` matches at index 0 only. An end `$` must not be escaped (an odd number of
   // backslashes before it escapes it), and the pattern must not match empty: `/a*$/g` matches
-  // the trailing run and then the empty string at the end. A lookbehind can match empty in context.
+  // the trailing run and then the empty string at the end.
   if (pattern.startsWith('^')) return true;
   const trailing = /(\\*)\$$/.exec(pattern);
-  // Assertions (\b, \B, lookarounds) can allow an empty match in context that '' alone does not show.
-  if (trailing === null || trailing[1]!.length % 2 !== 0 || /\(\?<?[=!]|\\[bB]/.test(pattern)) return false;
+  if (trailing === null || trailing[1]!.length % 2 !== 0 || assertion) return false;
   try {
     return !new RegExp(pattern, flags.replace('g', '')).test('');
   } catch {

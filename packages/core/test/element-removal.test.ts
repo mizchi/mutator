@@ -71,6 +71,8 @@ describe('RegexFlag', () => {
     expect(skippedFlags('x = /a*(?=$)$/g;')).toEqual([]);
     // A consuming suffix stays eligible.
     expect(skippedFlags('x = /a+$/g;')).toEqual(['/a+$/ (single-match, equivalent)']);
+    // Inside a class, \b is a backspace character: no assertion.
+    expect(skippedFlags(String.raw`x = /a[\b]$/g;`)).toEqual([String.raw`/a[\b]$/ (single-match, equivalent)`]);
     // Start-anchored ones match at index 0 only, empty or not.
     expect(skippedFlags('x = /^a*/g;')).toEqual(['/^a*/ (single-match, equivalent)']);
   });

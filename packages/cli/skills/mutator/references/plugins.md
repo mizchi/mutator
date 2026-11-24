@@ -19,7 +19,7 @@ Names for `excludedMutators` / `--exclude-mutator`, disable comments, and the `m
 | `FnValue` | a short function body → `{ return 0; }`, `{ return 1; }`, `{ return ""; }`, `{ return "xyzzy"; }`, ... |
 | `LogicalOperator` | `&&` ↔ `\|\|`, `??` → `&&` |
 | `MethodExpression` | `startsWith` ↔ `endsWith`, `some` ↔ `every`, `toUpperCase` ↔ `toLowerCase`, `padStart` ↔ `padEnd`, `.sort()` removed, ... |
-| `MissingAwait` | `await p` → `p`. Skipped as equivalent: `return await p` outside `try`, `await` of a literal |
+| `MissingAwait` | `await p` → `p`. Skipped as equivalent (heuristic): `return await p` outside `try` |
 | `ObjectLiteral` | `{ a: 1 }` → `{}` |
 | `ObjectProperty` | `{ a, b }` → `{ b }`, `{ a }` (one property at a time, spreads and methods included, up to 16); opt-in (`--enable-mutator ObjectProperty`) |
 | `OptionalChaining` | `a?.b` → `a.b` |

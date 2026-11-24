@@ -2,7 +2,7 @@
 
 Five small-to-medium TypeScript libraries tested with Vitest. The harness that produced every number below is in [`bench/`](../bench). The latest run (2026-11-24) adds [mootant](https://mootant.org/) 0.2.0. The first run (2026-10-09) follows it, with the method and the bugs it found.
 
-## Update (2026-11-25): mutator at `79f4771`
+## Update (2026-11-24, later): mutator at `79f4771`
 
 Only mutator was measured again (`--phase ours`, preflight load below 4). StrykerJS and mootant keep their 2026-11-24 numbers below. Since `07e0413`:
 - the type check runs alongside execution (#71);
@@ -42,7 +42,7 @@ Wall-clock seconds, mean of two runs. mutator at `07e0413` (main, before #71). T
 
 What changed since the first run:
 
-- **StrykerJS is now faster on cold runs on four of the five projects.** In the first run mutator was faster on four.
+- **StrykerJS is now faster on cold runs on all five projects** (defu only just: 3.05 s against 3.12 s). In the first run mutator was faster on four.
   - Part of the change is ours. mutator now type-checks every mutant before the first one runs, which on ufo is 8.5 s of the 33 s (#60). #71 runs that check alongside execution and brings ufo to about 25.5 s.
   - Part of it is Stryker. Its numbers dropped (ufo 25.9 → 19.7 s, defu 7.3 → 3.1 s) with the same Stryker and Vitest versions. The first run's machine was busier (see its Environment).
   - Raising mutator's `-j` from 6 to 11 sessions does not help (ufo 25.3 / 25.5 s with #71). The remaining gap is the fixed cost of each mutant run, about 90 ms on ufo: every run evaluates the test file and its imports in a fresh forked worker. See #61.

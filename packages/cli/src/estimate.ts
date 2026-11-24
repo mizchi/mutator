@@ -36,9 +36,14 @@ export function estimateWork(jobs: readonly { key: string; tests: readonly strin
   return { costs, totalCostMs, estimate: { durationMs: totalCostMs / workers, workers, mutants: jobs.length, historySamples } };
 }
 
-/** Recalibrate the remaining work using the accumulated execution time (summed over parallel sessions). */
-export function remainingMs(plan: WorkEstimate, completedCostMs: number, observedWorkMs: number): number {
-  const remaining = Math.max(0, plan.totalCostMs - completedCostMs);
+/**
+ * Remaining work: predicted cost not yet run, recalibrated by the accumulated execution time of run
+ * jobs (summed over parallel sessions) against their prediction.
+ * `skippedCostMs` is the predicted cost of jobs settled without a run (type checking alongside):
+ * no longer remaining, and not part of the scale.
+ */
+export function remainingMs(plan: WorkEstimate, completedCostMs: number, observedWorkMs: number, skippedCostMs = 0): number {
+  const remaining = Math.max(0, plan.totalCostMs - completedCostMs - skippedCostMs);
   const scale = completedCostMs > 0 && observedWorkMs > 0 ? observedWorkMs / completedCostMs : 1;
   return remaining * scale / plan.estimate.workers;
 }

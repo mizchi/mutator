@@ -1,15 +1,15 @@
 # Changelog
 
-## 0.5.4 - 2026-11-25
+## 0.5.4 - 2026-11-24
 
 Faster cold runs, two new default mutators, opt-in skip rules and mutators, and fixes found by dogfooding. All eight npm packages share version **0.5.4**. Snapshots from 0.5.3 are not reused (the default mutant set changed), so the first run is cold.
 
 ### Added
 
-- `MissingAwait` (`await p` -> `p`) and `RegexFlag` (a regex literal without one of its flags) run by default. Dropping an `await` that cannot matter (`return await p` outside `try`, awaiting a literal) and removing `g` from a pattern that can match only once are skipped as equivalent. `--exclude-mutator` turns either off. [#77](https://github.com/mizchi/mutator/pull/77) [#79](https://github.com/mizchi/mutator/pull/79) [#89](https://github.com/mizchi/mutator/pull/89)
+- `MissingAwait` (`await p` -> `p`) and `RegexFlag` (a regex literal without one of its flags) run by default. Dropping the `await` of `return await p` outside a `try` and removing `g` from a pattern that can match only once (anchored, no `m`, cannot match empty) are skipped as equivalent (heuristic). `--exclude-mutator` turns either off. [#77](https://github.com/mizchi/mutator/pull/77) [#79](https://github.com/mizchi/mutator/pull/79) [#89](https://github.com/mizchi/mutator/pull/89)
 - Opt-in mutators through `--enable-mutator <name>` / `enabledMutators`: `ArrayElement` and `ObjectProperty` remove one entry of a literal at a time. [#79](https://github.com/mizchi/mutator/pull/79)
 - `mutator skipped [--format json]` lists the candidates that skip rules removed, with the rule, its category, the key and the mutant that justifies it. [#70](https://github.com/mizchi/mutator/pull/70)
-- Opt-in skip and mutation options, all off by default:
+- Opt-in skip and mutation options, all off by default. Changing any of them, or `--enable-mutator`, starts a cold run, since the mutants it adds have no cached coverage:
   - `--skip-subsumed` drops coarse mutants that have a finer mutant inside. [#75](https://github.com/mizchi/mutator/pull/75)
   - `--skip-hangs` drops mutants that likely never let a loop end. [#78](https://github.com/mizchi/mutator/pull/78)
   - `--minimal-relational` mutates `<`, `<=`, `>`, `>=` with the subsumption-minimal set and skips replacements a `.length` / `indexOf` bound proves equivalent. [#76](https://github.com/mizchi/mutator/pull/76)

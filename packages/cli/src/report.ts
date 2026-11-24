@@ -1,6 +1,6 @@
 import { relativePath as relative } from '@mizchi/mutator-core';
 import { DEFAULT_THRESHOLDS, type Thresholds } from './config.ts';
-import { reported, scoreLevel } from './gate.ts';
+import { reported, scoreLevel, scorePopulation } from './gate.ts';
 import { hasScore } from './status.ts';
 import { ACCEPTED_FILE } from './accepted.ts';
 import { criticalSummary } from './critical.ts';
@@ -64,7 +64,7 @@ export function formatSummary(report: Report, root: string, thresholds: Threshol
     ORDER.filter((s) => counts.has(s))
       .map((s) => `${s} ${counts.get(s)}${s === 'Survived' && notInfected ? ` (${notInfected} not infected)` : ''}`)
       .join(' · '),
-    `score${report.selection === 'only' ? ' (selected)' : report.scope === 'diff' ? ' (changed code)' : ''}: ${hasScore(reported(report)) ? `${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]` : 'n/a (no mutants to score)'}${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
+    `score${report.selection === 'only' ? ' (selected)' : report.scope === 'diff' ? ' (changed code)' : ''}: ${hasScore(scorePopulation(report)) ? `${(report.score * 100).toFixed(1)}% [${scoreLevel(report.score, thresholds)}]` : 'n/a (no mutants to score)'}${report.scope !== 'diff' && counts.get('Pending') ? ` (excluding ${counts.get('Pending')} pending)` : ''}  (${(report.durationMs / 1000).toFixed(1)}s)`,
   ];
   const notRun = [
     ...(report.notRun.sampled ? [`${report.notRun.sampled} sampled out (--mutants-per-line)`] : []),

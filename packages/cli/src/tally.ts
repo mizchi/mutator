@@ -90,6 +90,12 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
       case 'reuse': {
         // Keep the cached verdict but record today's coverage: new covering tests must not be lost.
         const { result } = entry;
+        // A reused NoCoverage in scope is type-checked again: an imported type may have changed.
+        if (result.status === 'NoCoverage' && (!inScope || focus)) {
+          noCoverage.push(index);
+          tally.hold(index, { mutant, status: 'NoCoverage', source: 'reuse', killedBy: [], coveredBy });
+          break;
+        }
         tally.settle(index, { mutant, status: result.status, source: 'reuse', killedBy: result.killedBy, coveredBy, ...(result.reason ? { reason: result.reason } : {}), ...(result.matrix ? { matrix: true as const } : {}) }, { ...result, coveredBy });
         break;
       }

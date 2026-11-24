@@ -38,7 +38,7 @@ import { score } from './status.ts';
 import { type Job, applyTypecheck, classifyPlan, settleByTypecheck } from './tally.ts';
 import type { TimeoutRetries } from './timeout-retry.ts';
 import { type DetectionRegression, type SelectionReason, type TestChanges, changedTestIds, compareTests, detectionRegressions, reviewTestChanges, testChangeSelection } from './test-impact.ts';
-import { type EarlyTypecheck, type TypecheckResult, TS_FILE, startTypecheck, streamTypecheck, typecheckJobs } from './typecheck.ts';
+import { type EarlyTypecheck, type StreamedTypecheck, type TypecheckResult, TS_FILE, startTypecheck, streamTypecheck, typecheckJobs } from './typecheck.ts';
 
 export interface RunOptions {
   root: string;
@@ -262,6 +262,7 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   const unguard = guardWorkerExits(log);
   const restorePath = exposeProjectBin(root);
   let early: EarlyTypecheck | undefined;
+  let stream: StreamedTypecheck | undefined;
   let checkpoint: Checkpoint | undefined;
   try {
     const testFileList = (await session.testFiles()).map((f) => relative(root, f));
@@ -396,12 +397,13 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const resumed = jobs.length - remaining.length;
     // Mutants restored from the checkpoint go last: only their cache entry needs them.
     const pendingJobs = new Set(remaining);
-    const stream = alongside ? streamTypecheck(root, [...remaining, ...jobs.filter((j) => !pendingJobs.has(j))].map((j) => j.entry.mutant).concat(undecided), log, { cache: reusable?.typecheck }) : undefined;
+    const checking = alongside ? streamTypecheck(root, [...remaining, ...jobs.filter((j) => !pendingJobs.has(j))].map((j) => j.entry.mutant).concat(undecided), log, { cache: reusable?.typecheck }) : undefined;
+    stream = checking;
     // Verdicts the type-check cache already holds settle now: those mutants are not "to run".
     let cachedVerdicts = 0;
-    if (stream) {
+    if (checking) {
       remaining = remaining.filter((job) => {
-        const verdict = stream.cached(job.entry.mutant.key);
+        const verdict = checking.cached(job.entry.mutant.key);
         if (!verdict) return true;
         settleByTypecheck(tally, job, verdict);
         cachedVerdicts++;
@@ -412,8 +414,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
     const notes = [...decided, ...(cachedNote ? [cachedNote] : [])];
     log(`${assigned.length} mutants, ${remaining.length} to run${notes.length ? ` (${notes.join(', ')})` : ''}${alongside && remaining.length ? ', type-checked alongside' : ''}`);
     if (resumed) log(`resumed ${resumed}/${jobs.length} mutants from checkpoint, ${remaining.length} left to run`);
-    const precheck = stream && (async (job: Job) => {
-      const verdict = await stream.verdict(job.entry.mutant.key);
+    const precheck = checking && (async (job: Job) => {
+      const verdict = await checking.verdict(job.entry.mutant.key);
       if (verdict) settleByTypecheck(tally, job, verdict);
       return verdict?.status;
     });
@@ -493,6 +495,8 @@ export async function runMutation(options: RunOptions): Promise<Report> {
   } finally {
     checkpoint?.close();
     early?.cancel();
+    // A failed run leaves the streamed check running: stop it so the process can exit.
+    stream?.cancel();
     await Promise.all(sessions.map((s) => s.close()));
     unguard();
     restorePath();

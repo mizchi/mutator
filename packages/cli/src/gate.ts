@@ -14,6 +14,11 @@ export function reported(report: Report): ReportEntry[] {
   return report.scope === 'diff' ? report.entries.filter((e) => e.focus) : report.entries;
 }
 
+/** The entries the score is computed over: with --since, the diff's (not the rechecks). */
+export function scorePopulation(report: Report): ReportEntry[] {
+  return report.scope === 'diff' ? report.entries.filter((e) => e.focus === 'diff') : report.entries;
+}
+
 /** Reasons the run fails the quality gate (exit 2); empty when it passes. */
 export function qualityGate(report: Report, options: { thresholds: Thresholds; failOnSurvived: boolean }): string[] {
   const failures: string[] = [];

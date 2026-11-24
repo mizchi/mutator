@@ -85,6 +85,22 @@ describe('streamTypecheck', () => {
   });
 });
 
+describe('cancelling a streamed check', () => {
+  test('cancel() aborts the checker process', async () => {
+    let signal: AbortSignal | undefined;
+    const stream = streamTypecheck('/nowhere', [mutant(0)], () => {}, {
+      checkInWorker: async (options: { signal?: AbortSignal }) => {
+        signal = options.signal;
+        return new Promise((resolve) => options.signal?.addEventListener('abort', () => resolve(undefined)));
+      },
+    });
+    expect(signal?.aborted).toBe(false);
+    stream.cancel();
+    expect(signal?.aborted).toBe(true);
+    expect(await stream.verdict('k0')).toBeUndefined();
+  });
+});
+
 describe('a cold run type-checks alongside mutant execution', { timeout: 120_000 }, () => {
   function project(): string {
     const root = join(tmpRoot, `tcs-${process.pid}-${Math.random().toString(36).slice(2)}`);

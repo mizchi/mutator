@@ -41,6 +41,7 @@ const statusCell = (st: Record<string, number>) =>
     ['S', 'Survived'],
     ['NC', 'NoCoverage'],
     ['I', 'Ignored'],
+    ['E', 'Error'],
     ['P', 'Pending'],
   ]
     .filter(([, k]) => st[k!])

@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
-import type { Mutant } from '@mizchi/mutator-core';
-import { Tally, resultOf } from '../src/tally.ts';
+import { describe, expect, test } from 'vitest';
+import { type Mutant, instrument } from '@mizchi/mutator-core';
+import { Tally, classifyPlan, resultOf } from '../src/tally.ts';
 
 const mutant = {
   key: 'k1',
@@ -46,4 +46,19 @@ test('a skipped mutant is Pending and keeps its coverage for the next run', () =
   tally.skip(0, mutant, ['t1']);
   expect(tally.report[0]).toEqual({ mutant, status: 'Pending', source: 'skipped', killedBy: [], coveredBy: ['t1'] });
   expect(tally.results[0]).toMatchObject({ status: 'Pending', coveredBy: ['t1'] });
+});
+
+describe('classifyPlan: reused NoCoverage results', () => {
+  const m = instrument('/p/src/a.ts', 'export const f = (a: number) => a + 1;').mutants[0]!;
+  const reuse = (status: 'NoCoverage' | 'Survived') => ({ kind: 'reuse' as const, mutant: m, result: { key: m.key, status, killedBy: [], coveredBy: [] } as never });
+
+  test('an in-scope reused NoCoverage result waits for the type check (an imported type may have changed)', () => {
+    const { noCoverage } = classifyPlan([reuse('NoCoverage')], new Map(), undefined, undefined);
+    expect(noCoverage).toEqual([0]);
+  });
+
+  test('outside --since it stays as it was, and other reused results never wait', () => {
+    expect(classifyPlan([reuse('NoCoverage')], new Map(), new Map(), undefined).noCoverage).toEqual([]);
+    expect(classifyPlan([reuse('Survived')], new Map(), undefined, undefined).noCoverage).toEqual([]);
+  });
 });

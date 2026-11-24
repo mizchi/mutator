@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { estimateWork, formatDuration, remainingMs } from '../src/estimate.ts';
 
 const jobs = [
@@ -33,4 +33,14 @@ test('empty plans and invalid historical timings never produce NaN or infinite e
 
 test('durations stay readable for long CI runs', () => {
   expect([0, 100, 1500, 90_000, 7_260_000].map(formatDuration)).toEqual(['0s', '<1s', '2s', '1m 30s', '2h 1m']);
+});
+
+describe('remainingMs with jobs settled without a run', () => {
+  test('their cost is no longer remaining and does not scale the rest', () => {
+    const plan = { totalCostMs: 200, costs: new Map(), estimate: { durationMs: 200, workers: 1, historySamples: 0 } } as unknown as Parameters<typeof remainingMs>[0];
+    // One 100 ms job settled by the type check, the other not started yet.
+    expect(remainingMs(plan, 0, 0, 100)).toBe(100);
+    // One run took twice its prediction; the settled one does not dilute the scale.
+    expect(remainingMs({ ...plan, totalCostMs: 300 }, 100, 200, 100)).toBe(200);
+  });
 });

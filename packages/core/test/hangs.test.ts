@@ -41,4 +41,11 @@ describe('skipHangs', () => {
   test('emptying a for body with an update is kept: the loop still ends', () => {
     expect(run('for (let i = 0; i < n; i++) { f(i); }').placed).toContain('BlockStatement: { f(i); } -> {}');
   });
+
+  test('an update nested anywhere in the for update counts: void i++, void (i += 1)', () => {
+    expect(run('for (let i = 0; i < 3; void i++) work();').skipped).toEqual(['UpdateOperator: i++ -> i-- (loop-advance)']);
+    expect(run('for (let i = 0; i < 3; void (i += 1)) work();').skipped).toEqual(['AssignmentOperator: i += 1 -> i -= 1 (loop-advance)']);
+    // A function inside the update is not the update itself.
+    expect(run('for (let i = 0; i < 3; i = next(() => { j++; })) work();').skipped).toEqual([]);
+  });
 });

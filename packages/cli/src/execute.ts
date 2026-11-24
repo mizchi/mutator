@@ -78,17 +78,18 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
   let decided = 0;
   let observedWorkMs = 0;
   let completedCostMs = 0;
+  let skippedCostMs = 0;
   const resumed = ctx.resumed ?? 0;
   const total = jobs.length + resumed;
   const large = jobs.length > 0 && (total >= 100 || estimate.durationMs >= 10_000);
   if (large && ctx.checkpoint) log('Saving each completed mutant. After interruption, rerun the same command to resume.');
   const interactive = large ? ctx.onProgress : undefined;
-  const eta = () => `ETA ~${formatDuration(remainingMs(prediction, completedCostMs, observedWorkMs))}`;
+  const eta = () => `ETA ~${formatDuration(remainingMs(prediction, completedCostMs, observedWorkMs, skippedCostMs))}`;
   const update = () => interactive?.({
     completed: resumed + executed + decided,
     total,
     elapsedMs: performance.now() - ctx.started,
-    remainingMs: remainingMs(prediction, completedCostMs, observedWorkMs),
+    remainingMs: remainingMs(prediction, completedCostMs, observedWorkMs, skippedCostMs),
   });
   const retries = new RetryCounts();
   update();
@@ -106,6 +107,7 @@ export async function executeJobs(jobs: Job[], tally: Tally, ctx: ExecuteContext
         if (status === undefined) return false;
         decided++;
         const { mutant } = job.entry;
+        skippedCostMs += prediction.costs.get(mutant.key) ?? 0;
         if (interactive) update();
         else log(`[${resumed + executed + decided}/${total}] ${status.padEnd(8)} ${relative(root, mutant.file)}:${mutant.location.start.line} ${oneLine(mutant.original)} -> ${oneLine(mutant.replacement)}`);
         return true;

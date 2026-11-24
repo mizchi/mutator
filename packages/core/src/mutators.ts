@@ -24,11 +24,14 @@ export interface MutatorContext {
 
 const likelyHang = (candidate: Candidate, rule: 'loop-advance' | 'loop-body'): Candidate => ({ ...candidate, skip: { rule, category: 'timeout', heuristic: true } });
 
-/** Whether `frame` is the update of a `for` header (or one expression of a sequence there). */
+/** Whether `frame` lies in the update of a `for` header (at any depth, but not inside a function there). */
 function inLoopUpdate(frame: Frame): boolean {
-  let f = frame;
-  while (f.parent && (f.parent.node.type === 'SequenceExpression' || f.parent.node.type === 'ParenthesizedExpression')) f = f.parent;
-  return f.key === 'update' && f.parent?.node.type === 'ForStatement';
+  for (let f = frame; f.parent; f = f.parent) {
+    const parent = f.parent.node;
+    if (parent.type === 'ForStatement') return f.key === 'update';
+    if (isFunction(parent) || parent.type.endsWith('Statement') || parent.type.endsWith('Declaration')) return false;
+  }
+  return false;
 }
 
 /** A loop body that is the only place its loop advances: a while / do-while body, or a for without an update. */
@@ -426,18 +429,35 @@ function singleMatch(pattern: string, flags: string): boolean {
   if (flags.includes('m')) return false;
   let depth = 0;
   let inClass = false;
+  // Assertions (\b, \B, lookarounds) outside a character class: they can allow an empty match
+  // in context that '' alone does not show. Inside a class `[\b]` is a backspace, not an assertion.
+  let assertion = false;
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
-    if (c === '\\') { i++; continue; }
+    if (c === '\\') {
+      if (!inClass && (pattern[i + 1] === 'b' || pattern[i + 1] === 'B')) assertion = true;
+      i++;
+      continue;
+    }
     if (inClass) { if (c === ']') inClass = false; continue; }
     if (c === '[') inClass = true;
-    else if (c === '(') depth++;
-    else if (c === ')') depth--;
+    else if (c === '(') {
+      depth++;
+      if (/^\(\?<?[=!]/.test(pattern.slice(i, i + 4))) assertion = true;
+    } else if (c === ')') depth--;
     else if (c === '|' && depth === 0) return false;
   }
-  // An end `$` must not be escaped: an odd number of backslashes before it escapes it.
+  // `^` without `m` matches at index 0 only. An end `$` must not be escaped (an odd number of
+  // backslashes before it escapes it), and the pattern must not match empty: `/a*$/g` matches
+  // the trailing run and then the empty string at the end.
+  if (pattern.startsWith('^')) return true;
   const trailing = /(\\*)\$$/.exec(pattern);
-  return pattern.startsWith('^') || (trailing !== null && trailing[1]!.length % 2 === 0);
+  if (trailing === null || trailing[1]!.length % 2 !== 0 || assertion) return false;
+  try {
+    return !new RegExp(pattern, flags.replace('g', '')).test('');
+  } catch {
+    return false;
+  }
 }
 
 /** RegexFlag: a regex literal without one of its flags, when still valid. */
@@ -598,15 +618,14 @@ function guarded(frame: Frame): boolean {
   return false;
 }
 
-const SETTLED = new Set(['Literal', 'TemplateLiteral', 'ObjectExpression', 'ArrayExpression', 'ArrowFunctionExpression', 'FunctionExpression', 'ClassExpression']);
-
 const missingAwait: Mutator = (frame, ctx) => {
   const { node } = frame;
   if (node.type !== 'AwaitExpression') return [];
   const candidate = whole(frame, 'MissingAwait', ctx.slice(node.argument));
-  if (SETTLED.has(unwrap(node.argument).type)) return [{ ...candidate, skip: { rule: 'settled-value', category: 'equivalent' } }];
+  // Awaiting any value yields a tick and may call a `then`, so no operand makes the await
+  // removable. `return await p` outside a guard only resolves the caller's promise a tick later.
   const at = returned(frame);
-  if (at && !guarded(at)) return [{ ...candidate, skip: { rule: 'awaited-by-caller', category: 'equivalent' } }];
+  if (at && !guarded(at)) return [{ ...candidate, skip: { rule: 'awaited-by-caller', category: 'equivalent', heuristic: true } }];
   return [candidate];
 };
 

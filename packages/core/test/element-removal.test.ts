@@ -63,6 +63,20 @@ describe('RegexFlag', () => {
     expect(skippedFlags('x = /(a|b)$/g;')).toEqual(['/(a|b)$/ (single-match, equivalent)']);
   });
 
+  test('an end-anchored pattern that can match empty can match twice: `"baa".replace(/a*$/g, "x")` is "bxx"', () => {
+    expect(skippedFlags('x = /a*$/g;')).toEqual([]);
+    expect(skippedFlags('x = /(?<=a)$/g;')).toEqual([]);
+    // \b allows an empty match in context only: `"baa".replace(/a*\b$/g, "x")` is "bxx".
+    expect(skippedFlags(String.raw`x = /a*\b$/g;`)).toEqual([]);
+    expect(skippedFlags('x = /a*(?=$)$/g;')).toEqual([]);
+    // A consuming suffix stays eligible.
+    expect(skippedFlags('x = /a+$/g;')).toEqual(['/a+$/ (single-match, equivalent)']);
+    // Inside a class, \b is a backspace character: no assertion.
+    expect(skippedFlags(String.raw`x = /a[\b]$/g;`)).toEqual([String.raw`/a[\b]$/ (single-match, equivalent)`]);
+    // Start-anchored ones match at index 0 only, empty or not.
+    expect(skippedFlags('x = /^a*/g;')).toEqual(['/^a*/ (single-match, equivalent)']);
+  });
+
   test('removes one flag at a time', () => {
     expect(flags('x = /a/gim;')).toEqual(['/a/gim -> /a/im', '/a/gim -> /a/gm', '/a/gim -> /a/gi']);
   });

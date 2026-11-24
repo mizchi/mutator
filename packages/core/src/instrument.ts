@@ -114,7 +114,7 @@ export function instrument(file: string, source: string, options: InstrumentOpti
   }
   // Decided on the full candidate set so that a `ranges` restriction never changes the outcome.
   // An ignored inner mutant still justifies the skip: ignoring code must not add mutants to it.
-  const redundant = subsumedByInner(found.map((f) => f.candidate), options.subsumeCoarse ? COARSE : CALL_ONLY);
+  const redundant = subsumedByInner(found.map((f) => f.candidate), options.subsumeCoarse ? COARSE : CALL_ONLY, TS_SOURCE.test(file));
 
   for (const [node, names] of refs) scopes.get(node)!.refs = [...names].sort();
   const mutants: Mutant[] = [];
@@ -211,7 +211,14 @@ const COARSE: ReadonlySet<MutatorName> = new Set(['CallExpression', 'BlockStatem
  * code too. Maps each dropped candidate to that inner candidate. Heuristic: a test can kill the
  * inner change and still miss the removal (e.g. `{ return "."; }` -> `{}` when callers coerce).
  */
-function subsumedByInner(candidates: readonly Candidate[], coarse: ReadonlySet<MutatorName>): Map<Candidate, Candidate> {
+/** In TypeScript, only these justify a skip: mutators that rarely break the types, so the justifier runs. */
+const TYPE_KEEPING: ReadonlySet<MutatorName> = new Set(['ArithmeticOperator', 'AssignmentOperator', 'BooleanLiteral', 'ConditionalExpression', 'EqualityOperator', 'LogicalOperator', 'Regex', 'RegexFlag', 'UnaryOperator', 'UpdateOperator']);
+const TS_SOURCE = /\.(c|m)?tsx?$/;
+
+function subsumedByInner(candidates: readonly Candidate[], coarse: ReadonlySet<MutatorName>, typescript: boolean): Map<Candidate, Candidate> {
+  // A justifier must run: not itself coarse (it could be skipped too), and in TypeScript not a
+  // change likely to fail the type check (a CompileError never runs).
+  const justifies = (c: Candidate) => !COARSE.has(c.mutator) && (!typescript || TYPE_KEEPING.has(c.mutator));
   const out = new Map<Candidate, Candidate>();
   const sorted = [...candidates].sort((a, b) => a.range.start - b.range.start);
   for (const outer of candidates) {
@@ -228,7 +235,7 @@ function subsumedByInner(candidates: readonly Candidate[], coarse: ReadonlySet<M
       const other = sorted[i]!;
       // The same range is a sibling edit, not a finer one (except for a call statement, as before).
       const sameRange = other.range.start === start && other.range.end === end;
-      if (other !== outer && other.range.end <= end && (!sameRange || outer.mutator === 'CallExpression')) {
+      if (other !== outer && other.range.end <= end && (!sameRange || outer.mutator === 'CallExpression') && justifies(other)) {
         out.set(outer, other);
         break;
       }

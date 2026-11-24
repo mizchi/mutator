@@ -53,25 +53,35 @@ export interface SessionOptions extends PluginOptions {
 }
 
 /**
- * Observes failures while a mutant run is in flight. Kills are taken from these
- * observations instead of the final task states, because a cancelled run may
- * report its failed test as pending.
+ * Observes failures and the test modules started while a mutant run is in flight. Kills
+ * are taken from these observations instead of the final task states, because a cancelled
+ * run may report its failed test as pending. A run's result lists every module the Vitest
+ * instance has run, and a module the run never started keeps the results of an earlier
+ * mutant: only the started ones belong to this run.
  */
 class FailureWatch {
   failed: TestCase[] = [];
+  /** Ids of the test modules started since `arm`. */
+  started = new Set<string>();
   private onFailure: (() => void) | undefined;
   private onProgress: (() => void) | undefined;
 
   arm(onFailure: (() => void) | undefined, onProgress?: () => void): void {
     this.failed = [];
+    this.started = new Set();
     this.onFailure = onFailure;
     this.onProgress = onProgress;
   }
 
-  disarm(): TestCase[] {
+  disarm(): { failed: TestCase[]; started: ReadonlySet<string> } {
     this.onFailure = undefined;
     this.onProgress = undefined;
-    return this.failed;
+    return { failed: this.failed, started: this.started };
+  }
+
+  // Vitest reports a module as queued when a worker starts it, before its imports.
+  onTestModuleQueued(module: TestModule): void {
+    if (this.onFailure) this.started.add(module.id);
   }
 
   onTestCaseReady(): void {
@@ -185,7 +195,7 @@ export async function createSession(options: SessionOptions): Promise<Session> {
       const outcome = await Promise.race([run(key, hitLimit, specs, earlyExit), timeout]);
       clearTimeout(timer);
       clearTimeout(stall);
-      const observed = currentWatch.disarm();
+      const { failed: observed, started: startedModules } = currentWatch.disarm();
       const durationMs = performance.now() - started;
       if (outcome === 'timeout') {
         // A worker may be stuck in a synchronous loop; start over with a fresh instance.
@@ -194,7 +204,10 @@ export async function createSession(options: SessionOptions): Promise<Session> {
         await vitest.globTestSpecifications();
         return { status: 'Timeout', timeoutCause: 'time', killedBy: [], durationMs };
       }
-      return { ...classifyRun(report(outcome, options.root, testIds, observed, idOf)), durationMs };
+      // A pool that never reports a queued module would leave the report empty and the mutant Survived:
+      // fall back to the run's specifications, which can only add stale results, never hide an error.
+      const ran = startedModules.size > 0 ? startedModules : new Set(specs.map((spec) => spec.taskId));
+      return { ...classifyRun(report(outcome, options.root, ran, testIds, observed, idOf)), durationMs };
     },
 
     async close() {
@@ -387,13 +400,21 @@ function collectDryRun(result: TestRunResult, root: string, multiProject = false
 }
 
 /** The run as classifyRun reads it. */
-function report(result: TestRunResult, root: string, testIds: readonly string[], observed: readonly TestCase[], idOf: (test: TestCase) => string): RunReport {
+function report(
+  result: TestRunResult,
+  root: string,
+  started: ReadonlySet<string>,
+  testIds: readonly string[],
+  observed: readonly TestCase[],
+  idOf: (test: TestCase) => string,
+): RunReport {
   const entry = (test: TestCase) => ({ id: idOf(test), failed: test.result().state === 'failed', messages: (test.result().errors ?? []).map((e) => e.message ?? '') });
   // A failure the watch observed counts even outside the selection: it cancelled the run
   // (a static mutant runs whole modules), and a cancelled run may report it as pending.
   const tests = observed.map((test) => ({ ...entry(test), failed: true }));
   const fileErrors: RunReport['fileErrors'][number][] = [];
   for (const module of result.testModules as readonly TestModule[]) {
+    if (!started.has(module.id)) continue;
     for (const error of module.errors()) fileErrors.push({ file: relative(root, module.moduleId), message: error.message ?? '' });
     for (const test of module.children.allTests()) tests.push(entry(test));
   }

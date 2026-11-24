@@ -219,6 +219,33 @@ describe('test files that fail to load under a mutant', () => {
     const result = await session.runMutant(find('i--', 'i++').key, ['test/boot.test.ts#boots'], { timeoutMs: 10_000, isStatic: true, hitLimit: 1000 });
     expect(result).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] });
   });
+
+  test('a file that failed to load under one mutant does not decide the next mutant', async () => {
+    const broken = await session.runMutant(find('i === 0', 'false').key, ['test/boot.test.ts#boots'], { timeoutMs: 10_000, isStatic: true });
+    expect(broken.status).toBe('RuntimeError');
+    // The next run does not run boot.test.ts; Vitest still lists it, with its error, among the run's modules.
+    const result = await session.runMutant(find('x > 0', 'x >= 0').key, ['test/positive.test.ts#positive'], { timeoutMs: 10_000 });
+    expect(result).toMatchObject({ status: 'Survived', killedBy: [] });
+  });
+});
+
+describe('a file a cancelled run never started', () => {
+  test('keeps no result from an earlier mutant', async () => {
+    const cancelRoot = fileURLToPath(new URL('./fixtures/cancel', import.meta.url));
+    // One worker and files in name order: a.test.ts fails first, and the cancel stops b.test.ts before it starts.
+    const session = await createSession({ root: cancelRoot, include: (file) => file.includes('/cancel/src/'), maxWorkers: 1 });
+    try {
+      expect((await session.dryRun()).failed).toEqual([]);
+      const find = (original: string, replacement: string) => session.mutants().find((m) => m.original === original && m.replacement === replacement)!;
+      const tests = ['test/a.test.ts#adds', 'test/b.test.ts#boots'];
+      const broken = await session.runMutant(find('true', 'false').key, tests, { timeoutMs: 10_000, isStatic: true });
+      expect(broken).toMatchObject({ status: 'RuntimeError', killedBy: ['test/a.test.ts', 'test/b.test.ts'] });
+      const killed = await session.runMutant(find('a + b', 'a - b').key, tests, { timeoutMs: 10_000 });
+      expect(killed).toMatchObject({ status: 'Killed', killedBy: ['test/a.test.ts#adds'] });
+    } finally {
+      await session.close();
+    }
+  });
 });
 
 describe('process hygiene', () => {

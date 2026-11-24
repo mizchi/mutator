@@ -294,8 +294,8 @@ function testId(root: string, test: TestCase, multiProject = false): string {
 }
 
 /**
- * Keep the paths a test file read inside the root. A file changed at or after the dry run
- * started was written by a test, not given to it: it is left out of the key.
+ * Keep the paths a test file read inside the root (the root itself as `.`). A file changed at
+ * or after the dry run started was written by a test, not given to it: it is left out of the key.
  */
 function readInputs(root: string, files: readonly string[], since: number): string[] {
   const kept = new Set<string>();
@@ -305,7 +305,10 @@ function readInputs(root: string, files: readonly string[], since: number): stri
     const rel = relative(root, file) || '.';
     if (rel.startsWith('../') || rel === '..' || isAbsolute(rel)) continue;
     try {
-      if (statSync(file).mtimeMs >= since) continue;
+      // Only files: a directory's mtime also moves when tools (Vite's node_modules/.vite)
+      // create entries in it; its key is its listing after the run.
+      const stats = statSync(file);
+      if (!stats.isDirectory() && stats.mtimeMs >= since) continue;
     } catch {
       // Missing: its later appearance changes the key.
     }

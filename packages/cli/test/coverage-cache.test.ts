@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
-import { emptyDryRun } from '@mizchi/mutator-core';
+import { RECURSIVE_READ, emptyDryRun } from '@mizchi/mutator-core';
 import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from '../src/coverage-cache.ts';
 
 const root = '/p';
@@ -138,7 +138,7 @@ describe('testFileHashes with run-time inputs', () => {
   test('a recursive directory read is keyed on every descendant, a plain one on its entries only', () => {
     mkdirSync(join(dir, 'fixtures/tree/sub'), { recursive: true });
     const plain = { 'test/a.test.ts': ['fixtures/tree'] };
-    const recursive = { 'test/a.test.ts': ['fixtures/tree/**'] };
+    const recursive = { 'test/a.test.ts': [`fixtures/tree${RECURSIVE_READ}`] };
     const before = { plain: hashes({ reads: plain }), recursive: hashes({ reads: recursive }) };
     writeFileSync(join(dir, 'fixtures/tree/sub/nested.txt'), '');
     expect(hashes({ reads: plain })).toEqual(before.plain);
@@ -146,11 +146,48 @@ describe('testFileHashes with run-time inputs', () => {
   });
 
   test('the project root directory is keyed on its entries', () => {
-    for (const reads of [{ 'test/a.test.ts': ['.'] }, { 'test/a.test.ts': ['./**'] }]) {
+    for (const reads of [{ 'test/a.test.ts': ['.'] }, { 'test/a.test.ts': [`.${RECURSIVE_READ}`] }]) {
       const before = hashes({ reads });
       writeFileSync(join(dir, `root-${reads['test/a.test.ts']![0]!.length}.case`), '');
       expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
     }
+  });
+
+  test('directory keys follow entry types and ignore node_modules and .mutator', () => {
+    mkdirSync(join(dir, 'fixtures/typed/deep'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/typed/deep/x'), '');
+    for (const read of ['fixtures/typed', `fixtures/typed${RECURSIVE_READ}`]) {
+      const reads = { 'test/a.test.ts': [read] };
+      const target = read === 'fixtures/typed' ? 'fixtures/typed/deep' : 'fixtures/typed/deep/x';
+      const before = hashes({ reads });
+      mkdirSync(join(dir, 'fixtures/typed/node_modules/.vite'), { recursive: true });
+      mkdirSync(join(dir, 'fixtures/typed/deep/.mutator'), { recursive: true });
+      expect(hashes({ reads })).toEqual(before);
+      // A file replaced by a directory of the same name (or the reverse) is a different listing.
+      const wasDirectory = read === 'fixtures/typed';
+      rmSync(join(dir, target), { recursive: true });
+      if (wasDirectory) writeFileSync(join(dir, target), '');
+      else mkdirSync(join(dir, target));
+      expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+      rmSync(join(dir, 'fixtures/typed/deep'), { recursive: true });
+      mkdirSync(join(dir, 'fixtures/typed/deep'));
+      writeFileSync(join(dir, 'fixtures/typed/deep/x'), '');
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')('a literal backslash or `**` in a POSIX name is not a separator or the recursive marker', () => {
+    mkdirSync(join(dir, 'fixtures/slash/a'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/slash/a/b'), '');
+    const recursive = { 'test/a.test.ts': [`fixtures/slash${RECURSIVE_READ}`] };
+    const before = hashes({ reads: recursive });
+    rmSync(join(dir, 'fixtures/slash/a/b'));
+    writeFileSync(join(dir, 'fixtures/slash/a\\b'), '');
+    expect(hashes({ reads: recursive })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    const literal = { 'test/a.test.ts': ['fixtures/slash/**'] };
+    writeFileSync(join(dir, 'fixtures/slash/**'), '1');
+    const one = hashes({ reads: literal });
+    writeFileSync(join(dir, 'fixtures/slash/**'), '2');
+    expect(hashes({ reads: literal })['test/a.test.ts']).not.toBe(one['test/a.test.ts']);
   });
 
   test('file contents are keyed on their bytes, apart from the directory and missing markers', () => {

@@ -171,5 +171,8 @@ export function portableFlags(options: { readonly [K in keyof InstrumentFlags]?:
   return portable;
 }
 
-/** Suffix of a run-time read (`DryRunResult.reads`) whose directory the test listed recursively. */
-export const RECURSIVE_READ = '/**';
+/**
+ * Suffix of a run-time read (`DryRunResult.reads`) whose directory the test listed recursively.
+ * It starts with NUL, which no path can contain, so a file literally named `**` stays a file.
+ */
+export const RECURSIVE_READ = '\0**';

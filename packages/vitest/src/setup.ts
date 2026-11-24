@@ -97,7 +97,7 @@ function currentState(): typeof ns | undefined {
 /** `node:fs` functions whose first argument is a path they read (with their `Sync` forms). */
 const FS_READERS = ['readFile', 'readdir', 'opendir', 'stat', 'lstat', 'access', 'exists', 'open', 'createReadStream'] as const;
 const WRITE_FLAGS = /[wa]/;
-const RECURSIVE: typeof RECURSIVE_READ = '/**';
+const RECURSIVE: typeof RECURSIVE_READ = '\0**';
 let reentrant = false;
 
 function recordRead(name: string, args: unknown[]): void {
@@ -116,7 +116,8 @@ function recordRead(name: string, args: unknown[]): void {
       : typeof target === 'string' ? target
         : target instanceof Uint8Array ? Buffer.from(target).toString()
           : undefined;
-    if (path === undefined) return;
+    // A path with NUL is rejected by `node:fs`, and would be confused with the recursive marker.
+    if (path === undefined || path.includes('\0')) return;
     const file = resolve(path);
     // The CLI keeps only paths inside the project root; skip the obvious rest here.
     if (/[/\\](?:node_modules|\.mutator)(?:[/\\]|$)/.test(file)) return;

@@ -132,21 +132,35 @@ export function testFileHashes(
 }
 
 /**
- * What a test sees of a path it read: a file's bytes, a directory's entries (every descendant
- * for a recursive read), or that it is missing. Each kind is tagged, so one never equals another.
+ * What a test sees of a path it read: a file's bytes, a directory's typed entries (every
+ * descendant for a recursive read), or that it is missing. Each kind is tagged, so one never
+ * equals another.
  */
 function inputContent(root: string, rel: string): string {
   const recursive = rel.endsWith(RECURSIVE_READ);
   const path = join(root, recursive ? rel.slice(0, -RECURSIVE_READ.length) : rel);
   try {
-    if (statSync(path).isDirectory()) {
-      const entries = recursive ? readdirSync(path, { recursive: true, encoding: 'utf8' }).map((entry) => entry.replaceAll('\\', '/')) : readdirSync(path);
-      return `\0dir\0${entries.sort().join('\0')}`;
-    }
+    if (statSync(path).isDirectory()) return `\0dir\0${listing(path, recursive).sort().join('\0')}`;
     return `\0file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
   } catch {
     return '\0missing';
   }
+}
+
+/** Left out of listings, as reads under them are (tools write there while tests run). */
+const UNLISTED = new Set(['node_modules', '.mutator']);
+
+/** `<type>:<name>` of each entry, names joined with `/` (a POSIX `\\` stays part of the name). */
+function listing(dir: string, recursive: boolean, prefix = ''): string[] {
+  const entries: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (UNLISTED.has(entry.name)) continue;
+    const name = prefix + entry.name;
+    const type = entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : entry.isSymbolicLink() ? 'l' : 'o';
+    entries.push(`${type}:${name}`);
+    if (recursive && entry.isDirectory()) entries.push(...listing(join(dir, entry.name), true, `${name}/`));
+  }
+  return entries;
 }
 
 const envValue = (value: string | undefined) => (value === undefined ? '\0unset' : value);

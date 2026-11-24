@@ -21,11 +21,14 @@ export const MUTATOR_PRODUCTIVITY: readonly BuiltinMutatorName[] = [
   'BooleanLiteral',
   'StringLiteral',
   'ArrayDeclaration',
+  'ArrayElement',
   'ObjectLiteral',
+  'ObjectProperty',
   'ArrowFunction',
   'CallExpression',
   'BlockStatement',
   'Regex',
+  'RegexFlag',
   'FnValue',
 ];
 

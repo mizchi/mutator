@@ -122,7 +122,7 @@ describe('a cold run type-checks alongside mutant execution', { timeout: 120_000
     writeFileSync(join(root, 'src/b.ts'), 'export function kind(n: number): "pos" | "neg" {\n  return n > 0 ? "pos" : "neg";\n}\n');
     for (const typecheck of [undefined, 3600] as const) {
       const report = await runMutation({ root, concurrency: 1, snapshotPath: join(root, `.mutator/nc-${typecheck}.json`), ...(typecheck ? { timeBudget: typecheck } : {}) });
-      const uncovered = report.entries.filter((e) => e.mutant.file.endsWith('src/b.ts'));
+      const uncovered = report.entries.filter((e) => e.mutant.file.replaceAll('\\', '/').endsWith('src/b.ts'));
       // "pos" -> "" does not type-check against the literal union; nothing covers src/b.ts.
       expect(uncovered.find((e) => e.mutant.original === '"pos"')?.status).toBe('CompileError');
       expect(uncovered.some((e) => e.status === 'NoCoverage')).toBe(true);

@@ -104,5 +104,6 @@ export async function runSharded<J extends ShardedJob>(input: {
 /** Shards of one job, none timed out: the failing tests of all of them, under the strongest verdict. */
 function combine(outcomes: readonly MutantRunResult[]): MutantRunResult {
   const status = outcomes.some((o) => o.status === 'Killed') ? 'Killed' : outcomes.some((o) => o.status === 'RuntimeError') ? 'RuntimeError' : 'Survived';
-  return { status, killedBy: [...new Set(outcomes.flatMap((o) => o.killedBy))], durationMs: 0 };
+  const reason = status === 'RuntimeError' ? outcomes.find((o) => o.reason)?.reason : undefined;
+  return { status, killedBy: [...new Set(outcomes.flatMap((o) => o.killedBy))], durationMs: 0, ...(reason ? { reason } : {}) };
 }

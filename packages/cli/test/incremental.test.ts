@@ -332,6 +332,19 @@ describe('incremental runs match cold runs', { timeout: 60_000 }, () => {
   });
 });
 
+describe('runtime errors', () => {
+  test('a runtime error keeps its first error, with paths relative to the project, in the report and the snapshot', async () => {
+    const root = project({
+      'src/boot.ts': 'export const ready = true;\nif (!ready) throw new Error(`boot failed in ${import.meta.filename}`);\n',
+      'test/a.test.ts': "import { expect, test } from 'vitest';\nimport { ready } from '../src/boot.ts';\ntest('a', () => { expect(ready).toBe(true); });\n",
+    });
+    const report = await runMutation({ root, concurrency: 1 });
+    const reason = 'error: test/a.test.ts: boot failed in src/boot.ts';
+    expect(report.entries.find((e) => e.mutant.original === 'true' && e.mutant.replacement === 'false')).toMatchObject({ status: 'RuntimeError', reason });
+    expect(readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.find((r) => r.status === 'RuntimeError')?.reason).toBe(reason);
+  });
+});
+
 describe('worker crashes', () => {
   test('a mutant that exhausts worker memory does not abort the run', { timeout: 300_000 }, () => {
     const fixture = fileURLToPath(new URL('./fixtures/oom', import.meta.url));
@@ -405,7 +418,7 @@ describe('type checking', { timeout: 120_000 }, () => {
     const unchained = (r: Report) => r.entries.filter((e) => e.mutant.original === '?.').map((e) => [e.mutant.location.start.line, e.status, e.reason]);
     expect(unchained(report)).toEqual([
       [2, 'Ignored', 'equivalent: o is never nullish'],
-      [5, 'CompileError', undefined],
+      [5, 'CompileError', "type error: 18048 'o' is possibly 'undefined'."],
     ]);
     expect(formatSummary(report, root)).toMatch(/^equivalent by types: 1$/m);
     const saved = readSnapshot(join(root, '.mutator/snapshot.json'), root)!.results.find((r) => r.status === 'Ignored');

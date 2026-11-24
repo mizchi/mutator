@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.4 - 2026-11-25
+
+Faster cold runs, two new default mutators, opt-in skip rules and mutators, and fixes found by dogfooding. All eight npm packages share version **0.5.4**. Snapshots from 0.5.3 are not reused (the default mutant set changed), so the first run is cold.
+
+### Added
+
+- `MissingAwait` (`await p` -> `p`) and `RegexFlag` (a regex literal without one of its flags) run by default. Dropping an `await` that cannot matter (`return await p` outside `try`, awaiting a literal) and removing `g` from a pattern that can match only once are skipped as equivalent. `--exclude-mutator` turns either off. [#77](https://github.com/mizchi/mutator/pull/77) [#79](https://github.com/mizchi/mutator/pull/79) [#89](https://github.com/mizchi/mutator/pull/89)
+- Opt-in mutators through `--enable-mutator <name>` / `enabledMutators`: `ArrayElement` and `ObjectProperty` remove one entry of a literal at a time. [#79](https://github.com/mizchi/mutator/pull/79)
+- `mutator skipped [--format json]` lists the candidates that skip rules removed, with the rule, its category, the key and the mutant that justifies it. [#70](https://github.com/mizchi/mutator/pull/70)
+- Opt-in skip and mutation options, all off by default:
+  - `--skip-subsumed` drops coarse mutants that have a finer mutant inside. [#75](https://github.com/mizchi/mutator/pull/75)
+  - `--skip-hangs` drops mutants that likely never let a loop end. [#78](https://github.com/mizchi/mutator/pull/78)
+  - `--minimal-relational` mutates `<`, `<=`, `>`, `>=` with the subsumption-minimal set and skips replacements a `.length` / `indexOf` bound proves equivalent. [#76](https://github.com/mizchi/mutator/pull/76)
+- `MethodExpression` swaps `padStart` and `padEnd`. [#77](https://github.com/mizchi/mutator/pull/77)
+- The `mutation-test-loop` skill keeps a ledger with a fixed set of verdicts and never takes expected values from the code under test. [#73](https://github.com/mizchi/mutator/pull/73)
+
+### Changed
+
+- Mutants are type-checked in a child process alongside their execution instead of before it: on ufo, a cold run spent 8.5 s waiting for the check. Cold runs of four benchmark projects are 10-20% faster. [#71](https://github.com/mizchi/mutator/pull/71)
+- Cached verdicts are also keyed on the files and environment variables a test reads at run time (Vitest), so changing a fixture or an env var a test reads re-runs what it covered. [#74](https://github.com/mizchi/mutator/pull/74)
+
+### Fixed
+
+- Mutants no test reaches are type-checked too: one that does not compile is a `CompileError`, not a gap to close. [#82](https://github.com/mizchi/mutator/issues/82)
+- An unchanged rerun no longer lists cached `CompileError` mutants as "to run". [#80](https://github.com/mizchi/mutator/issues/80)
+- A subsumed skip is only justified by a mutant that runs, so a call removal is no longer dropped in favour of a `CompileError` inside it. [#83](https://github.com/mizchi/mutator/issues/83)
+- An `--include` equal to the default include keeps the default cache; another selection that starts cold says so. [#81](https://github.com/mizchi/mutator/issues/81)
+- `mutator skipped` reports 1-based columns, like the reports. [#84](https://github.com/mizchi/mutator/issues/84)
+- With no mutant to score (e.g. `--since` and nothing in the diff) the summary says `n/a` instead of `100% [high]`, and the agent report's score is `null`. [#85](https://github.com/mizchi/mutator/issues/85)
+
 ## 0.5.3 - 2026-11-22
 
 Fixes for instrumented code that did not parse. In each case one mutant made the whole instrumented file fail, so every test importing it failed at the baseline. All eight npm packages share version **0.5.3**.

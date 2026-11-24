@@ -2,6 +2,32 @@
 
 Five small-to-medium TypeScript libraries tested with Vitest. The harness that produced every number below is in [`bench/`](../bench). The latest run (2026-11-24) adds [mootant](https://mootant.org/) 0.2.0. The first run (2026-10-09) follows it, with the method and the bugs it found.
 
+## Update (2026-11-25): mutator at `79f4771`
+
+Only mutator was measured again (`--phase ours`, preflight load below 4). StrykerJS and mootant keep their 2026-11-24 numbers below. Since `07e0413`:
+- the type check runs alongside execution (#71);
+- MissingAwait and RegexFlag are default mutators (#89);
+- NoCoverage mutants are type-checked (#87).
+
+The `--skip-*` options stay off here.
+
+| project | mutants (07e0413 → 79f4771) | cold | no change | one edit, `--since` | one edit, full run | score |
+|---|---|---|---|---|---|---|
+| defu | 107 → 107 | 3.12 → 2.81 | 0.32 → 0.38 | 1.10 → 1.13 | 2.85 → 2.55 | 86.0 |
+| scule | 153 → 154 | 5.62 → 4.50 | 0.34 → 0.34 | 1.18 → 1.27 | 2.61 → 3.15 | 89.6 |
+| cookie-es | 727 → 730 | 16.2 → 13.0 | 0.34 → 0.34 | 1.04 → 1.11 | 4.72 → 3.89 | 87.7 |
+| pathe | 547 → 551 | 18.0 → 15.2 | 0.36 → 0.39 | 1.47 → 1.45 | 7.60 → 6.52 | 88.6 |
+| ufo | 1109 → 1136 | 33.2 → 33.9 | 0.37 → 0.42 | 1.46 → 1.86 | 6.03 → 9.43 | 83.7 |
+
+**Cold runs are 10–20% faster on four projects**, from running the type check alongside execution.
+
+**ufo did not gain, and its reruns got slower:**
+- 27 more mutants (RegexFlag; 13 of them survive), so the full run after the edit executes more.
+- The type check now covers all 1136 mutants, NoCoverage included: 14.2 s, still alongside execution.
+- In alternating runs on the same clone, current main took 36.5 and 35.9 s, against 32.9 and 31.8 s for `2a0fbf4` (right after #71). That is about 11% slower, but the load average was 7–12, so part of it is noise.
+
+**Against the 2026-11-24 numbers for the other tools:** StrykerJS is still faster on cold runs on four projects (cookie-es 11.9 s against 13.0 s, pathe 9.5 against 15.2, ufo 19.7 against 33.9).
+
 ## Latest run (2026-11-24): mutator, StrykerJS and mootant
 
 Wall-clock seconds, mean of two runs. mutator at `07e0413` (main, before #71). The edits are the same as in the first run.

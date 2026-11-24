@@ -111,3 +111,14 @@ describe('justifying mutants', () => {
     for (const s of skipped.filter((x) => x.category === 'subsumed')) expect(keys.has(s.by!)).toBe(true);
   });
 });
+
+describe('a skipped candidate never justifies another skip', () => {
+  test('a call removal whose only inner mutants are skipped themselves is kept', () => {
+    // With --skip-hangs, `i++` -> `i--` in the for update is a loop-advance skip: it never runs.
+    const src = 'function f(n) {\n  g(() => { for (let i = 0; i < n; i++) {} });\n}';
+    const { mutants, skipped } = instrument('a.ts', src, { skipHangs: true, excludedMutators: ['EqualityOperator', 'ConditionalExpression'] });
+    expect(skipped.map((s) => s.rule)).toContain('loop-advance');
+    expect(skipped.filter((s) => s.rule === 'redundant-call')).toEqual([]);
+    expect(mutants.some((m) => m.mutator === 'CallExpression')).toBe(true);
+  });
+});

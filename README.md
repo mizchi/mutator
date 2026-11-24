@@ -14,7 +14,7 @@ mutator does what [StrykerJS](https://stryker-mutator.io/) does for JavaScript a
 
 ### Speed
 
-Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); StrykerJS 10 with `coverageAnalysis: "perTest"` measured 2026-11-24, mutator at `79f4771` on 2026-11-25, on an Apple M3 Pro):
+Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two runs ([details and method](docs/benchmark.md); StrykerJS 10 with `coverageAnalysis: "perTest"` measured 2026-11-24, mutator at `79f4771` on 2026-11-24, on an Apple M3 Pro):
 
 | project | mutants (mutator / Stryker) | first run | rerun, no change | rerun after a one-line edit (mutator `--since` / Stryker `--incremental`) |
 |---|---|---|---|---|
@@ -25,10 +25,10 @@ Five TypeScript libraries tested with Vitest, wall-clock seconds, mean of two ru
 | ufo | 1136 / 1011 | 33.9 / **19.7** | **0.42** / 1.80 | **1.86** / 2.03 |
 
 - **Reruns:** 3–6x faster with no change, and up to 1.8x faster after an edit (scule is within 0.1 s). `--since` also reports only the diff, where Stryker reports the whole project.
-- **First runs are slower** on four projects, up to 1.7x on ufo and pathe. Running the type check alongside execution cut 10–20% from four of them; the rest is the fixed cost of each mutant run, a fresh worker per run.
+- **First runs are slower** on four projects (scule, cookie-es, pathe, ufo), up to 1.7x on ufo and pathe. Running the type check alongside execution cut 10–20% from defu, scule, cookie-es and pathe; ufo did not gain. The rest is the fixed cost of each mutant run, a fresh worker per run.
 - **Verdicts:** on the mutants both tools generate, they differ on 0–5 per project. The scores on those shared mutants are within 1 point.
 - **Versions:** StrykerJS ran on Vitest 4.1.5 (StrykerJS 10's Vitest runner does not work with Vitest 5), mutator on Vitest 5.1.1. Mutator sets differ, so totals and overall scores are not comparable.
-- **mootant 0.2.0** is in the same benchmark. It is faster than mutator on cold runs of four projects and on `--since`, and generates the fewest mutants. See [the details](docs/benchmark.md#latest-run-2026-11-24-mutator-strykerjs-and-mootant).
+- **mootant 0.2.0** is in the same benchmark. It is faster than mutator on cold runs of three projects (defu, cookie-es, ufo) and on `--since`, and generates the fewest mutants. See [the details](docs/benchmark.md#latest-run-2026-11-24-mutator-strykerjs-and-mootant).
 
 Where the speed comes from:
 
@@ -191,7 +191,7 @@ npx mutator skipped
 npx mutator skipped --format json
 ```
 
-Some candidates are removed before they become mutants, because another mutant already covers them. `mutator skipped` lists each one with the rule that removed it, its category, and the key of the mutant that justifies it. It runs no test. The rules so far:
+Some candidates are removed before they become mutants, because another mutant already covers them. `mutator skipped` lists each one with the rule that removed it, its category, its own key, and the key of the mutant that justifies it (`by`). `by` is absent for rules without a justifying mutant (`lower-bound`, `loop-advance`, ...) and when the justifying mutant is outside this run (`--since`). It runs no test. The rules so far:
 
 | rule | category | removes |
 |---|---|---|
@@ -200,7 +200,7 @@ Some candidates are removed before they become mutants, because another mutant a
 | `solitary` | subsumed, heuristic; only with `--skip-subsumed` (`skipSubsumed: true`) | any other coarse mutant (`BlockStatement`, `ArrayDeclaration`, `ObjectLiteral`, `ArrowFunction`, `FnValue`) with another mutant strictly inside it |
 | `lower-bound` | equivalent, heuristic; only with `--minimal-relational` | a comparison replacement that a syntactic lower bound makes equal to the original: `.length` / `.size` >= 0, `split(...).length` >= 1, `indexOf` / `findIndex` / `search` >= -1. Examples: `s.length >= 0` -> `true`, `xs.indexOf(x) > -1` -> `!= -1` |
 | `loop-advance`, `loop-body` | timeout, heuristic; only with `--skip-hangs` (`skipHangs: true`) | mutants that likely never let a loop end: reversing a `for` update (`i++` -> `i--`, `i += 2` -> `i -= 2`), and emptying the body a loop advances in (a `while` / `do` body, or a `for` body without an update) |
-| `awaited-by-caller`, `settled-value` | equivalent | dropping `await` where it cannot matter: `return await p` (or `async () => await p`) outside a `try` block or a `catch` with `finally`, and awaiting a literal, object, array or function |
+| `awaited-by-caller` | equivalent, heuristic | dropping `await` in `return await p` (or `async () => await p`) outside a `try` block or a `catch` with `finally`: the caller awaits the same promise, which only settles a tick earlier |
 | `single-match` | equivalent, heuristic | removing `g` from a regex that can match only once: anchored at the start or end, without `m` and without a top-level alternative |
 
 `--minimal-relational` (`minimalRelational: true`) mutates `<`, `<=`, `>`, `>=` with the subsumption-minimal set (Kaminski, Ammann and Offutt 2011). `<` becomes `<=`, `!=` and `false` (and `<=` becomes `<`, `==`, `true`), instead of both neighbours and both constants. The default set has 4 replacements per comparison and the minimal set 3, and the tests that kill all three kill the others too.

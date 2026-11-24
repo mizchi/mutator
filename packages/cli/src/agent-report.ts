@@ -3,7 +3,7 @@ import { relativePath as relative } from '@mizchi/mutator-core';
 // One record per undetected mutant, with the code around it and the kind of fix it needs.
 import { readFileSync } from 'node:fs';
 import { childProcessMessage } from './child-process.ts';
-import { reported } from './gate.ts';
+import { reported, scorePopulation } from './gate.ts';
 import { hasScore } from './status.ts';
 import { type Gap, NO_COVERAGE_MESSAGE, gapOf, skippedMessage, uncollectedMessage } from './report.ts';
 import type { KillMatrixAnalysis } from './kill-matrix.ts';
@@ -135,7 +135,7 @@ export function formatAgentReport(report: Report, root: string): AgentReport {
     ...(report.testChanges ? { testChanges: report.testChanges } : {}),
     ...(report.selection ? { selection: report.selection } : {}),
     // null when no mutant counts (e.g. --since with nothing in the diff): not a perfect score.
-    score: hasScore(reported(report)) ? report.score : null,
+    score: hasScore(scorePopulation(report)) ? report.score : null,
     counts,
     gaps,
     warnings: [

@@ -152,6 +152,8 @@ export interface StreamedTypecheck {
   verdict(key: string): Promise<TypecheckVerdict | undefined>;
   /** The verdict the type-check cache already holds, if any (known before any check runs). */
   cached(key: string): TypecheckVerdict | undefined;
+  /** Stops the checker process (the run failed or ended without needing the result). */
+  cancel(): void;
   /** Every verdict, with the cache to store, once the whole check is done. */
   done: Promise<TypecheckResult>;
 }
@@ -190,7 +192,8 @@ export function streamTypecheck(
   };
   const started = performance.now();
   const check = options.checkInWorker ?? checkInWorker;
-  const run = cached.missing.length === 0 ? Promise.resolve(undefined) : check({ root, batchSize: STREAM_BATCH }, cached.missing, {
+  const abort = new AbortController();
+  const run = cached.missing.length === 0 ? Promise.resolve(undefined) : check({ root, batchSize: STREAM_BATCH, signal: abort.signal }, cached.missing, {
     onBatch: (batch) => {
       for (const [key, value] of batch.errors) errors.set(key, value);
       for (const [key, value] of batch.equivalent) equivalent.set(key, value as `equivalent: ${string}`);
@@ -222,6 +225,7 @@ export function streamTypecheck(
   return {
     verdict: (key) => pending.get(key) ?? Promise.resolve(known(key)),
     cached: (key) => (cached.hits.has(key) ? known(key) : undefined),
+    cancel: () => abort.abort(),
     done,
   };
 }

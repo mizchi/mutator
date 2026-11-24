@@ -217,9 +217,9 @@ const TYPE_KEEPING: ReadonlySet<MutatorName> = new Set(['ArithmeticOperator', 'A
 const TS_SOURCE = /\.(c|m)?tsx?$/;
 
 function subsumedByInner(candidates: readonly Candidate[], coarse: ReadonlySet<MutatorName>, typescript: boolean): Map<Candidate, Candidate> {
-  // A justifier must run: not itself coarse (it could be skipped too), and in TypeScript not a
+  // A justifier must run: not skipped by its own rule, not coarse (it could be skipped too), and in TypeScript not a
   // change likely to fail the type check (a CompileError never runs).
-  const justifies = (c: Candidate) => !COARSE.has(c.mutator) && (!typescript || TYPE_KEEPING.has(c.mutator));
+  const justifies = (c: Candidate) => !c.skip && !COARSE.has(c.mutator) && (!typescript || TYPE_KEEPING.has(c.mutator));
   const out = new Map<Candidate, Candidate>();
   const sorted = [...candidates].sort((a, b) => a.range.start - b.range.start);
   for (const outer of candidates) {

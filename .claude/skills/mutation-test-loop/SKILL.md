@@ -95,7 +95,7 @@ This writes to `mutator.accepted.json`, together with where the mutant is (`file
 
 ## 5. Finish
 
-Run step 1 again (it re-runs the mutants your new tests cover, so it takes longer than the `--only` checks). Stop when every gap has a verdict in the ledger.
+Run step 1 again (it re-runs the mutants your new tests cover, so it takes longer than the `--only` checks). Reconcile the ledger with that run before you stop: a `killed` mutant that is listed again (a later edit removed what killed it) goes back to open, and a gap the run lists that the ledger lacks gets a row. Stop when every gap of that final run has a verdict in the ledger.
 
 Then report, from the ledger:
 
@@ -104,4 +104,4 @@ Then report, from the ledger:
 - the accepted mutants and their reasons
 - any real bug you found
 
-`.mutator/` is ignored by Git, so the ledger stays local; delete it once the report is written.
+`.mutator/` is ignored by Git, so the ledger stays local. Once the report is written, delete `.mutator/ledger.md` only: the rest of `.mutator/` is the cache and the reports.

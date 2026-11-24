@@ -12,6 +12,11 @@ const entry = (i: number, status: ReportEntry['status']): ReportEntry => ({
 });
 
 describe('formatSummary', () => {
+  test('a diff whose only scored entry is a recheck also says n/a: rechecks are outside the changed-code score', () => {
+    const report: Report = { entries: [{ ...entry(0, 'Killed'), focus: 'recheck' }], executed: 1, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
+    expect(formatSummary(report, '/p')).toMatch(/^score \(changed code\): n\/a/m);
+  });
+
   test('a diff with no mutants to score says n/a, not 100%', () => {
     const report: Report = { entries: [entry(0, 'Killed')], executed: 0, dryRunFiles: [], scope: 'diff', score: 1, durationMs: 1, notRun: { sampled: 0, budget: 0 } };
     const text = formatSummary(report, '/p');

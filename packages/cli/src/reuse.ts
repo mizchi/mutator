@@ -39,7 +39,7 @@ export function environmentFiles(root: string, extra: readonly string[] = []): s
 /** Mutation settings change which mutants are placed (and thus covered): part of the environment. */
 export function mutationSettings(options: RunOptions, setup: { runner: Runner; arid: InstrumentOptions['arid']; plugins: { fingerprint: unknown } }): string {
   const { runner, arid, plugins } = setup;
-  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [], ...(runner === 'playwright' ? { sourceCoverage: options.playwrightSourceCoverage ?? false } : {}) });
+  return JSON.stringify({ runner, arid: arid ?? null, callGraph: options.callGraph ?? false, typecheck: options.typecheck ?? 'auto', plugins: plugins.fingerprint, excluded: options.excludedMutators ?? [], enabled: [...(options.enabledMutators ?? [])].sort(), skipSubsumed: options.skipSubsumed ?? false, skipHangs: options.skipHangs ?? false, minimalRelational: options.minimalRelational ?? false, ...(runner === 'playwright' ? { sourceCoverage: options.playwrightSourceCoverage ?? false } : {}) });
 }
 
 /** Node version, mutation settings, and the content of the environment files (relative to root). */

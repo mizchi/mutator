@@ -19,7 +19,10 @@ export function classifyRun(report: RunReport): Omit<MutantRunResult, 'durationM
   const failed = report.tests.filter((t) => t.failed && report.selected.has(t.id));
   const tests = [...new Set(failed.map((t) => t.id))];
   const files = [...new Set(report.fileErrors.map((e) => e.file))];
-  if (tests.length === 0 && files.length === 0) return { status: report.runErrors.length > 0 ? 'RuntimeError' : 'Survived', killedBy: [] };
+  if (tests.length === 0 && files.length === 0) {
+    const [error] = report.runErrors;
+    return error === undefined ? { status: 'Survived', killedBy: [] } : { status: 'RuntimeError', killedBy: [], reason: `error: ${firstLine(error)}` };
+  }
   // The hit limit guards against endless loops: a run stopped only by it (in tests, or while
   // loading a test file) is a timeout. Errors outside test files do not decide it.
   const hitLimit = (messages: readonly string[]) => messages.length > 0 && messages.every((m) => m.includes(HIT_LIMIT_MESSAGE));
@@ -27,6 +30,13 @@ export function classifyRun(report: RunReport): Omit<MutantRunResult, 'durationM
     return { status: 'Timeout', timeoutCause: 'hitLimit', killedBy: [] };
   }
   // Test files that broke with no test failing: the mutant broke the run, not a test.
-  if (tests.length === 0) return { status: 'RuntimeError', killedBy: files };
+  if (tests.length === 0) {
+    const [error] = report.fileErrors;
+    return { status: 'RuntimeError', killedBy: files, reason: `error: ${error!.file}: ${firstLine(error!.message)}` };
+  }
   return { status: 'Killed', killedBy: [...tests, ...files] };
+}
+
+function firstLine(message: string): string {
+  return message.split('\n', 1)[0]!.trim();
 }

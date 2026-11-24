@@ -222,8 +222,10 @@ export interface MutantResult {
   coveredBy: string[];
   durationMs?: number;
   /**
-   * Decided without a run. `notInfected`: Survived, no covering test reaches it with a value
-   * it changes (weak mutation). `equivalent: ...`: Ignored, the types prove it equivalent.
+   * Why the mutant got its status. `notInfected`: Survived without a run, no covering test
+   * reaches it with a value it changes (weak mutation). `equivalent: ...`: Ignored, the types
+   * prove it equivalent. `type error: ...`: CompileError, the first new diagnostic.
+   * `error: ...`: RuntimeError, the first error of the run.
    */
   reason?: ResultReason;
   /**
@@ -233,7 +235,10 @@ export interface MutantResult {
   matrix?: true;
 }
 
-export type ResultReason = 'notInfected' | `equivalent: ${string}`;
+export type ResultReason = 'notInfected' | `equivalent: ${string}` | `type error: ${string}` | RunErrorReason;
+
+/** A RuntimeError's first error: `error: <test file>: <message>`, or `error: <message>` outside test files (first line of the message). */
+export type RunErrorReason = `error: ${string}`;
 
 export interface TestInfo {
   id: string;

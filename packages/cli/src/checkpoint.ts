@@ -32,9 +32,10 @@ export class Checkpoint {
       const id = jobHash(job);
       const saved = outcomes.get(id);
       if (saved === undefined) return true;
-      const { status, killedBy, durationMs }: MutantRunResult = JSON.parse(saved);
+      const { status, killedBy, durationMs, reason }: MutantRunResult = JSON.parse(saved);
       const entry = {
         ...tally.report[job.index]!, status, killedBy, source: 'reuse' as const,
+        ...(reason ? { reason } : {}),
         ...(killMatrix && status === 'Killed' ? { matrix: true as const } : {}),
       };
       tally.settle(job.index, entry, resultOf(entry, { durationMs }));

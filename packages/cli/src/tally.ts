@@ -4,7 +4,7 @@
 import { type Mutant, type MutantResult, type MutantStatus, type PlanEntry, type ResultReason, toResult } from '@mizchi/mutator-core';
 import type { MergedDryRun } from './coverage-cache.ts';
 import type { ReportEntry } from './run.ts';
-import type { TypecheckResult } from './typecheck.ts';
+import { type TypecheckResult, typeErrorReason } from './typecheck.ts';
 
 /** The snapshot's result for a report entry. `coveredBy` overrides the entry's (an ignored mutant keeps none). */
 export function resultOf(entry: ReportEntry, extra: { durationMs?: number; coveredBy?: string[] } = {}): MutantResult {
@@ -115,7 +115,8 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
  */
 export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent, unchecked }: TypecheckResult, noCoverage: readonly number[] = []): void {
   const decided = (key: string): { status: MutantStatus; reason?: ResultReason } | undefined => {
-    if (errors.has(key)) return { status: 'CompileError' };
+    const error = errors.get(key);
+    if (error !== undefined) return { status: 'CompileError', reason: typeErrorReason(error) };
     const reason = equivalent.get(key);
     return reason === undefined ? undefined : { status: 'Ignored', reason };
   };

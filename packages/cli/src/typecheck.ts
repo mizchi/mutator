@@ -143,8 +143,13 @@ function addHits(hits: ReturnType<typeof cachedTypechecks>['hits'], errors: Map<
   }
 }
 
+/** A CompileError's reason: the first line of the first new diagnostic. */
+export function typeErrorReason(diagnostic: string): `type error: ${string}` {
+  return `type error: ${diagnostic.split('\n', 1)[0]!.trim()}`;
+}
+
 /** What type checking decided for a mutant: it does not compile, or it is equivalent. */
-export type TypecheckVerdict = { status: 'CompileError' } | { status: 'Ignored'; reason: `equivalent: ${string}` };
+export type TypecheckVerdict = { status: 'CompileError'; reason: `type error: ${string}` } | { status: 'Ignored'; reason: `equivalent: ${string}` };
 
 /** Type checking that runs while mutants execute: each verdict arrives with its batch. */
 export interface StreamedTypecheck {
@@ -178,7 +183,8 @@ export function streamTypecheck(
   const equivalent: TypecheckResult['equivalent'] = new Map();
   addHits(cached.hits, errors, equivalent);
   const known = (key: string): TypecheckVerdict | undefined => {
-    if (errors.has(key)) return { status: 'CompileError' };
+    const error = errors.get(key);
+    if (error !== undefined) return { status: 'CompileError', reason: typeErrorReason(error) };
     const reason = equivalent.get(key);
     return reason === undefined ? undefined : { status: 'Ignored', reason };
   };

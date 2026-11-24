@@ -212,7 +212,7 @@ describe('test files that fail to load under a mutant', () => {
 
   test('a file that throws while loading is a runtime error naming the file', async () => {
     const result = await session.runMutant(find('i === 0', 'false').key, ['test/boot.test.ts#boots'], { timeoutMs: 10_000, isStatic: true });
-    expect(result).toMatchObject({ status: 'RuntimeError', killedBy: ['test/boot.test.ts'] });
+    expect(result).toMatchObject({ status: 'RuntimeError', killedBy: ['test/boot.test.ts'], reason: 'error: test/boot.test.ts: boot failed' });
   });
 
   test('a file stopped by the hit limit while loading is a timeout', async () => {

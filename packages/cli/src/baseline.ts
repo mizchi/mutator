@@ -15,7 +15,8 @@ export const BASELINE_HINT =
   'that raises testTimeout and the async util timeouts (set NODE_DEBUG=mutator for more detail).';
 
 /** Drops the project root from paths in a message (native and `/` separated, as Vite reports on Windows). */
-function relativize(message: string, root: string | undefined): string {
+/** `message` with paths under `root` written relative to it. */
+export function relativize(message: string, root: string | undefined): string {
   if (!root) return message;
   let out = message.split(`${root}${sep}`).join('');
   if (sep !== '/') out = out.split(`${root.replaceAll(sep, '/')}/`).join('');

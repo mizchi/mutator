@@ -41,17 +41,17 @@ describe('classifyRun', () => {
     expect(classifyRun(run({ tests: [{ id: 'a#x', failed: true, messages: [HIT] }], fileErrors: [{ file: 'b', message: 'cannot load' }] }))).toEqual({ status: 'Killed', killedBy: ['a#x', 'b'] });
   });
 
-  test('test files that fail to load with no test failing are a runtime error naming the files', () => {
+  test('test files that fail to load with no test failing are a runtime error naming the files and the first error', () => {
     const fileErrors = [
-      { file: 'a', message: 'cannot load' },
+      { file: 'a', message: 'cannot load\n  at a.ts:1' },
       { file: 'a', message: 'and more' },
       { file: 'b', message: 'cannot load' },
     ];
-    expect(classifyRun(run({ fileErrors }))).toEqual({ status: 'RuntimeError', killedBy: ['a', 'b'] });
+    expect(classifyRun(run({ fileErrors }))).toEqual({ status: 'RuntimeError', killedBy: ['a', 'b'], reason: 'error: a: cannot load' });
   });
 
   test('errors outside any test file are a runtime error only when nothing else failed', () => {
-    expect(classifyRun(run({ runErrors: ['config broke'] }))).toEqual({ status: 'RuntimeError', killedBy: [] });
+    expect(classifyRun(run({ runErrors: ['config broke', 'and more'] }))).toEqual({ status: 'RuntimeError', killedBy: [], reason: 'error: config broke' });
     expect(classifyRun(run({ runErrors: ['unhandled'], tests: [{ id: 'a#x', failed: true, messages: ['expected 1'] }] }))).toEqual({ status: 'Killed', killedBy: ['a#x'] });
     expect(classifyRun(run({ runErrors: ['unhandled'], tests: [{ id: 'a#x', failed: true, messages: [HIT] }] }))).toMatchObject({ status: 'Timeout', timeoutCause: 'hitLimit' });
   });

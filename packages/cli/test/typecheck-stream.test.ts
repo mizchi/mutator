@@ -49,7 +49,7 @@ describe('streamTypecheck', () => {
     expect(first).toBe('pending');
     worker.step();
     await flush();
-    expect(first).toEqual({ status: 'CompileError' });
+    expect(first).toEqual({ status: 'CompileError', reason: 'type error: TS2322 bad' });
     worker.step();
     const done = await stream.done;
     expect([...done.errors]).toEqual([['k1', 'TS2322 bad']]);

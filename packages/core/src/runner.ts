@@ -2,7 +2,7 @@
 // CLI can orchestrate dry runs and mutant runs without knowing the runner, plus
 // the small helpers every adapter needs to produce the same results.
 import { hash } from './hash.ts';
-import type { InstrumentOptions, Mutant, MutantStatus, TestInfo } from './types.ts';
+import type { InstrumentOptions, Mutant, MutantStatus, RunErrorReason, TestInfo } from './types.ts';
 
 /** Where a test lives; task ids are deterministic so the index can be shared between sessions. */
 export interface TestLocation {
@@ -83,6 +83,8 @@ export interface MutantRunResult {
    * a loop. `time`: the wall-clock or stall budget ran out, which a slow (busy) machine can also cause.
    */
   timeoutCause?: 'hitLimit' | 'time';
+  /** Set on a RuntimeError: the error that decided it. */
+  reason?: RunErrorReason;
 }
 
 /** A test-runner session: what the CLI drives. Implemented by @mizchi/mutator-vitest and @mizchi/mutator-jest. */

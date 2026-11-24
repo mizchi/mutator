@@ -179,6 +179,10 @@
       "description": "Mutate relational operators with the subsumption-minimal set (< -> <=, !=, false) and skip replacements a .length / indexOf lower bound proves equivalent (default false).",
       "type": "boolean"
     },
+    "skipHangs": {
+      "description": "Skip mutants that likely hang a loop: reversing a for update, emptying the body a loop advances in (default false).",
+      "type": "boolean"
+    },
     "skipSubsumed": {
       "description": "Skip coarse mutants (statement, block, literal and body removals) that have a finer mutant inside them (default false).",
       "type": "boolean"

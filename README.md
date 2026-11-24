@@ -199,12 +199,15 @@ Some candidates are removed before they become mutants, because another mutant a
 | `redundant-call` | subsumed, heuristic | `call();` -> `;` when another mutant lies inside the call (StrykerJS does the same). A test could kill the removal and miss the inner mutant; this is rare |
 | `solitary` | subsumed, heuristic; only with `--skip-subsumed` (`skipSubsumed: true`) | any other coarse mutant (`BlockStatement`, `ArrayDeclaration`, `ObjectLiteral`, `ArrowFunction`, `FnValue`) with another mutant strictly inside it |
 | `lower-bound` | equivalent, heuristic; only with `--minimal-relational` | a comparison replacement that a syntactic lower bound makes equal to the original: `.length` / `.size` >= 0, `split(...).length` >= 1, `indexOf` / `findIndex` / `search` >= -1. Examples: `s.length >= 0` -> `true`, `xs.indexOf(x) > -1` -> `!= -1` |
+| `loop-advance`, `loop-body` | timeout, heuristic; only with `--skip-hangs` (`skipHangs: true`) | mutants that likely never let a loop end: reversing a `for` update (`i++` -> `i--`, `i += 2` -> `i -= 2`), and emptying the body a loop advances in (a `while` / `do` body, or a `for` body without an update) |
 
 `--minimal-relational` (`minimalRelational: true`) mutates `<`, `<=`, `>`, `>=` with the subsumption-minimal set (Kaminski, Ammann and Offutt 2011). `<` becomes `<=`, `!=` and `false` (and `<=` becomes `<`, `==`, `true`), instead of both neighbours and both constants. The default set has 4 replacements per comparison and the minimal set 3, and the tests that kill all three kill the others too.
 
 On the five benchmark projects the minimal set has 1–3% fewer mutants, and no comparison where the default set showed a gap looked fully tested with it. It found 8 new survivors, mostly `<` -> `!=` and `>` -> `!= 1`. On inspection most of them are equivalent: a loop counter that only moves up by one, an index that never goes below 0, or a `split` result held in a variable, none of which the syntactic bounds know. It stays off by default until counters are bounded too.
 
 `--skip-subsumed` is off by default. On the five benchmark projects it removes 13–18% of the mutants. Cold runs got faster: cookie-es 15.7 → 13.5 s, pathe 18.3 → 17.3 s, ufo 33.3 → 25.5 s. Coarse removals are also the mutants most likely to time out: cookie-es had 29 timeouts without it and 20 with it. The cost is survivors that only the coarse mutant showed. Of the 405 mutants it removes across the five projects, 3 survived while every mutant inside them was killed. One example is `{ return "."; } -> {}` in pathe: the tests notice `"."` -> `""`, but not a missing return.
+
+`--skip-hangs` is off by default. On the benchmark projects it removes 18 mutants: 14 of them timed out without it and 4 were killed, so no survivor is hidden. A timeout costs its whole time budget: cookie-es, with 10 removed, ran about 2 s (10%) faster; pathe and ufo, with 3 and 5, within noise.
 
 Skipped candidates are not counted, reported or cached. An inner mutant that is disabled or ignored still justifies the skip, so ignoring code never adds mutants to it. An excluded mutator (`--exclude-mutator`) does not.
 

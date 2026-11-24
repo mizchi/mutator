@@ -61,6 +61,8 @@ const USAGE = `usage: mutator [options]
   --no-weak-mutation   run covered mutants even when no test reaches them with a different value
   --minimal-relational  mutate < <= > >= with the minimal set (< -> <=, !=, false) and skip
                        replacements a .length / indexOf lower bound proves equivalent
+  --skip-hangs         skip mutants that likely hang a loop (reversed for update, emptied
+                       loop body); heuristic, listed by mutator skipped
   --skip-subsumed      skip coarse mutants (statement, block, literal, body removals) that have a
                        finer mutant inside them; heuristic, listed by mutator skipped
   --plugin <module>    plugin with custom mutators (path relative to root, or package), repeatable

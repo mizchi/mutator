@@ -50,6 +50,8 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
   const tally = new Tally();
   const jobs: Job[] = [];
   const notInfected: number[] = [];
+  // NoCoverage mutants wait for the type check too: one that does not compile is no gap.
+  const noCoverage: number[] = [];
   for (const [index, entry] of entries.entries()) {
     const { mutant } = entry;
     const coveredBy = [...(coverage.get(mutant.key) ?? [])];
@@ -63,11 +65,20 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
       continue;
     }
     switch (entry.kind) {
-      case 'ignored':
-      case 'noCoverage': {
-        const status = entry.kind === 'ignored' ? 'Ignored' : 'NoCoverage';
-        const settled: ReportEntry = { mutant, status, source: 'static', killedBy: [], coveredBy };
+      case 'ignored': {
+        const settled: ReportEntry = { mutant, status: 'Ignored', source: 'static', killedBy: [], coveredBy };
         tally.settle(index, settled, resultOf(settled, { coveredBy: [] }));
+        break;
+      }
+      case 'noCoverage': {
+        const held: ReportEntry = { mutant, status: 'NoCoverage', source: 'static', killedBy: [], coveredBy };
+        // Outside --since nothing reports it: no need to type-check it.
+        if (inScope && !focus) {
+          tally.settle(index, held, resultOf(held, { coveredBy: [] }));
+          break;
+        }
+        noCoverage.push(index);
+        tally.hold(index, held);
         break;
       }
       case 'notInfected':
@@ -88,7 +99,7 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
         break;
     }
   }
-  return { tally, jobs, notInfected };
+  return { tally, jobs, notInfected, noCoverage };
 }
 
 /**
@@ -96,12 +107,19 @@ export function classifyPlan(entries: readonly PlanEntry[], coverage: MergedDryR
  * leave `jobs`); the other notInfected ones are settled Survived. Mutants the type check did
  * not reach before the time budget ran out leave `jobs` as Pending, like runs over the budget.
  */
-export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent, unchecked }: TypecheckResult): void {
+export function applyTypecheck(tally: Tally, jobs: Job[], notInfected: readonly number[], { errors, equivalent, unchecked }: TypecheckResult, noCoverage: readonly number[] = []): void {
   const decided = (key: string): { status: MutantStatus; reason?: ResultReason } | undefined => {
     if (errors.has(key)) return { status: 'CompileError' };
     const reason = equivalent.get(key);
     return reason === undefined ? undefined : { status: 'Ignored', reason };
   };
+  for (const i of noCoverage) {
+    const entry = tally.report[i]!;
+    // Not reached by any test, so neither run nor time-budgeted: unchecked stays NoCoverage.
+    const verdict = unchecked.has(entry.mutant.key) ? undefined : decided(entry.mutant.key);
+    const settled: ReportEntry = verdict ? { ...entry, ...verdict } : entry;
+    tally.settle(i, settled, resultOf(settled, { coveredBy: [] }));
+  }
   for (const i of notInfected) {
     const entry = tally.report[i]!;
     if (unchecked.has(entry.mutant.key)) {

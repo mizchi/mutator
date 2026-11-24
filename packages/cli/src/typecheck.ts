@@ -150,6 +150,8 @@ export type TypecheckVerdict = { status: 'CompileError' } | { status: 'Ignored';
 export interface StreamedTypecheck {
   /** The mutant's verdict once its batch is checked; undefined when it type-checks, or nothing checks it. */
   verdict(key: string): Promise<TypecheckVerdict | undefined>;
+  /** The verdict the type-check cache already holds, if any (known before any check runs). */
+  cached(key: string): TypecheckVerdict | undefined;
   /** Every verdict, with the cache to store, once the whole check is done. */
   done: Promise<TypecheckResult>;
 }
@@ -219,6 +221,7 @@ export function streamTypecheck(
   ).finally(() => release([...waiting.keys()]));
   return {
     verdict: (key) => pending.get(key) ?? Promise.resolve(known(key)),
+    cached: (key) => (cached.hits.has(key) ? known(key) : undefined),
     done,
   };
 }

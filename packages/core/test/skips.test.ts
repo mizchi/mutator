@@ -89,3 +89,25 @@ describe('skip keys', () => {
     for (const s of solitary) expect(off.find((m) => m.key === s.key)?.replacement).toBe(s.replacement);
   });
 });
+
+describe('justifying mutants', () => {
+  test('in TypeScript, a mutant that may not compile does not justify a skip', () => {
+    // `'exclude' -> ''` fails against the literal union, so it would never run.
+    const src = "type T = { kind: 'word' | 'exclude' };\nexport function f(out: T[]) {\n  out.push({ kind: 'exclude' });\n}\n";
+    const { mutants, skipped } = instrument('a.ts', src);
+    expect(skipped.filter((s) => s.rule === 'redundant-call')).toEqual([]);
+    expect(mutants.some((m) => m.mutator === 'CallExpression')).toBe(true);
+  });
+
+  test('in TypeScript, an operator mutant inside still justifies it', () => {
+    const { skipped } = instrument('a.ts', 'export function f(out: number[], a: number) {\n  out.push(a + 1);\n}\n');
+    expect(skipped.map((s) => s.rule)).toContain('redundant-call');
+  });
+
+  test('a coarse mutant is never the justifier, so every solitary skip names a placed mutant', () => {
+    const src = 'function f(a) {\n  if (a) {\n    if (b) { g(a + 1); }\n  }\n}';
+    const { mutants, skipped } = instrument('a.js', src, { subsumeCoarse: true });
+    const keys = new Set(mutants.map((m) => m.key));
+    for (const s of skipped.filter((x) => x.category === 'subsumed')) expect(keys.has(s.by!)).toBe(true);
+  });
+});

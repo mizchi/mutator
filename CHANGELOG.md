@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.5 - 2026-11-24
+
+All eight npm packages share version **0.5.5**. The published code is the same as 0.5.4.
+
+### Fixed
+
+- A CLI test that starts the CLI six times through `sh` no longer times out on Windows runners. [#95](https://github.com/mizchi/mutator/pull/95)
+
 ## 0.5.4 - 2026-11-24
 
 Faster cold runs, two new default mutators, opt-in skip rules and mutators, and fixes found by dogfooding. All eight npm packages share version **0.5.4**. Snapshots from 0.5.3 are not reused (the default mutant set changed), so the first run is cold.

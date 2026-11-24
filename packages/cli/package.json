@@ -1,6 +1,6 @@
 {
   "name": "@mizchi/mutator",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "type": "module",
   "description": "Diff-driven mutation testing for Vitest, Jest and Bun",
   "keywords": [

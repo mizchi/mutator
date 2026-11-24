@@ -37,6 +37,7 @@ export interface DryRunResult {
   /**
    * test file (relative) -> files and directories inside the root it read through `node:fs`
    * while it ran, outside node_modules and .mutator (relative, sorted; runners that support it).
+   * The project root is `.`; a directory listed recursively ends in {@link RECURSIVE_READ}.
    */
   reads?: Map<string, string[]>;
   /** test file (relative) -> environment variables it read (sorted); `*` when it listed them all. */
@@ -169,3 +170,9 @@ export function portableFlags(options: { readonly [K in keyof InstrumentFlags]?:
   const { mutators: _mutators, ignorers: _ignorers, ...portable } = instrumentFlags(options);
   return portable;
 }
+
+/**
+ * Suffix of a run-time read (`DryRunResult.reads`) whose directory the test listed recursively.
+ * It starts with NUL, which no path can contain, so a file literally named `**` stays a file.
+ */
+export const RECURSIVE_READ = '\0**';

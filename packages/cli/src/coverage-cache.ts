@@ -1,6 +1,7 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join } from 'node:path';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import {
   type DryRunResult,
   type Mutant,
@@ -10,6 +11,7 @@ import {
   type SpawnedCommand,
   type TestInfo,
   type TestLocation,
+  RECURSIVE_READ,
   hash,
   isTopLevelScope,
   mergeCoverage,
@@ -122,31 +124,109 @@ export function testFileHashes(
   return Object.fromEntries(testFiles.map((rel) => {
     const parts = [read(rel), ...(deps[rel] ?? []).flatMap((dep) => [dep, content(dep)])];
     const reads = inputs.reads?.[rel] ?? [];
-    if (reads.length) parts.push('\0reads', ...reads.flatMap((file) => [file, inputContent(join(root, file))]));
+    if (reads.length) parts.push('\0reads', ...reads.flatMap((file) => [file, inputContent(root, file)]));
     const names = inputs.env?.[rel] ?? [];
     if (names.length) parts.push('\0env', ...names.flatMap((name) => [name, name === '*' ? wholeEnvironment(environment) : envValue(environment[name])]));
     return [rel, hash(parts.join('\0'))];
   }));
 }
 
-/** What a test sees of a path it read: a file's content, a directory's entries, or that it is missing. */
-function inputContent(file: string): string {
+/**
+ * What a test sees of a path it read: a file's bytes, a directory's typed entries (every
+ * descendant for a recursive read), or that it is missing. Each kind is tagged, so one never
+ * equals another.
+ */
+function inputContent(root: string, rel: string): string {
+  const recursive = rel.endsWith(RECURSIVE_READ);
+  const path = join(root, recursive ? rel.slice(0, -RECURSIVE_READ.length) : rel);
   try {
-    if (statSync(file).isDirectory()) return `\0dir\0${readdirSync(file).sort().join('\0')}`;
-    return readFileSync(file, 'utf8');
+    if (statSync(path).isDirectory()) return `\0dir\0${listing(root, path, recursive).sort().join('\0')}`;
+    return `\0file\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`;
   } catch {
     return '\0missing';
+  }
+}
+
+/** Left out of listings, as reads under them are (tools write there while tests run). */
+const UNLISTED = new Set(['node_modules', '.mutator']);
+
+/**
+ * `<type>:<name>` of each entry, names joined with `/` (a POSIX `\\` stays part of the name).
+ * A recursive listing descends into directory symlinks too, as Node's recursive readdirSync does,
+ * listing each alias's descendants under its own name. A symlink's entry names its target, and a
+ * directory already on the current path is not entered again (symlink cycles).
+ */
+function listing(root: string, dir: string, recursive: boolean, prefix = '', ancestors: ReadonlySet<string> = new Set()): string[] {
+  const path = recursive ? new Set([...ancestors, realpathSync(dir)]) : ancestors;
+  const entries: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (UNLISTED.has(entry.name)) continue;
+    const name = prefix + entry.name;
+    const full = join(dir, entry.name);
+    if (entry.isSymbolicLink()) {
+      const target = resolvedTarget(full);
+      // Relative to the project when inside it, so the key does not depend on where it is checked out.
+      const shown = target === undefined ? '\0dangling' : target.startsWith(realRoot(root)) ? relative(realRoot(root), target) : target;
+      entries.push(`l:${name}\0${shown}`);
+      if (recursive && target !== undefined && !path.has(target) && isDirectory(full)) entries.push(...listing(root, full, true, `${name}/`, path));
+      continue;
+    }
+    const type = entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : 'o';
+    entries.push(`${type}:${name}`);
+    if (recursive && entry.isDirectory()) entries.push(...listing(root, full, true, `${name}/`, path));
+  }
+  return entries;
+}
+
+const realRoots = new Map<string, string>();
+const realRoot = (root: string) => {
+  let real = realRoots.get(root);
+  if (real === undefined) {
+    real = resolvedTarget(root) ?? root;
+    realRoots.set(root, real);
+  }
+  return real;
+};
+
+function resolvedTarget(path: string): string | undefined {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
   }
 }
 
 const envValue = (value: string | undefined) => (value === undefined ? '\0unset' : value);
 
 /**
- * Variables that differ between shells and terminals of the same machine, left out of the
- * key of a test that listed every variable: keying on them would re-collect it on every run.
+ * Variables left out of the key of a test that listed every variable: each differs between
+ * shells, terminals or invocations of the same project, so keying on it would re-collect the
+ * test on every run. Keep this list to such noise; README.md documents it.
  */
-const VOLATILE_ENV = new Set(['_', 'PWD', 'OLDPWD', 'SHLVL', 'COLUMNS', 'LINES', 'WINDOWID', 'TERM_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'SECURITYSESSIONID', 'LaunchInstanceID']);
-const VOLATILE_ENV_PREFIX = /^(?:npm_|SSH_|TMUX|ITERM_|VSCODE_|KITTY_|WEZTERM_|GHOSTTY_|XPC_|__CF|Apple_PubSub|VITEST_)/;
+const VOLATILE_ENV = new Set([
+  // Shell state.
+  '_', 'PWD', 'OLDPWD', 'SHLVL', 'COLUMNS', 'LINES',
+  // Terminal and login session.
+  'WINDOWID', 'TERM_SESSION_ID', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION', 'SECURITYSESSIONID', 'LaunchInstanceID', 'XPC_SERVICE_NAME', 'XPC_FLAGS', '__CF_USER_TEXT_ENCODING', 'Apple_PubSub_Socket_Render',
+  'SSH_AUTH_SOCK', 'SSH_AGENT_PID', 'SSH_CLIENT', 'SSH_CONNECTION', 'SSH_TTY', 'TMUX', 'TMUX_PANE',
+  // Set by npm / pnpm for the script being run, not configuration (`npm_config_*` stays in the key).
+  'npm_command', 'npm_lifecycle_event', 'npm_lifecycle_script', 'npm_execpath', 'npm_node_execpath', 'npm_config_user_agent', 'PNPM_SCRIPT_SRC_DIR',
+  // Set by Vitest per worker (when mutator itself runs inside Vitest).
+  'VITEST_POOL_ID', 'VITEST_WORKER_ID', 'VITEST_VM_POOL',
+]);
+/**
+ * Whole namespaces: a terminal emulator owns its prefix and sets per-window or per-pane names
+ * under it; `npm_package_*` mirrors package.json, whose content the environment hash covers.
+ */
+const VOLATILE_ENV_PREFIX = /^(?:ITERM_|VSCODE_|KITTY_|WEZTERM_|GHOSTTY_|npm_package_)/;
 
 function wholeEnvironment(environment: NodeJS.ProcessEnv): string {
   return Object.keys(environment)

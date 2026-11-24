@@ -431,7 +431,10 @@ export async function runMutation(options: RunOptions): Promise<Report> {
       applyTypecheck(tally, [], notInfected, typecheck, unreached);
     }
 
-    const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: finalTestFiles, sources });
+    // A test file not re-collected keeps the key it was planned with: its verdicts predate
+    // whatever the re-collected tests wrote during this dry run.
+    const savedTestFiles = Object.fromEntries(Object.entries(finalTestFiles).map(([file, key]) => [file, dryFiles.has(file) ? key : testFiles[file] ?? key]));
+    const snapshot = buildSnapshot(root, reusable, { envHash, envFiles, results, mutants, merged, testFiles: savedTestFiles, sources });
     const regressions = detectionRegressions(reusable?.results ?? [], report, reusable?.testReview?.regressions);
     if (diffFiles || regressions.length || reusable?.testReview) {
       const current = new Map(report.map((e) => [e.mutant.key, e]));

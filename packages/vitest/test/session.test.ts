@@ -328,6 +328,8 @@ describe('run-time inputs', () => {
   const readsRoot = fileURLToPath(new URL('./fixtures/reads', import.meta.url));
 
   test('the dry run records the files and environment variables each test file reads', async () => {
+    // As in a fresh checkout: Vite creates node_modules/.vite during the run, which touches the root directory.
+    rmSync(join(readsRoot, 'node_modules'), { recursive: true, force: true });
     const session = await createSession({ root: readsRoot, include: (file) => file.includes('/reads/src/') });
     try {
       const dry = await session.dryRun();
@@ -336,7 +338,7 @@ describe('run-time inputs', () => {
       expect(Object.fromEntries(dry.reads ?? [])).toEqual({
         'test/all-env.test.ts': ['test/__snapshots__/all-env.test.ts.snap'],
         'test/none.test.ts': ['test/__snapshots__/none.test.ts.snap'],
-        'test/reads.test.ts': ['fixtures/cases', 'fixtures/cases/a.txt', 'fixtures/data.json', 'fixtures/missing.json', 'src', 'test/__snapshots__/reads.test.ts.snap'],
+        'test/reads.test.ts': ['.', 'fixtures\0**', 'fixtures/cases', 'fixtures/cases/a.txt', 'fixtures/data.json', 'fixtures/missing.json', 'src', 'test/__snapshots__/reads.test.ts.snap'],
         'test/writes-env.test.ts': ['test/__snapshots__/writes-env.test.ts.snap'],
       });
       // Node's module loader reads WATCH_REPORT_DEPENDENCIES on its own: not an input of the test.

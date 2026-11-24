@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import type { Mutant } from '@mizchi/mutator-core';
-import { emptyDryRun } from '@mizchi/mutator-core';
+import { RECURSIVE_READ, emptyDryRun } from '@mizchi/mutator-core';
 import { type CliSnapshot, mergeDryRun, planDryRun, testFileHashes } from '../src/coverage-cache.ts';
 
 const root = '/p';
@@ -133,6 +133,108 @@ describe('testFileHashes with run-time inputs', () => {
     expect(hashes({ env, environment: { A: '1', PWD: '/y', SHLVL: '2', OLDPWD: '/z' } })).toEqual(base);
     expect(hashes({ env, environment: { A: '2', PWD: '/x', SHLVL: '1' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
     expect(hashes({ env, environment: { A: '1', B: '', PWD: '/x' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+  });
+
+  test('a recursive directory read is keyed on every descendant, a plain one on its entries only', () => {
+    mkdirSync(join(dir, 'fixtures/tree/sub'), { recursive: true });
+    const plain = { 'test/a.test.ts': ['fixtures/tree'] };
+    const recursive = { 'test/a.test.ts': [`fixtures/tree${RECURSIVE_READ}`] };
+    const before = { plain: hashes({ reads: plain }), recursive: hashes({ reads: recursive }) };
+    writeFileSync(join(dir, 'fixtures/tree/sub/nested.txt'), '');
+    expect(hashes({ reads: plain })).toEqual(before.plain);
+    expect(hashes({ reads: recursive })['test/a.test.ts']).not.toBe(before.recursive['test/a.test.ts']);
+  });
+
+  // Directory symlinks need privileges on Windows.
+  test.skipIf(process.platform === 'win32')('a recursive read follows directory symlinks, as readdirSync does, and stops at cycles', () => {
+    mkdirSync(join(dir, 'fixtures/tree'), { recursive: true });
+    mkdirSync(join(dir, 'fixtures/target'), { recursive: true });
+    symlinkSync('../target', join(dir, 'fixtures/tree/link'), 'dir');
+    symlinkSync('..', join(dir, 'fixtures/target/up'), 'dir');
+    const reads = { 'test/a.test.ts': [`fixtures/tree${RECURSIVE_READ}`] };
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/target/new.case'), '');
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+  });
+
+  // Directory symlinks need privileges on Windows.
+  test.skipIf(process.platform === 'win32')('retargeting a symlink between two directories the walk already visited changes the key', () => {
+    mkdirSync(join(dir, 'fixtures/alias/a'), { recursive: true });
+    mkdirSync(join(dir, 'fixtures/alias/b'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/alias/a/x'), '');
+    writeFileSync(join(dir, 'fixtures/alias/b/y'), '');
+    symlinkSync('a', join(dir, 'fixtures/alias/link'), 'dir');
+    const reads = { 'test/a.test.ts': [`fixtures/alias${RECURSIVE_READ}`] };
+    const before = hashes({ reads });
+    rmSync(join(dir, 'fixtures/alias/link'));
+    symlinkSync('b', join(dir, 'fixtures/alias/link'), 'dir');
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+  });
+
+  test('the project root directory is keyed on its entries', () => {
+    for (const reads of [{ 'test/a.test.ts': ['.'] }, { 'test/a.test.ts': [`.${RECURSIVE_READ}`] }]) {
+      const before = hashes({ reads });
+      writeFileSync(join(dir, `root-${reads['test/a.test.ts']![0]!.length}.case`), '');
+      expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    }
+  });
+
+  test('directory keys follow entry types and ignore node_modules and .mutator', () => {
+    mkdirSync(join(dir, 'fixtures/typed/deep'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/typed/deep/x'), '');
+    for (const read of ['fixtures/typed', `fixtures/typed${RECURSIVE_READ}`]) {
+      const reads = { 'test/a.test.ts': [read] };
+      const target = read === 'fixtures/typed' ? 'fixtures/typed/deep' : 'fixtures/typed/deep/x';
+      const before = hashes({ reads });
+      mkdirSync(join(dir, 'fixtures/typed/node_modules/.vite'), { recursive: true });
+      mkdirSync(join(dir, 'fixtures/typed/deep/.mutator'), { recursive: true });
+      expect(hashes({ reads })).toEqual(before);
+      // A file replaced by a directory of the same name (or the reverse) is a different listing.
+      const wasDirectory = read === 'fixtures/typed';
+      rmSync(join(dir, target), { recursive: true });
+      if (wasDirectory) writeFileSync(join(dir, target), '');
+      else mkdirSync(join(dir, target));
+      expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+      rmSync(join(dir, 'fixtures/typed/deep'), { recursive: true });
+      mkdirSync(join(dir, 'fixtures/typed/deep'));
+      writeFileSync(join(dir, 'fixtures/typed/deep/x'), '');
+    }
+  });
+
+  test.skipIf(process.platform === 'win32')('a literal backslash or `**` in a POSIX name is not a separator or the recursive marker', () => {
+    mkdirSync(join(dir, 'fixtures/slash/a'), { recursive: true });
+    writeFileSync(join(dir, 'fixtures/slash/a/b'), '');
+    const recursive = { 'test/a.test.ts': [`fixtures/slash${RECURSIVE_READ}`] };
+    const before = hashes({ reads: recursive });
+    rmSync(join(dir, 'fixtures/slash/a/b'));
+    writeFileSync(join(dir, 'fixtures/slash/a\\b'), '');
+    expect(hashes({ reads: recursive })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    const literal = { 'test/a.test.ts': ['fixtures/slash/**'] };
+    writeFileSync(join(dir, 'fixtures/slash/**'), '1');
+    const one = hashes({ reads: literal });
+    writeFileSync(join(dir, 'fixtures/slash/**'), '2');
+    expect(hashes({ reads: literal })['test/a.test.ts']).not.toBe(one['test/a.test.ts']);
+  });
+
+  test('file contents are keyed on their bytes, apart from the directory and missing markers', () => {
+    const reads = { 'test/a.test.ts': ['fixtures/blob.bin'] };
+    writeFileSync(join(dir, 'fixtures/blob.bin'), Buffer.from([0x80]));
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/blob.bin'), Buffer.from([0x81]));
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
+    // A file whose text spells a marker is not the marker.
+    const marker = { 'test/a.test.ts': ['fixtures/marker'] };
+    const missing = hashes({ reads: marker });
+    writeFileSync(join(dir, 'fixtures/marker'), '\0missing');
+    expect(hashes({ reads: marker })['test/a.test.ts']).not.toBe(missing['test/a.test.ts']);
+  });
+
+  test('listing every variable keys on npm configuration, not on per-invocation npm variables', () => {
+    const env = { 'test/a.test.ts': ['*'] };
+    const base = hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1' } });
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'mutate', npm_package_version: '1.0.1', VITEST_WORKER_ID: '2' } })).toEqual(base);
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'y', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
+    expect(hashes({ env, environment: { A: '1', npm_config_feature: 'x', npm_lifecycle_event: 'test', npm_package_version: '1.0.0', VITEST_WORKER_ID: '1', VITEST_MODE: 'x' } })['test/a.test.ts']).not.toBe(base['test/a.test.ts']);
   });
 
   test('without run-time inputs the hash is unchanged', () => {

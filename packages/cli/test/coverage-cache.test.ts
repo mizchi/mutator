@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -143,6 +143,18 @@ describe('testFileHashes with run-time inputs', () => {
     writeFileSync(join(dir, 'fixtures/tree/sub/nested.txt'), '');
     expect(hashes({ reads: plain })).toEqual(before.plain);
     expect(hashes({ reads: recursive })['test/a.test.ts']).not.toBe(before.recursive['test/a.test.ts']);
+  });
+
+  // Directory symlinks need privileges on Windows.
+  test.skipIf(process.platform === 'win32')('a recursive read follows directory symlinks, as readdirSync does, and stops at cycles', () => {
+    mkdirSync(join(dir, 'fixtures/tree'), { recursive: true });
+    mkdirSync(join(dir, 'fixtures/target'), { recursive: true });
+    symlinkSync('../target', join(dir, 'fixtures/tree/link'), 'dir');
+    symlinkSync('..', join(dir, 'fixtures/target/up'), 'dir');
+    const reads = { 'test/a.test.ts': [`fixtures/tree${RECURSIVE_READ}`] };
+    const before = hashes({ reads });
+    writeFileSync(join(dir, 'fixtures/target/new.case'), '');
+    expect(hashes({ reads })['test/a.test.ts']).not.toBe(before['test/a.test.ts']);
   });
 
   test('the project root directory is keyed on its entries', () => {

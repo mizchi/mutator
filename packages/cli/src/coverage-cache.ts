@@ -1,7 +1,7 @@
 // Decides how much of the coverage (dry) run can be skipped by reusing the previous snapshot.
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import {
   type DryRunResult,
   type Mutant,
@@ -150,17 +150,37 @@ function inputContent(root: string, rel: string): string {
 /** Left out of listings, as reads under them are (tools write there while tests run). */
 const UNLISTED = new Set(['node_modules', '.mutator']);
 
-/** `<type>:<name>` of each entry, names joined with `/` (a POSIX `\\` stays part of the name). */
-function listing(dir: string, recursive: boolean, prefix = ''): string[] {
+/**
+ * `<type>:<name>` of each entry, names joined with `/` (a POSIX `\\` stays part of the name).
+ * A recursive listing descends into directory symlinks too, as Node's recursive readdirSync
+ * does, without visiting a real directory twice (symlink cycles).
+ */
+function listing(dir: string, recursive: boolean, prefix = '', seen = new Set<string>()): string[] {
+  if (recursive) {
+    const real = realpathSync(dir);
+    if (seen.has(real)) return [];
+    seen.add(real);
+  }
   const entries: string[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (UNLISTED.has(entry.name)) continue;
     const name = prefix + entry.name;
     const type = entry.isDirectory() ? 'd' : entry.isFile() ? 'f' : entry.isSymbolicLink() ? 'l' : 'o';
     entries.push(`${type}:${name}`);
-    if (recursive && entry.isDirectory()) entries.push(...listing(join(dir, entry.name), true, `${name}/`));
+    if (!recursive) continue;
+    const path = join(dir, entry.name);
+    const descend = entry.isDirectory() || (entry.isSymbolicLink() && isDirectory(path));
+    if (descend) entries.push(...listing(path, true, `${name}/`, seen));
   }
   return entries;
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 const envValue = (value: string | undefined) => (value === undefined ? '\0unset' : value);
